@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Добавить трату</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .amount-input {
+            position: relative;
+        }
+        
+        .amount-input::after {
+            content: '₽';
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #666;
+            font-size: 16px;
+        }
+        
+        .quick-amounts {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .quick-btn {
+            padding: 10px;
+            background: #f8f9fa;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .quick-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .categories {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .category-btn {
+            padding: 12px 8px;
+            background: #f8f9fa;
+            border: 2px solid #e1e5e9;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 12px;
+        }
+        
+        .category-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .submit-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .submit-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .submit-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 10px;
+        }
+        
+        .success {
+            display: none;
+            text-align: center;
+            color: #28a745;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💸 Добавить трату</h1>
+            <p>Заполните форму для учета расходов</p>
+        </div>
+        
+        <form id="expenseForm">
+            <div class="form-group">
+                <label>📂 Категория</label>
+                <div class="categories" id="categories">
+                    <div class="category-btn" data-category="Продукты">🍎 Продукты</div>
+                    <div class="category-btn" data-category="Кафе">🍽️ Кафе</div>
+                    <div class="category-btn" data-category="Транспорт">🚗 Транспорт</div>
+                    <div class="category-btn" data-category="Дом">🏠 Дом</div>
+                    <div class="category-btn" data-category="Одежда">👗 Одежда</div>
+                    <div class="category-btn" data-category="Здоровье">💊 Здоровье</div>
+                    <div class="category-btn" data-category="Развлечения">🎬 Развлечения</div>
+                    <div class="category-btn" data-category="Подписки">📱 Подписки</div>
+                    <div class="category-btn" data-category="Другое">💡 Другое</div>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>💸 Сумма</label>
+                <input type="number" id="amount" placeholder="0" min="0" step="0.01" class="amount-input" required>
+                <div class="quick-amounts">
+                    <div class="quick-btn" data-amount="100">100 ₽</div>
+                    <div class="quick-btn" data-amount="500">500 ₽</div>
+                    <div class="quick-btn" data-amount="1000">1000 ₽</div>
+                    <div class="quick-btn" data-amount="1500">1500 ₽</div>
+                    <div class="quick-btn" data-amount="2000">2000 ₽</div>
+                    <div class="quick-btn" data-amount="5000">5000 ₽</div>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>📝 Комментарий (необязательно)</label>
+                <textarea id="description" placeholder="Например: Обед в кафе"></textarea>
+            </div>
+            
+            <button type="submit" class="submit-btn" id="submitBtn">
+                ✅ Добавить трату
+            </button>
+            
+            <div class="loading" id="loading">
+                ⏳ Сохраняем...
+            </div>
+            
+            <div class="success" id="success">
+                ✅ Трата успешно добавлена!
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // Инициализация Telegram Web App
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.BackButton.hide();
+        
+        let selectedCategory = null;
+        
+        // Обработчики категорий
+        document.querySelectorAll('.category-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                selectedCategory = btn.getAttribute('data-category');
+                validateForm();
+            });
+        });
+        
+        // Обработчики быстрых сумм
+        document.querySelectorAll('.quick-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const amount = btn.getAttribute('data-amount');
+                document.getElementById('amount').value = amount;
+                validateForm();
+            });
+        });
+        
+        // Валидация формы
+        function validateForm() {
+            const amount = document.getElementById('amount').value;
+            const submitBtn = document.getElementById('submitBtn');
+            
+            if (amount && selectedCategory) {
+                submitBtn.disabled = false;
+            } else {
+                submitBtn.disabled = true;
+            }
+        }
+        
+        // Обработка ввода суммы
+        document.getElementById('amount').addEventListener('input', validateForm);
+        
+        // Отправка формы
+        document.getElementById('expenseForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const amount = document.getElementById('amount').value;
+            const description = document.getElementById('description').value;
+            
+            if (!amount || !selectedCategory) {
+                alert('Заполните все обязательные поля');
+                return;
+            }
+            
+            // Показываем загрузку
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('submitBtn').disabled = true;
+            
+            // Отправляем данные в бота
+            const data = {
+                amount: parseFloat(amount),
+                category: selectedCategory,
+                description: description
+            };
+            
+            // Отправляем данные в Telegram бота
+            tg.sendData(JSON.stringify(data));
+            
+            // Показываем успех и закрываем через 2 секунды
+            setTimeout(() => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('success').style.display = 'block';
+                
+                setTimeout(() => {
+                    tg.close();
+                }, 1000);
+            }, 1000);
+        });
+        
+        // Инициализация при загрузке
+        document.addEventListener('DOMContentLoaded', function() {
+            validateForm();
+        });
+    </script>
+</body>
+</html>
