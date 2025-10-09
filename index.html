@@ -1,410 +1,831 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Добавить трату</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 400px; margin: 0 auto; }
         
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--tg-theme-bg-color, #ffffff);
-            color: var(--tg-theme-text-color, #000000);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 400px;
-            margin: 0 auto;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 25px;
-            padding: 20px 0;
-        }
-        
-        .header h1 {
-            font-size: 24px;
-            margin-bottom: 5px;
-        }
-        
-        .header p {
-            color: var(--tg-theme-hint-color, #999999);
-            font-size: 14px;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-        
-        input, select, textarea {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid var(--tg-theme-secondary-bg-color, #f0f0f0);
-            border-radius: 12px;
+        .input-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 500; color: #333; }
+        input, select, textarea { 
+            width: 100%; 
+            padding: 12px; 
+            border: 2px solid #e1e1e1; 
+            border-radius: 10px; 
             font-size: 16px;
-            background: var(--tg-theme-bg-color, #ffffff);
-            color: var(--tg-theme-text-color, #000000);
+            transition: border-color 0.3s;
         }
-        
         input:focus, select:focus, textarea:focus {
+            border-color: #007aff;
             outline: none;
-            border-color: var(--tg-theme-button-color, #2481cc);
         }
         
-        textarea {
-            resize: vertical;
-            min-height: 80px;
+        .calculator { 
+            background: white; 
+            padding: 15px; 
+            border-radius: 15px; 
+            margin-bottom: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
-        .amount-display {
-            text-align: center;
-            font-size: 32px;
-            font-weight: bold;
-            margin: 20px 0;
+        .buttons { 
+            display: grid; 
+            grid-template-columns: repeat(3, 1fr); 
+            gap: 10px; 
+            margin-bottom: 10px;
+        }
+        
+        button { 
+            padding: 15px; 
+            border: none; 
+            border-radius: 10px; 
+            font-size: 18px; 
+            background: #007aff; 
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        button:hover { background: #0056cc; }
+        .clear { background: #ff3b30; }
+        .clear:hover { background: #d70015; }
+        .submit { 
+            background: #34c759; 
+            font-size: 18px; 
             padding: 15px;
-            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
-            border-radius: 12px;
+            width: 100%;
+        }
+        .submit:hover { background: #30a14e; }
+        
+        .amount-display { 
+            text-align: center; 
+            font-size: 24px; 
+            font-weight: bold; 
+            margin: 15px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         
-        .calculator {
-            margin-top: 15px;
+        .currency-flags {
+            display: flex;
+            gap: 5px;
         }
         
-        .calculator-row {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
+        .flag {
+            width: 30px;
+            height: 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: border-color 0.3s;
+        }
+        
+        .flag.active {
+            border-color: #007aff;
+        }
+        
+        .flag.ru { background: linear-gradient(to bottom, white 33%, blue 33%, blue 66%, red 66%); }
+        .flag.by { background: linear-gradient(to right, red 33%, green 33%, green 66%, white 66%); }
+        .flag.kz { background: blue; position: relative; }
+        .flag.kz::after {
+            content: "☀️";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 10px;
+        }
+        
+        .input-modes {
+            display: flex;
             gap: 10px;
             margin-bottom: 10px;
         }
         
-        .calc-btn {
-            padding: 15px 10px;
-            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
-            border: 2px solid var(--tg-theme-secondary-bg-color, #f0f0f0);
-            border-radius: 10px;
-            text-align: center;
+        .mode-btn {
+            flex: 1;
+            padding: 10px;
+            background: #e9ecef;
+            border: none;
+            border-radius: 8px;
             cursor: pointer;
-            transition: all 0.3s;
-            font-size: 16px;
-            font-weight: 600;
         }
         
-        .calc-btn.plus {
-            background: #d4edda;
-            border-color: #c3e6cb;
-            color: #155724;
+        .mode-btn.active {
+            background: #007aff;
+            color: white;
         }
         
-        .calc-btn.minus {
-            background: #f8d7da;
-            border-color: #f5c6cb;
-            color: #721c24;
+        .manual-input {
+            display: none;
         }
         
-        .calc-btn:hover {
-            transform: scale(1.05);
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 15px 0;
         }
         
-        .reset-btn {
+        .quick-btn {
+            padding: 12px;
+            background: #5856d6;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .category-management {
+            margin-top: 10px;
+        }
+        
+        .add-category-btn {
             width: 100%;
             padding: 10px;
-            background: #6c757d;
+            background: #8e8e93;
             color: white;
             border: none;
             border-radius: 8px;
-            margin-top: 10px;
             cursor: pointer;
+            margin-top: 5px;
         }
         
-        .categories {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-top: 10px;
-        }
-        
-        .category-btn {
-            padding: 12px 8px;
-            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
-            border: 2px solid var(--tg-theme-secondary-bg-color, #f0f0f0);
-            border-radius: 12px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-size: 12px;
-        }
-        
-        .category-btn.active {
-            background: var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-button-text-color, #ffffff);
-            border-color: var(--tg-theme-button-color, #2481cc);
-        }
-        
-        .submit-btn {
-            width: 100%;
-            padding: 15px;
-            background: var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-button-text-color, #ffffff);
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 20px;
-        }
-        
-        .submit-btn:disabled {
-            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
-            color: var(--tg-theme-hint-color, #999999);
-            cursor: not-allowed;
-        }
-
-        .add-more-btn {
-            width: 100%;
-            padding: 12px;
-            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
-            color: var(--tg-theme-text-color, #000000);
-            border: 2px solid var(--tg-theme-secondary-bg-color, #f0f0f0);
-            border-radius: 12px;
-            font-size: 14px;
-            cursor: pointer;
-            margin-top: 10px;
-            text-align: center;
-        }
-        
-        .form-data {
-            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
-            padding: 15px;
-            border-radius: 12px;
-            margin-top: 20px;
-            font-size: 14px;
-        }
-
-        .success-message {
-            background: #d4edda;
-            color: #155724;
-            padding: 15px;
-            border-radius: 12px;
-            margin-top: 20px;
-            text-align: center;
+        .custom-category-input {
             display: none;
+            margin-top: 10px;
+        }
+        
+        .category-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .delete-category {
+            background: #ff3b30;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        
+        .stats-preview {
+            background: white;
+            padding: 15px;
+            border-radius: 15px;
+            margin: 15px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .advice {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 10px;
+            padding: 12px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        .metric-card {
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        
+        .metric-value {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .achievement-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .emoji-picker {
+            display: none;
+            position: absolute;
+            background: white;
+            border: 1px solid #e1e1e1;
+            border-radius: 10px;
+            padding: 10px;
+            z-index: 1000;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .emoji-option {
+            font-size: 20px;
+            padding: 5px;
+            cursor: pointer;
+            display: inline-block;
+        }
+        
+        .family-stats {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f8ff;
+            border-radius: 8px;
+        }
+        
+        .tab-buttons {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .tab-btn {
+            flex: 1;
+            padding: 8px;
+            background: #e9ecef;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        
+        .tab-btn.active {
+            background: #007aff;
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>💸 Добавить трату</h1>
-            <p>Заполните все поля</p>
+        <h2>💸 Добавить трату</h2>
+        
+        <!-- Режимы ввода -->
+        <div class="input-modes">
+            <button class="mode-btn active" onclick="setInputMode('calculator')">Калькулятор</button>
+            <button class="mode-btn" onclick="setInputMode('manual')">Ручной ввод</button>
         </div>
         
-        <div id="formContent">
-            <div class="form-group">
-                <label>📂 Категория *</label>
-                <div class="categories" id="categories">
-                    <div class="category-btn" data-category="Продукты">🍎 Продукты</div>
-                    <div class="category-btn" data-category="Кафе">🍽️ Кафе</div>
-                    <div class="category-btn" data-category="Транспорт">🚗 Транспорт</div>
-                    <div class="category-btn" data-category="Дом">🏠 Дом</div>
-                    <div class="category-btn" data-category="Одежда">👗 Одежда</div>
-                    <div class="category-btn" data-category="Здоровье">💊 Здоровье</div>
-                    <div class="category-btn" data-category="Развлечения">🎬 Развлечения</div>
-                    <div class="category-btn" data-category="Подписки">📱 Подписки</div>
-                    <div class="category-btn" data-category="Другое">💡 Другое</div>
+        <!-- Калькулятор -->
+        <div class="calculator" id="calculatorMode">
+            <div class="amount-display">
+                <span id="amountDisplay">0 ₽</span>
+                <div class="currency-flags">
+                    <div class="flag ru active" onclick="setCurrency('RUB')" title="Российский рубль"></div>
+                    <div class="flag by" onclick="setCurrency('BYN')" title="Белорусский рубль"></div>
+                    <div class="flag kz" onclick="setCurrency('KZT')" title="Казахский тенге"></div>
                 </div>
             </div>
             
-            <div class="form-group">
-                <label>💸 Сумма *</label>
-                <div class="amount-display" id="amountDisplay">0 ₽</div>
+            <div class="buttons" id="calculatorButtons">
+                <!-- Кнопки будут генерироваться динамически -->
+            </div>
+            
+            <!-- Быстрый ввод -->
+            <div class="quick-actions" id="quickActions">
+                <!-- Быстрые кнопки будут генерироваться динамически -->
+            </div>
+        </div>
+        
+        <!-- Ручной ввод -->
+        <div class="manual-input" id="manualMode">
+            <div class="input-group">
+                <input type="number" id="manualAmount" placeholder="Введите сумму" step="0.01" min="0">
+            </div>
+        </div>
+        
+        <!-- Категория с управлением -->
+        <div class="input-group">
+            <label>📂 Категория</label>
+            <select id="category">
+                <!-- Категории будут загружены динамически -->
+            </select>
+            
+            <div class="category-management">
+                <button class="add-category-btn" onclick="toggleCustomCategory()">➕ Добавить свою категорию</button>
                 
-                <div class="calculator">
-                    <div class="calculator-row">
-                        <div class="calc-btn plus" data-amount="1">+1</div>
-                        <div class="calc-btn plus" data-amount="5">+5</div>
-                        <div class="calc-btn plus" data-amount="10">+10</div>
+                <div class="custom-category-input" id="customCategoryInput">
+                    <div style="position: relative;">
+                        <input type="text" id="newCategoryName" placeholder="Название категории" style="margin-bottom: 5px;">
+                        <button onclick="toggleEmojiPicker()" style="position: absolute; right: 5px; top: 5px; background: none; border: none; font-size: 20px; cursor: pointer;">😊</button>
+                        <div class="emoji-picker" id="emojiPicker">
+                            <!-- Эмодзи будут загружены динамически -->
+                        </div>
                     </div>
-                    <div class="calculator-row">
-                        <div class="calc-btn plus" data-amount="20">+20</div>
-                        <div class="calc-btn plus" data-amount="50">+50</div>
-                        <div class="calc-btn plus" data-amount="100">+100</div>
-                    </div>
-                    <div class="calculator-row">
-                        <div class="calc-btn minus" data-amount="1">-1</div>
-                        <div class="calc-btn minus" data-amount="5">-5</div>
-                        <div class="calc-btn minus" data-amount="10">-10</div>
-                    </div>
-                    <div class="calculator-row">
-                        <div class="calc-btn minus" data-amount="20">-20</div>
-                        <div class="calc-btn minus" data-amount="50">-50</div>
-                        <div class="calc-btn minus" data-amount="100">-100</div>
-                    </div>
-                    <button class="reset-btn" id="resetBtn">🔄 Сбросить</button>
+                    <button onclick="addCustomCategory()" style="width: 100%; padding: 8px; background: #34c759; color: white; border: none; border-radius: 5px;">Добавить</button>
+                </div>
+                
+                <div id="customCategoriesList">
+                    <!-- Пользовательские категории будут здесь -->
                 </div>
             </div>
-            
-            <div class="form-group">
-                <label>📝 Комментарий</label>
-                <textarea id="description" placeholder="Например: Обед в кафе"></textarea>
-            </div>
-
-            <div class="form-data" id="formData">
-                <strong>Будет отправлено:</strong><br>
-                Категория: <span id="selectedCategory">не выбрано</span><br>
-                Сумма: <span id="selectedAmount">0</span> ₽<br>
-                Комментарий: <span id="selectedDescription">нет</span>
-            </div>
-            
-            <button class="submit-btn" id="submitBtn" disabled>
-                ✅ Добавить трату
-            </button>
         </div>
-
-        <div class="success-message" id="successMessage">
-            ✅ Трата успешно добавлена!
-            <div class="add-more-btn" id="addMoreBtn">
-                ➕ Добавить еще трату
+        
+        <div class="input-group">
+            <label>📝 Описание (необязательно)</label>
+            <textarea id="description" placeholder="Например: Обед в столовой" rows="2"></textarea>
+        </div>
+        
+        <!-- Вкладки с дополнительной информацией -->
+        <div class="tab-buttons">
+            <button class="tab-btn active" onclick="setTab('stats')">📊 Статистика</button>
+            <button class="tab-btn" onclick="setTab('advice')">💡 Советы</button>
+            <button class="tab-btn" onclick="setTab('achievements')">🏆 Достижения</button>
+        </div>
+        
+        <!-- Статистика -->
+        <div class="tab-content active" id="statsTab">
+            <div class="stats-preview">
+                <h3>📊 Ваша статистика</h3>
+                
+                <!-- Мини-график -->
+                <div style="margin: 15px 0;">
+                    <canvas id="miniChart" width="300" height="100"></canvas>
+                </div>
+                
+                <!-- Ключевые метрики -->
+                <div class="metrics-grid">
+                    <div class="metric-card" style="background: #e8f5e8;">
+                        <div class="metric-label">Траты сегодня</div>
+                        <div class="metric-value" id="todaySpent">0 ₽</div>
+                    </div>
+                    <div class="metric-card" style="background: #fff3e0;">
+                        <div class="metric-label">Осталось в бюджете</div>
+                        <div class="metric-value" id="budgetLeft">∞ ₽</div>
+                    </div>
+                </div>
+                
+                <!-- Топ категории -->
+                <div style="margin-top: 15px;">
+                    <div style="font-size: 14px; margin-bottom: 8px;">🏆 Топ категории месяца:</div>
+                    <div id="topCategories">Загрузка...</div>
+                </div>
+                
+                <!-- Совместные траты -->
+                <div class="family-stats">
+                    <div style="font-size: 12px; color: #666; margin-bottom: 5px;">👨‍👩‍👧‍👦 Совместные траты</div>
+                    <div id="familyStats">Загрузка...</div>
+                </div>
             </div>
         </div>
+        
+        <!-- Финансовые советы -->
+        <div class="tab-content" id="adviceTab">
+            <div class="stats-preview">
+                <h3>💡 Финансовые советы</h3>
+                <div class="advice" id="financialAdvice">
+                    Загрузка советов...
+                </div>
+                
+                <!-- Сравнение с прошлым месяцем -->
+                <div style="margin-top: 15px;">
+                    <div style="font-size: 14px; margin-bottom: 8px;">📈 Сравнение с прошлым месяцем:</div>
+                    <div id="monthComparison">Загрузка...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Достижения -->
+        <div class="tab-content" id="achievementsTab">
+            <div class="stats-preview">
+                <h3>🏆 Ваши достижения</h3>
+                <div id="achievementsList">
+                    <!-- Достижения будут загружены динамически -->
+                </div>
+            </div>
+        </div>
+        
+        <button class="submit" onclick="submitExpense()">✅ Добавить трату</button>
     </div>
 
     <script>
-        // Инициализация Telegram Web App
-        const tg = window.Telegram.WebApp;
-        
-        // Растягиваем на весь экран
-        tg.expand();
-        
-        let selectedCategory = null;
         let currentAmount = 0;
-        let selectedDescription = '';
+        let inputMode = 'calculator';
+        let currentCurrency = 'RUB';
+        let selectedEmoji = '⭐';
+        let currentTab = 'stats';
         
-        // Обновление отображения суммы
-        function updateAmountDisplay() {
-            document.getElementById('amountDisplay').textContent = currentAmount + ' ₽';
-            document.getElementById('selectedAmount').textContent = currentAmount;
-            validateForm();
+        // Валюты и их настройки
+        const currencies = {
+            'RUB': {
+                symbol: '₽',
+                name: 'Российский рубль',
+                quickAmounts: [50, 100, 200, 500, 1000, 2000, 5000],
+                calculatorSteps: [1, 5, 10, 50, 100, 500, 1000]
+            },
+            'BYN': {
+                symbol: 'Br',
+                name: 'Белорусский рубль',
+                quickAmounts: [5, 10, 20, 50, 100, 200, 500],
+                calculatorSteps: [1, 2, 5, 10, 20, 50, 100]
+            },
+            'KZT': {
+                symbol: '₸',
+                name: 'Казахский тенге',
+                quickAmounts: [500, 1000, 2000, 5000, 10000, 20000, 50000],
+                calculatorSteps: [100, 500, 1000, 2000, 5000, 10000]
+            }
+        };
+        
+        // Стандартные категории
+        const defaultCategories = [
+            { name: "Продукты", emoji: "🛒", custom: false },
+            { name: "Кафе", emoji: "🍽️", custom: false },
+            { name: "Транспорт", emoji: "🚗", custom: false },
+            { name: "Дом", emoji: "🏠", custom: false },
+            { name: "Одежда", emoji: "👕", custom: false },
+            { name: "Здоровье", emoji: "🏥", custom: false },
+            { name: "Развлечения", emoji: "🎭", custom: false },
+            { name: "Подписки", emoji: "📱", custom: false },
+            { name: "Маркетплейсы", emoji: "📦", custom: false },
+            { name: "Другое", emoji: "📊", custom: false }
+        ];
+        
+        // Популярные эмодзи для категорий
+        const popularEmojis = ['⭐', '🎨', '📚', '🎁', '🚗', '✈️', '🏠', '💻', '📱', '🎮', '🏋️', '🎭', '🍕', '☕', '🎓', '💼', '👶', '🐶'];
+        
+        let customCategories = JSON.parse(localStorage.getItem('customCategories') || '[]');
+        let allCategories = [...defaultCategories, ...customCategories];
+
+        // Инициализация Telegram Web App
+        Telegram.WebApp.ready();
+        Telegram.WebApp.expand();
+        
+        function initializeApp() {
+            setCurrency('RUB');
+            loadCategories();
+            updateCalculatorButtons();
+            updateQuickActions();
+            loadStats();
+            generateFinancialAdvice();
+            loadAchievements();
+            initializeChart();
         }
         
-        // Обработчики калькулятора
-        document.querySelectorAll('.calc-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const amount = parseInt(btn.getAttribute('data-amount'));
-                const isPlus = btn.classList.contains('plus');
-                
-                if (isPlus) {
-                    currentAmount += amount;
-                } else {
-                    currentAmount = Math.max(0, currentAmount - amount); // Не меньше 0
-                }
-                
-                updateAmountDisplay();
-            });
-        });
-        
-        // Сброс суммы
-        document.getElementById('resetBtn').addEventListener('click', () => {
-            currentAmount = 0;
-            updateAmountDisplay();
-        });
-        
-        // Обработчики категорий
-        document.querySelectorAll('.category-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                selectedCategory = btn.getAttribute('data-category');
-                updateFormData();
-                validateForm();
-            });
-        });
-        
-        // Обработчик комментария
-        document.getElementById('description').addEventListener('input', (e) => {
-            selectedDescription = e.target.value;
-            updateFormData();
-        });
-        
-        // Обновление данных формы
-        function updateFormData() {
-            document.getElementById('selectedCategory').textContent = selectedCategory || 'не выбрано';
-            document.getElementById('selectedDescription').textContent = selectedDescription || 'нет';
-        }
-        
-        // Валидация формы
-        function validateForm() {
-            const submitBtn = document.getElementById('submitBtn');
+        function setCurrency(currency) {
+            currentCurrency = currency;
             
-            if (currentAmount > 0 && selectedCategory) {
-                submitBtn.disabled = false;
+            // Обновляем флаги
+            document.querySelectorAll('.flag').forEach(flag => flag.classList.remove('active'));
+            document.querySelector(`.flag.${currency.toLowerCase().slice(0,2)}`).classList.add('active');
+            
+            // Обновляем отображение суммы
+            updateDisplay();
+            
+            // Обновляем кнопки калькулятора и быстрого ввода
+            updateCalculatorButtons();
+            updateQuickActions();
+        }
+        
+        function updateCalculatorButtons() {
+            const steps = currencies[currentCurrency].calculatorSteps;
+            const buttonsContainer = document.getElementById('calculatorButtons');
+            buttonsContainer.innerHTML = '';
+            
+            steps.forEach(step => {
+                const button = document.createElement('button');
+                button.textContent = `+${step}`;
+                button.onclick = () => addAmount(step);
+                buttonsContainer.appendChild(button);
+            });
+            
+            // Добавляем кнопку очистки
+            const clearButton = document.createElement('button');
+            clearButton.textContent = 'C';
+            clearButton.className = 'clear';
+            clearButton.onclick = clearAmount;
+            buttonsContainer.appendChild(clearButton);
+        }
+        
+        function updateQuickActions() {
+            const amounts = currencies[currentCurrency].quickAmounts;
+            const container = document.getElementById('quickActions');
+            container.innerHTML = '';
+            
+            amounts.forEach(amount => {
+                const button = document.createElement('button');
+                button.className = 'quick-btn';
+                button.textContent = `${amount} ${currencies[currentCurrency].symbol}`;
+                button.onclick = () => setQuickAmount(amount);
+                container.appendChild(button);
+            });
+        }
+        
+        function addAmount(amount) {
+            currentAmount += amount;
+            updateDisplay();
+        }
+        
+        function setQuickAmount(amount) {
+            currentAmount = amount;
+            updateDisplay();
+        }
+        
+        function clearAmount() {
+            currentAmount = 0;
+            updateDisplay();
+        }
+        
+        function updateDisplay() {
+            const formatted = currentAmount.toLocaleString('ru-RU');
+            document.getElementById('amountDisplay').textContent = 
+                `${formatted} ${currencies[currentCurrency].symbol}`;
+        }
+        
+        function setInputMode(mode) {
+            inputMode = mode;
+            document.getElementById('calculatorMode').style.display = mode === 'calculator' ? 'block' : 'none';
+            document.getElementById('manualMode').style.display = mode === 'manual' ? 'block' : 'none';
+            
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+        
+        function setTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            
+            document.getElementById(tab + 'Tab').classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        function loadCategories() {
+            const select = document.getElementById('category');
+            select.innerHTML = '';
+            
+            allCategories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat.name;
+                option.textContent = `${cat.emoji} ${cat.name}`;
+                select.appendChild(option);
+            });
+            
+            updateCustomCategoriesList();
+        }
+        
+        function toggleCustomCategory() {
+            const input = document.getElementById('customCategoryInput');
+            input.style.display = input.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        function toggleEmojiPicker() {
+            const picker = document.getElementById('emojiPicker');
+            if (picker.style.display === 'block') {
+                picker.style.display = 'none';
             } else {
-                submitBtn.disabled = true;
+                loadEmojiPicker();
+                picker.style.display = 'block';
             }
         }
-
-        // Сброс формы
-        function resetForm() {
-            selectedCategory = null;
-            currentAmount = 0;
-            selectedDescription = '';
+        
+        function loadEmojiPicker() {
+            const picker = document.getElementById('emojiPicker');
+            picker.innerHTML = '';
             
-            document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
-            document.getElementById('description').value = '';
-            
-            updateAmountDisplay();
-            updateFormData();
-            validateForm();
-            
-            // Показываем форму, скрываем сообщение об успехе
-            document.getElementById('formContent').style.display = 'block';
-            document.getElementById('successMessage').style.display = 'none';
+            popularEmojis.forEach(emoji => {
+                const emojiOption = document.createElement('span');
+                emojiOption.className = 'emoji-option';
+                emojiOption.textContent = emoji;
+                emojiOption.onclick = () => selectEmoji(emoji);
+                picker.appendChild(emojiOption);
+            });
         }
         
-        // Отправка данных
-        document.getElementById('submitBtn').addEventListener('click', () => {
-            if (currentAmount <= 0 || !selectedCategory) {
-                alert('Заполните все обязательные поля');
+        function selectEmoji(emoji) {
+            selectedEmoji = emoji;
+            document.getElementById('emojiPicker').style.display = 'none';
+        }
+        
+        function addCustomCategory() {
+            const nameInput = document.getElementById('newCategoryName');
+            const name = nameInput.value.trim();
+            
+            if (!name) {
+                alert('Введите название категории');
+                return;
+            }
+            
+            // Проверяем, нет ли уже такой категории
+            if (allCategories.some(cat => cat.name.toLowerCase() === name.toLowerCase())) {
+                alert('Такая категория уже существует');
+                return;
+            }
+            
+            const newCategory = {
+                name: name,
+                emoji: selectedEmoji,
+                custom: true
+            };
+            
+            customCategories.push(newCategory);
+            allCategories.push(newCategory);
+            
+            // Сохраняем в localStorage
+            localStorage.setItem('customCategories', JSON.stringify(customCategories));
+            
+            // Обновляем интерфейс
+            loadCategories();
+            nameInput.value = '';
+            document.getElementById('customCategoryInput').style.display = 'none';
+            
+            // Выбираем новую категорию
+            document.getElementById('category').value = name;
+        }
+        
+        function deleteCustomCategory(categoryName) {
+            if (confirm(`Удалить категорию "${categoryName}"?`)) {
+                customCategories = customCategories.filter(cat => cat.name !== categoryName);
+                allCategories = [...defaultCategories, ...customCategories];
+                
+                localStorage.setItem('customCategories', JSON.stringify(customCategories));
+                loadCategories();
+            }
+        }
+        
+        function updateCustomCategoriesList() {
+            const container = document.getElementById('customCategoriesList');
+            container.innerHTML = '';
+            
+            if (customCategories.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #666; font-size: 14px; margin: 10px 0;">Нет пользовательских категорий</p>';
+                return;
+            }
+            
+            customCategories.forEach(cat => {
+                const item = document.createElement('div');
+                item.className = 'category-item';
+                item.innerHTML = `
+                    <span>${cat.emoji} ${cat.name}</span>
+                    <button class="delete-category" onclick="deleteCustomCategory('${cat.name}')">🗑️</button>
+                `;
+                container.appendChild(item);
+            });
+        }
+        
+        function initializeChart() {
+            const ctx = document.getElementById('miniChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+                    datasets: [{
+                        label: 'Траты за неделю',
+                        data: [1200, 1900, 1500, 2100, 1800, 2500, 2200],
+                        borderColor: '#007aff',
+                        backgroundColor: 'rgba(0, 122, 255, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            display: false
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function loadStats() {
+            // Здесь будет реальная загрузка статистики из бота
+            const today = new Date().toLocaleDateString('ru-RU');
+            
+            document.getElementById('todaySpent').textContent = '1,250 ₽';
+            document.getElementById('budgetLeft').textContent = '12,500 ₽';
+            document.getElementById('topCategories').innerHTML = `
+                <div>🛒 Продукты: 5,400 ₽</div>
+                <div>🍽️ Кафе: 3,200 ₽</div>
+                <div>🚗 Транспорт: 2,100 ₽</div>
+            `;
+            document.getElementById('familyStats').innerHTML = `
+                <div>👤 Вы: 8,500 ₽</div>
+                <div>👩 Партнер: 4,200 ₽</div>
+            `;
+        }
+        
+        function generateFinancialAdvice() {
+            const advice = [
+                "💡 Вы тратите на кафе на 15% больше, чем в прошлом месяце",
+                "💰 Отличная экономия на транспорте! Продолжайте в том же духе",
+                "📦 Маркетплейсы - ваша самая частая категория в этом месяце",
+                "🍽️ Попробуйте готовить дома - это сэкономит до 30% на еде",
+                "🚗 Совместные поездки могут сократить транспортные расходы",
+                "📱 Проверьте активные подписки - возможно, некоторые не нужны"
+            ];
+            
+            const randomAdvice = advice[Math.floor(Math.random() * advice.length)];
+            document.getElementById('financialAdvice').textContent = randomAdvice;
+            
+            document.getElementById('monthComparison').innerHTML = `
+                <div>📈 Траты в этом месяце: 12,700 ₽</div>
+                <div>📉 Траты в прошлом месяце: 14,200 ₽</div>
+                <div style="color: #34c759;">✅ Экономия: 1,500 ₽ (-10.6%)</div>
+            `;
+        }
+        
+        function loadAchievements() {
+            const achievements = [
+                { id: 'first_expense', name: 'Первая трата', description: 'Добавьте первую трату', unlocked: true, emoji: '✅' },
+                { id: 'week_streak', name: 'Экономист недели', description: 'Уложитесь в бюджет 7 дней подряд', unlocked: false, emoji: '🔒' },
+                { id: 'category_master', name: 'Мастер категорий', description: 'Используйте 5 разных категорий', unlocked: true, emoji: '✅' },
+                { id: 'saver', name: 'Накопитель', description: 'Сэкономьте 5000 ₽ за месяц', unlocked: false, emoji: '🔒' }
+            ];
+            
+            const container = document.getElementById('achievementsList');
+            container.innerHTML = '';
+            
+            achievements.forEach(achievement => {
+                const item = document.createElement('div');
+                item.className = 'achievement-item';
+                item.innerHTML = `
+                    <span style="font-size: 20px; margin-right: 10px;">${achievement.emoji}</span>
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold;">${achievement.name}</div>
+                        <div style="font-size: 12px; color: #666;">${achievement.description}</div>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+        
+        function submitExpense() {
+            let amount;
+            
+            if (inputMode === 'calculator') {
+                amount = currentAmount;
+            } else {
+                amount = parseFloat(document.getElementById('manualAmount').value);
+            }
+            
+            const category = document.getElementById('category').value;
+            const description = document.getElementById('description').value;
+            
+            if (!amount || amount <= 0) {
+                alert('Пожалуйста, введите корректную сумму');
                 return;
             }
             
             const data = {
-                amount: currentAmount,
-                category: selectedCategory,
-                description: selectedDescription
+                amount: amount,
+                category: category,
+                description: description,
+                currency: currentCurrency
             };
             
-            // Отправляем данные в бота
-            tg.sendData(JSON.stringify(data));
-            
-            // Показываем сообщение об успехе
-            document.getElementById('formContent').style.display = 'none';
-            document.getElementById('successMessage').style.display = 'block';
-        });
-
-        // Кнопка "Добавить еще"
-        document.getElementById('addMoreBtn').addEventListener('click', resetForm);
+            Telegram.WebApp.sendData(JSON.stringify(data));
+            Telegram.WebApp.close();
+        }
         
         // Инициализация при загрузке
-        document.addEventListener('DOMContentLoaded', function() {
-            updateAmountDisplay();
-            updateFormData();
-            validateForm();
-        });
+        initializeApp();
     </script>
 </body>
 </html>
