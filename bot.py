@@ -13,8 +13,7 @@ import subprocess
 import sys
 from PIL import Image
 import speech_recognition as sr
-import torch
-import torchaudio
+
 import numpy as np
 import psycopg2
 from urllib.parse import urlparse
@@ -1069,4 +1068,5 @@ def main():
         application.run_polling()
 
 if __name__ == "__main__":
+
     main()
