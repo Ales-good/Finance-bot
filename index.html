@@ -88,6 +88,8 @@
             cursor: pointer;
             border: 2px solid transparent;
             transition: border-color 0.3s;
+            background-size: cover;
+            background-position: center;
         }
         
         .flag.active {
@@ -95,8 +97,22 @@
         }
         
         .flag.ru { background: linear-gradient(to bottom, white 33%, blue 33%, blue 66%, red 66%); }
-        .flag.by { background: linear-gradient(to right, red 33%, green 33%, green 66%, white 66%); }
-        .flag.kz { background: blue; position: relative; }
+        .flag.by { 
+            background: linear-gradient(to bottom, red 33%, green 33%, green 66%, red 66%);
+            position: relative;
+        }
+        .flag.by::after {
+            content: "⚜️";
+            position: absolute;
+            top: 50%;
+            left: 25%;
+            transform: translate(-50%, -50%);
+            font-size: 8px;
+        }
+        .flag.kz { 
+            background: blue;
+            position: relative;
+        }
         .flag.kz::after {
             content: "☀️";
             position: absolute;
@@ -128,23 +144,6 @@
         
         .manual-input {
             display: none;
-        }
-        
-        .quick-actions {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            margin: 15px 0;
-        }
-        
-        .quick-btn {
-            padding: 12px;
-            background: #5856d6;
-            color: white;
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            font-size: 14px;
         }
         
         .category-management {
@@ -288,6 +287,23 @@
         .tab-content.active {
             display: block;
         }
+        
+        .budget-section {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .budget-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 5px;
+        }
+        
+        .budget-input input {
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -314,17 +330,12 @@
             <div class="buttons" id="calculatorButtons">
                 <!-- Кнопки будут генерироваться динамически -->
             </div>
-            
-            <!-- Быстрый ввод -->
-            <div class="quick-actions" id="quickActions">
-                <!-- Быстрые кнопки будут генерироваться динамически -->
-            </div>
         </div>
         
         <!-- Ручной ввод -->
         <div class="manual-input" id="manualMode">
             <div class="input-group">
-                <input type="number" id="manualAmount" placeholder="Введите сумму" step="0.01" min="0">
+                <input type="number" id="manualAmount" placeholder="Введите сумму" step="0.01" min="0" oninput="updateManualAmount()">
             </div>
         </div>
         
@@ -360,6 +371,24 @@
             <textarea id="description" placeholder="Например: Обед в столовой" rows="2"></textarea>
         </div>
         
+        <!-- Бюджет на месяц -->
+        <div class="budget-section">
+            <label>💰 Бюджет на месяц</label>
+            <div class="budget-input">
+                <input type="number" id="monthlyBudget" placeholder="Введите бюджет" step="100" min="0">
+                <button onclick="setBudget()" style="padding: 10px; background: #5856d6; color: white; border: none; border-radius: 8px;">💾 Сохранить</button>
+            </div>
+            <div id="budgetProgress" style="margin-top: 10px; display: none;">
+                <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                    <span>Использовано: <span id="usedBudget">0</span></span>
+                    <span>Осталось: <span id="remainingBudget">0</span></span>
+                </div>
+                <div style="background: #e9ecef; border-radius: 10px; height: 8px; margin-top: 5px;">
+                    <div id="budgetBar" style="background: #34c759; height: 100%; border-radius: 10px; width: 0%; transition: width 0.3s;"></div>
+                </div>
+            </div>
+        </div>
+        
         <!-- Вкладки с дополнительной информацией -->
         <div class="tab-buttons">
             <button class="tab-btn active" onclick="setTab('stats')">📊 Статистика</button>
@@ -372,9 +401,9 @@
             <div class="stats-preview">
                 <h3>📊 Ваша статистика</h3>
                 
-                <!-- Мини-график -->
+                <!-- Мини-график с разделением по пользователям -->
                 <div style="margin: 15px 0;">
-                    <canvas id="miniChart" width="300" height="100"></canvas>
+                    <canvas id="miniChart" width="300" height="120"></canvas>
                 </div>
                 
                 <!-- Ключевые метрики -->
@@ -438,25 +467,23 @@
         let currentCurrency = 'RUB';
         let selectedEmoji = '⭐';
         let currentTab = 'stats';
+        let monthlyBudget = parseInt(localStorage.getItem('monthlyBudget')) || 0;
         
         // Валюты и их настройки
         const currencies = {
             'RUB': {
                 symbol: '₽',
                 name: 'Российский рубль',
-                quickAmounts: [50, 100, 200, 500, 1000, 2000, 5000],
                 calculatorSteps: [1, 5, 10, 50, 100, 500, 1000]
             },
             'BYN': {
                 symbol: 'Br',
                 name: 'Белорусский рубль',
-                quickAmounts: [5, 10, 20, 50, 100, 200, 500],
                 calculatorSteps: [1, 2, 5, 10, 20, 50, 100]
             },
             'KZT': {
                 symbol: '₸',
                 name: 'Казахский тенге',
-                quickAmounts: [500, 1000, 2000, 5000, 10000, 20000, 50000],
                 calculatorSteps: [100, 500, 1000, 2000, 5000, 10000]
             }
         };
@@ -489,11 +516,11 @@
             setCurrency('RUB');
             loadCategories();
             updateCalculatorButtons();
-            updateQuickActions();
             loadStats();
             generateFinancialAdvice();
             loadAchievements();
             initializeChart();
+            loadBudget();
         }
         
         function setCurrency(currency) {
@@ -506,9 +533,8 @@
             // Обновляем отображение суммы
             updateDisplay();
             
-            // Обновляем кнопки калькулятора и быстрого ввода
+            // Обновляем кнопки калькулятора
             updateCalculatorButtons();
-            updateQuickActions();
         }
         
         function updateCalculatorButtons() {
@@ -531,32 +557,20 @@
             buttonsContainer.appendChild(clearButton);
         }
         
-        function updateQuickActions() {
-            const amounts = currencies[currentCurrency].quickAmounts;
-            const container = document.getElementById('quickActions');
-            container.innerHTML = '';
-            
-            amounts.forEach(amount => {
-                const button = document.createElement('button');
-                button.className = 'quick-btn';
-                button.textContent = `${amount} ${currencies[currentCurrency].symbol}`;
-                button.onclick = () => setQuickAmount(amount);
-                container.appendChild(button);
-            });
-        }
-        
         function addAmount(amount) {
             currentAmount += amount;
             updateDisplay();
         }
         
-        function setQuickAmount(amount) {
-            currentAmount = amount;
+        function updateManualAmount() {
+            const manualAmount = parseFloat(document.getElementById('manualAmount').value) || 0;
+            currentAmount = manualAmount;
             updateDisplay();
         }
         
         function clearAmount() {
             currentAmount = 0;
+            document.getElementById('manualAmount').value = '';
             updateDisplay();
         }
         
@@ -697,32 +711,102 @@
             });
         }
         
+        function setBudget() {
+            const budgetInput = document.getElementById('monthlyBudget');
+            monthlyBudget = parseInt(budgetInput.value) || 0;
+            
+            if (monthlyBudget > 0) {
+                localStorage.setItem('monthlyBudget', monthlyBudget.toString());
+                loadBudget();
+                alert('✅ Бюджет сохранен!');
+            } else {
+                alert('❌ Введите корректную сумму бюджета');
+            }
+        }
+        
+        function loadBudget() {
+            const budgetInput = document.getElementById('monthlyBudget');
+            budgetInput.value = monthlyBudget;
+            
+            if (monthlyBudget > 0) {
+                document.getElementById('budgetProgress').style.display = 'block';
+                
+                // Здесь будет реальный расчет потраченной суммы
+                const spentAmount = 12500; // Примерная сумма
+                const remaining = Math.max(0, monthlyBudget - spentAmount);
+                const percentage = Math.min(100, (spentAmount / monthlyBudget) * 100);
+                
+                document.getElementById('usedBudget').textContent = spentAmount.toLocaleString('ru-RU') + ' ₽';
+                document.getElementById('remainingBudget').textContent = remaining.toLocaleString('ru-RU') + ' ₽';
+                document.getElementById('budgetBar').style.width = percentage + '%';
+                document.getElementById('budgetLeft').textContent = remaining.toLocaleString('ru-RU') + ' ₽';
+                
+                // Меняем цвет в зависимости от использования
+                if (percentage > 90) {
+                    document.getElementById('budgetBar').style.background = '#ff3b30';
+                } else if (percentage > 70) {
+                    document.getElementById('budgetBar').style.background = '#ff9500';
+                } else {
+                    document.getElementById('budgetBar').style.background = '#34c759';
+                }
+            } else {
+                document.getElementById('budgetProgress').style.display = 'none';
+                document.getElementById('budgetLeft').textContent = '∞ ₽';
+            }
+        }
+        
         function initializeChart() {
             const ctx = document.getElementById('miniChart').getContext('2d');
             new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
-                    datasets: [{
-                        label: 'Траты за неделю',
-                        data: [1200, 1900, 1500, 2100, 1800, 2500, 2200],
-                        borderColor: '#007aff',
-                        backgroundColor: 'rgba(0, 122, 255, 0.1)',
-                        tension: 0.4,
-                        fill: true
-                    }]
+                    datasets: [
+                        {
+                            label: '👤 Вы',
+                            data: [800, 1200, 900, 1500, 1100, 1800, 1300],
+                            borderColor: '#007aff',
+                            backgroundColor: 'rgba(0, 122, 255, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: '👩 Партнер',
+                            data: [400, 700, 600, 900, 700, 1200, 900],
+                            borderColor: '#ff2d55',
+                            backgroundColor: 'rgba(255, 45, 85, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: '👨‍👩‍👧‍👦 Общие',
+                            data: [1200, 1900, 1500, 2400, 1800, 3000, 2200],
+                            borderColor: '#34c759',
+                            backgroundColor: 'rgba(52, 199, 89, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            borderDash: [5, 5]
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,
                     plugins: {
                         legend: {
-                            display: false
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 15
+                            }
                         }
                     },
                     scales: {
                         y: {
                             beginAtZero: true,
-                            display: false
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            }
                         },
                         x: {
                             grid: {
@@ -739,7 +823,6 @@
             const today = new Date().toLocaleDateString('ru-RU');
             
             document.getElementById('todaySpent').textContent = '1,250 ₽';
-            document.getElementById('budgetLeft').textContent = '12,500 ₽';
             document.getElementById('topCategories').innerHTML = `
                 <div>🛒 Продукты: 5,400 ₽</div>
                 <div>🍽️ Кафе: 3,200 ₽</div>
@@ -748,7 +831,10 @@
             document.getElementById('familyStats').innerHTML = `
                 <div>👤 Вы: 8,500 ₽</div>
                 <div>👩 Партнер: 4,200 ₽</div>
+                <div>👨‍👩‍👧‍👦 Всего: 12,700 ₽</div>
             `;
+            
+            loadBudget();
         }
         
         function generateFinancialAdvice() {
@@ -772,11 +858,43 @@
         }
         
         function loadAchievements() {
+            const userBudget = monthlyBudget > 0;
             const achievements = [
-                { id: 'first_expense', name: 'Первая трата', description: 'Добавьте первую трату', unlocked: true, emoji: '✅' },
-                { id: 'week_streak', name: 'Экономист недели', description: 'Уложитесь в бюджет 7 дней подряд', unlocked: false, emoji: '🔒' },
-                { id: 'category_master', name: 'Мастер категорий', description: 'Используйте 5 разных категорий', unlocked: true, emoji: '✅' },
-                { id: 'saver', name: 'Накопитель', description: 'Сэкономьте 5000 ₽ за месяц', unlocked: false, emoji: '🔒' }
+                { 
+                    id: 'first_expense', 
+                    name: 'Первая трата', 
+                    description: 'Добавьте первую трату', 
+                    unlocked: true, 
+                    emoji: '✅' 
+                },
+                { 
+                    id: 'budget_set', 
+                    name: 'Планировщик', 
+                    description: 'Установите месячный бюджет', 
+                    unlocked: userBudget, 
+                    emoji: userBudget ? '✅' : '🔒' 
+                },
+                { 
+                    id: 'week_streak', 
+                    name: 'Экономист недели', 
+                    description: 'Уложитесь в бюджет 7 дней подряд', 
+                    unlocked: false, 
+                    emoji: '🔒' 
+                },
+                { 
+                    id: 'category_master', 
+                    name: 'Мастер категорий', 
+                    description: 'Используйте 5 разных категорий', 
+                    unlocked: true, 
+                    emoji: '✅' 
+                },
+                { 
+                    id: 'saver', 
+                    name: 'Накопитель', 
+                    description: 'Сэкономьте 20% от бюджета за месяц', 
+                    unlocked: false, 
+                    emoji: '🔒' 
+                }
             ];
             
             const container = document.getElementById('achievementsList');
