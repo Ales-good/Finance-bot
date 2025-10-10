@@ -12,8 +12,13 @@ COPY . .
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-rus \
+    tesseract-ocr-eng \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Запуск и бота и Flask API
-CMD ["sh", "-c", "python bot.py & python -m flask --app bot:flask_app run --host=0.0.0.0 --port=$PORT"]
+# Установка переменных окружения
+ENV FLASK_PORT=5000
+ENV PORT=5000
+
+# Запуск Flask API
+CMD ["python", "-m", "flask", "--app", "bot:flask_app", "run", "--host=0.0.0.0", "--port=5000"]
