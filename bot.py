@@ -2,8 +2,8 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import os
 import json
 import tempfile
@@ -188,7 +188,7 @@ if TESSERACT_AVAILABLE:
 else:
     logger.warning("⚠️ Tesseract не установлен. Распознавание чеков недоступно.")
 
-# ===== ГОЛОСОВОЕ РАСПОЗНАВАНИЕ =====
+# ===== ГОЛОСОВОЕ РАСПОЗНАВАНИЕ С VOSK =====
 class VoiceRecognizer:
     def __init__(self):
         self.recognizer = sr.Recognizer()
@@ -196,34 +196,146 @@ class VoiceRecognizer:
         self.recognizer.pause_threshold = 0.8
         self.recognizer.dynamic_energy_threshold = True
         
-        # Проверяем доступность Google Speech Recognition
-        self.google_available = True  # По умолчанию доступен
-        logger.info("✅ Голосовое распознавание инициализировано")
-    
-    async def transcribe_audio(self, audio_path):
-        """Транскрибируем аудио файл"""
-        logger.info(f"🎤 Распознаю аудио: {audio_path}")
+        # Инициализация Vosk
+        self.vosk_available = False
+        self.vosk_model = None
         
         try:
-            with sr.AudioFile(audio_path) as source:
-                # Убираем шумы и настраиваем чувствительность
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                audio = self.recognizer.record(source)
+            import vosk
+            # Проверяем наличие модели Vosk
+            model_path = "vosk-model-small-ru-0.22"
+            if not os.path.exists(model_path):
+                logger.info("📥 Модель Vosk не найдена, скачиваю...")
+                self._download_vosk_model()
+            
+            if os.path.exists(model_path):
+                self.vosk_model = vosk.Model(model_path)
+                self.vosk_available = True
+                logger.info("✅ Vosk распознавание инициализировано")
+            else:
+                logger.warning("❌ Не удалось загрузить модель Vosk")
                 
-                # Пробуем распознать через Google
-                try:
-                    text = self.recognizer.recognize_google(audio, language='ru-RU')
-                    logger.info(f"✅ Распознано: {text}")
+        except ImportError:
+            logger.warning("❌ Vosk не установлен. Установите: pip install vosk")
+        except Exception as e:
+            logger.warning(f"❌ Ошибка инициализации Vosk: {e}")
+    
+    def _download_vosk_model(self):
+        """Скачивание модели Vosk если отсутствует"""
+        try:
+            import urllib.request
+            import zipfile
+            
+            model_url = "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip"
+            zip_path = "vosk-model.zip"
+            
+            logger.info("📥 Скачиваю модель Vosk...")
+            urllib.request.urlretrieve(model_url, zip_path)
+            
+            logger.info("📦 Распаковываю модель...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(".")
+            
+            os.remove(zip_path)
+            logger.info("✅ Модель Vosk успешно загружена")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузки модели Vosk: {e}")
+    
+    async def transcribe_audio(self, audio_path):
+        """Транскрибируем аудио файл с приоритетом Vosk"""
+        logger.info(f"🎤 Распознаю аудио: {audio_path}")
+        
+        # Сначала пробуем Vosk (лучше для русского)
+        if self.vosk_available:
+            try:
+                text = self._transcribe_with_vosk(audio_path)
+                if text and text.strip():
+                    logger.info(f"✅ Vosk распознал: {text}")
                     return text
-                except sr.UnknownValueError:
-                    logger.warning("❌ Не удалось распознать речь")
-                    return None
-                except sr.RequestError as e:
-                    logger.warning(f"❌ Ошибка Google Speech Recognition: {e}")
-                    return None
-                    
+            except Exception as e:
+                logger.warning(f"❌ Ошибка Vosk: {e}")
+        
+        # Пробуем Google как запасной вариант
+        try:
+            with sr.AudioFile(audio_path) as source:
+                audio = self.recognizer.record(source)
+                text = self.recognizer.recognize_google(audio, language='ru-RU')
+                logger.info(f"✅ Google распознал: {text}")
+                return text
+        except sr.UnknownValueError:
+            logger.warning("❌ Не удалось распознать речь")
+        except sr.RequestError as e:
+            logger.warning(f"❌ Ошибка Google Speech Recognition: {e}")
         except Exception as e:
             logger.error(f"❌ Ошибка обработки аудио: {e}")
+        
+        return None
+    
+    def _transcribe_with_vosk(self, audio_path):
+        """Распознавание через Vosk"""
+        import wave
+        import json
+        import vosk
+        
+        # Конвертируем в WAV если нужно
+        wav_path = audio_path
+        if not audio_path.endswith('.wav'):
+            wav_path = audio_path.replace('.ogg', '.wav').replace('.mp3', '.wav')
+            try:
+                subprocess.run([
+                    'ffmpeg', '-i', audio_path, '-ar', '16000', 
+                    '-ac', '1', '-y', wav_path
+                ], capture_output=True, check=True)
+            except Exception as e:
+                logger.warning(f"❌ Ошибка конвертации аудио: {e}")
+                return None
+        
+        try:
+            wf = wave.open(wav_path, 'rb')
+            
+            # Проверяем формат аудио
+            if wf.getnchannels() != 1:
+                logger.warning("❌ Vosk требует моно-аудио")
+                return None
+            if wf.getsampwidth() != 2:
+                logger.warning("❌ Vosk требует 16-bit аудио")
+                return None
+            if wf.getframerate() not in [8000, 16000]:
+                logger.warning("❌ Vosk требует частоту 8000 или 16000 Hz")
+                return None
+            
+            rec = vosk.KaldiRecognizer(self.vosk_model, wf.getframerate())
+            rec.SetWords(True)
+            
+            results = []
+            while True:
+                data = wf.readframes(4000)
+                if len(data) == 0:
+                    break
+                if rec.AcceptWaveform(data):
+                    result = json.loads(rec.Result())
+                    if result.get('text'):
+                        results.append(result['text'])
+            
+            final_result = json.loads(rec.FinalResult())
+            if final_result.get('text'):
+                results.append(final_result['text'])
+            
+            wf.close()
+            
+            # Удаляем временный файл если создавали
+            if wav_path != audio_path and os.path.exists(wav_path):
+                os.remove(wav_path)
+            
+            text = ' '.join(results)
+            return text if text.strip() else None
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка Vosk распознавания: {e}")
+            # Удаляем временный файл если создавали
+            if wav_path != audio_path and os.path.exists(wav_path):
+                os.remove(wav_path)
             return None
 
 # Инициализируем распознаватель голоса
@@ -244,15 +356,15 @@ class SimpleExpenseClassifier:
         
         # Ключевые слова для каждой категории
         keyword_categories = {
-            'Продукты': ['продукт', 'еда', 'магазин', 'супермаркет', 'покупк', 'молоко', 'хлеб', 'мясо', 'рыба', 'овощ', 'фрукт'],
-            'Кафе': ['кафе', 'ресторан', 'кофе', 'обед', 'ужин', 'завтрак', 'столов', 'бургер', 'пицц', 'суши'],
-            'Транспорт': ['транспорт', 'такси', 'метро', 'автобус', 'бензин', 'заправк', 'парковк', 'такса', 'uber', 'яндекс.такси'],
-            'Дом': ['дом', 'квартир', 'коммунал', 'аренд', 'ремонт', 'ипотек', 'мебель', 'бытов', 'техник'],
-            'Одежда': ['одежд', 'обув', 'шопинг', 'вещ', 'магазин', 'бренд', 'куртк', 'джинс', 'футболк'],
-            'Здоровье': ['здоров', 'аптек', 'врач', 'лекарств', 'больнич', 'стоматолог', 'поликлиник', 'анализ'],
-            'Развлечения': ['развлечен', 'кино', 'концерт', 'театр', 'клуб', 'бар', 'дискотек', 'караоке', 'билет'],
-            'Подписки': ['подписк', 'интернет', 'телефон', 'связ', 'мобильн', 'ютуб', 'нетфликс', 'спотифай', 'яндекс.плюс'],
-            'Маркетплейсы': ['wildberries', 'озон', 'яндекс маркет', 'алиэкспресс', 'маркетплейс', 'интернет-магазин'],
+            'Продукты': ['продукт', 'еда', 'магазин', 'супермаркет', 'покупк', 'молоко', 'хлеб', 'мясо', 'рыба', 'овощ', 'фрукт', 'бакалея', 'гастроном'],
+            'Кафе': ['кафе', 'ресторан', 'кофе', 'обед', 'ужин', 'завтрак', 'столов', 'бургер', 'пицц', 'суши', 'шаурма', 'столовая', 'ресторация'],
+            'Транспорт': ['транспорт', 'такси', 'метро', 'автобус', 'бензин', 'заправк', 'парковк', 'такса', 'uber', 'яндекс.такси', 'проезд', 'билет'],
+            'Дом': ['дом', 'квартир', 'коммунал', 'аренд', 'ремонт', 'ипотек', 'мебель', 'бытов', 'техник', 'квартплата', 'электричество', 'вода'],
+            'Одежда': ['одежд', 'обув', 'шопинг', 'вещ', 'магазин', 'бренд', 'куртк', 'джинс', 'футболк', 'рубашк', 'платье', 'кофт'],
+            'Здоровье': ['здоров', 'аптек', 'врач', 'лекарств', 'больнич', 'стоматолог', 'поликлиник', 'анализ', 'медицин', 'таблетк'],
+            'Развлечения': ['развлечен', 'кино', 'концерт', 'театр', 'клуб', 'бар', 'дискотек', 'караоке', 'билет', 'кинотеатр', 'выставк'],
+            'Подписки': ['подписк', 'интернет', 'телефон', 'связ', 'мобильн', 'ютуб', 'нетфликс', 'спотифай', 'яндекс.плюс', 'стриминг'],
+            'Маркетплейсы': ['wildberries', 'озон', 'яндекс маркет', 'алиэкспресс', 'маркетплейс', 'интернет-магазин', 'вб', 'озон'],
         }
         
         scores = {}
@@ -287,12 +399,14 @@ def parse_receipt_text(text):
         r'(\d+[.,]\d+)\s*(?:руб|р|₽|rur|rub|r|рублей)',
         r'(?:чек|сумма)[^\d]*(\d+[.,]\d+)',
         r'(?:цена|стоимость)[^\d]*(\d+[.,]\d+)',
+        r'(?:оплат|внесен)[^\d]*(\d+[.,]\d+)',
     ]
     
     # Поиск магазина
     store_patterns = [
-        r'([А-ЯЁ][а-яё]+\s*[А-ЯЁ]?[а-яё]*\s*(?:магазин|супермаркет|торговый|центр))',
+        r'([А-ЯЁ][а-яё]+\s*[А-ЯЁ]?[а-яё]*\s*(?:магазин|супермаркет|торговый|центр|маркет))',
         r'([А-ЯЁ][а-яё]+\s*[А-ЯЁ]?[а-яё]*)',
+        r'(?:магазин|торговая)\s+([А-ЯЁ][а-яё]+)',
     ]
     
     # Поиск по паттернам
@@ -319,15 +433,19 @@ def parse_receipt_text(text):
             for pattern in store_patterns:
                 matches = re.findall(pattern, line)
                 if matches:
-                    receipt_data['store'] = matches[0]
-                    logger.info(f"🏪 Найден магазин: {receipt_data['store']}")
-                    break
+                    store_name = matches[0].strip()
+                    # Фильтруем слишком короткие названия
+                    if len(store_name) >= 3 and store_name.lower() not in ['итого', 'всего', 'сумма']:
+                        receipt_data['store'] = store_name
+                        logger.info(f"🏪 Найден магазин: {receipt_data['store']}")
+                        break
     
     return receipt_data
 
 async def process_receipt_photo(image_bytes):
     """Обрабатываем фото чека через Tesseract"""
     if not TESSERACT_AVAILABLE:
+        logger.warning("❌ Tesseract недоступен для распознавания чеков")
         return None
     
     try:
@@ -343,13 +461,16 @@ async def process_receipt_photo(image_bytes):
         
         # Увеличиваем контрастность
         image = image.convert('L')  # В grayscale
+        
         # Применяем фильтр для улучшения читаемости
-        from PIL import ImageEnhance
+        from PIL import ImageEnhance, ImageFilter
         enhancer = ImageEnhance.Contrast(image)
         image = enhancer.enhance(2.0)  # Увеличиваем контрастность
+        image = image.filter(ImageFilter.SHARPEN)  # Увеличиваем резкость
         
-        # Распознаем текст
-        text = pytesseract.image_to_string(image, lang='rus+eng')
+        # Распознаем текст с разными настройками
+        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789.,рубРУБкКтТА-Яа-яёЁA-Za-z'
+        text = pytesseract.image_to_string(image, lang='rus+eng', config=custom_config)
         
         if not text.strip():
             logger.warning("❌ Не удалось распознать текст")
@@ -538,6 +659,35 @@ def get_user_spaces(user_id):
     finally:
         conn.close()
 
+def get_space_info(space_id):
+    """Получение информации о пространстве"""
+    conn = get_db_connection()
+    
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code, 
+                              COUNT(sm.user_id) as member_count
+                       FROM financial_spaces fs
+                       LEFT JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE fs.id = ?
+                       GROUP BY fs.id'''
+            df = pd.read_sql_query(query, conn, params=(space_id,))
+        else:
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code, 
+                              COUNT(sm.user_id) as member_count
+                       FROM financial_spaces fs
+                       LEFT JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE fs.id = %s
+                       GROUP BY fs.id'''
+            df = pd.read_sql_query(query, conn, params=(space_id,))
+        
+        return df.iloc[0] if not df.empty else None
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения информации о пространстве: {e}")
+        return None
+    finally:
+        conn.close()
+
 def get_space_members(space_id):
     """Получение участников пространства"""
     conn = get_db_connection()
@@ -570,29 +720,6 @@ def get_space_members(space_id):
     except Exception as e:
         logger.error(f"❌ Ошибка получения участников: {e}")
         return pd.DataFrame()
-    finally:
-        conn.close()
-
-def get_space_privacy_settings(space_id):
-    """Получение настроек приватности пространства"""
-    conn = get_db_connection()
-    
-    try:
-        if isinstance(conn, sqlite3.Connection):
-            c = conn.cursor()
-            c.execute('SELECT privacy_settings FROM financial_spaces WHERE id = ?', (space_id,))
-            result = c.fetchone()
-        else:
-            c = conn.cursor()
-            c.execute('SELECT privacy_settings FROM financial_spaces WHERE id = %s', (space_id,))
-            result = c.fetchone()
-        
-        if result and result[0]:
-            return json.loads(result[0])
-        return {"view_all": True, "show_stats_only": False}
-    except Exception as e:
-        logger.error(f"❌ Ошибка получения настроек приватности: {e}")
-        return {"view_all": True, "show_stats_only": False}
     finally:
         conn.close()
 
@@ -654,48 +781,6 @@ def remove_member_from_space(space_id, user_id, remover_id):
     finally:
         conn.close()
 
-def change_member_role(space_id, user_id, new_role, changer_id):
-    """Изменение роли участника"""
-    conn = get_db_connection()
-    
-    try:
-        # Проверяем права изменяющего
-        if isinstance(conn, sqlite3.Connection):
-            c = conn.cursor()
-            c.execute('SELECT role FROM space_members WHERE space_id = ? AND user_id = ?', (space_id, changer_id))
-            changer_role = c.fetchone()
-            
-            if not changer_role or changer_role[0] != 'owner':
-                return False, "Только владелец может изменять роли"
-            
-            # Не позволяем изменить роль владельца
-            if user_id == changer_id and new_role != 'owner':
-                return False, "Нельзя изменить свою роль владельца"
-            
-            c.execute('UPDATE space_members SET role = ? WHERE space_id = ? AND user_id = ?', 
-                     (new_role, space_id, user_id))
-        else:
-            c = conn.cursor()
-            c.execute('SELECT role FROM space_members WHERE space_id = %s AND user_id = %s', (space_id, changer_id))
-            changer_role = c.fetchone()
-            
-            if not changer_role or changer_role[0] != 'owner':
-                return False, "Только владелец может изменять роли"
-            
-            if user_id == changer_id and new_role != 'owner':
-                return False, "Нельзя изменить свою роль владельца"
-            
-            c.execute('UPDATE space_members SET role = %s WHERE space_id = %s AND user_id = %s', 
-                     (new_role, space_id, user_id))
-        
-        conn.commit()
-        return True, f"Роль изменена на {new_role}"
-    except Exception as e:
-        logger.error(f"❌ Ошибка изменения роли: {e}")
-        return False, "Ошибка при изменении роли"
-    finally:
-        conn.close()
-
 def leave_space(space_id, user_id):
     """Выход пользователя из пространства"""
     conn = get_db_connection()
@@ -745,45 +830,6 @@ def leave_space(space_id, user_id):
     finally:
         conn.close()
 
-def get_detailed_space_members(space_id):
-    """Получение подробной информации об участниках пространства"""
-    conn = get_db_connection()
-    
-    try:
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT sm.user_id, sm.user_name, sm.role, sm.joined_at,
-                              (SELECT COUNT(*) FROM expenses WHERE user_id = sm.user_id AND space_id = sm.space_id) as expense_count,
-                              (SELECT SUM(amount) FROM expenses WHERE user_id = sm.user_id AND space_id = sm.space_id) as total_spent
-                       FROM space_members sm
-                       WHERE sm.space_id = ?
-                       ORDER BY 
-                         CASE sm.role 
-                           WHEN 'owner' THEN 1 
-                           WHEN 'admin' THEN 2 
-                           ELSE 3 
-                         END, sm.joined_at'''
-            df = pd.read_sql_query(query, conn, params=(space_id,))
-        else:
-            query = '''SELECT sm.user_id, sm.user_name, sm.role, sm.joined_at,
-                              (SELECT COUNT(*) FROM expenses WHERE user_id = sm.user_id AND space_id = sm.space_id) as expense_count,
-                              (SELECT SUM(amount) FROM expenses WHERE user_id = sm.user_id AND space_id = sm.space_id) as total_spent
-                       FROM space_members sm
-                       WHERE sm.space_id = %s
-                       ORDER BY 
-                         CASE sm.role 
-                           WHEN 'owner' THEN 1 
-                           WHEN 'admin' THEN 2 
-                           ELSE 3 
-                         END, sm.joined_at'''
-            df = pd.read_sql_query(query, conn, params=(space_id,))
-        
-        return df
-    except Exception as e:
-        logger.error(f"❌ Ошибка получения участников: {e}")
-        return pd.DataFrame()
-    finally:
-        conn.close()
-
 # ===== ОБНОВЛЕННАЯ ФУНКЦИЯ ДОБАВЛЕНИЯ ТРАТ =====
 def add_expense(user_id, user_name, amount, category, description="", space_id=None, visibility="full"):
     """Добавление траты в базу с поддержкой пространств"""
@@ -818,29 +864,13 @@ def get_main_keyboard(user_id=None):
     """Основная клавиатура с учетом пространств"""
     web_app_url = os.environ.get('WEB_APP_URL', 'https://ales-good.github.io/Finance-bot/')
     
-    if user_id:
-        spaces = get_user_spaces(user_id)
-        has_multiple_spaces = len(spaces) > 1
-    else:
-        has_multiple_spaces = False
-    
-    if has_multiple_spaces:
-        keyboard = [
-            [KeyboardButton("💸 Добавить трату", web_app=WebAppInfo(url=web_app_url))],
-            [KeyboardButton("🏠 Мои пространства"), KeyboardButton("👥 Управление участниками")],
-            [KeyboardButton("➕ Создать пространство"), KeyboardButton("🔗 Пригласить")],
-            [KeyboardButton("📊 Статистика"), KeyboardButton("📅 Статистика за месяц")],
-            [KeyboardButton("📝 Последние траты"), KeyboardButton("📈 Выгрузить в Excel")],
-            [KeyboardButton("🆘 Помощь")]
-        ]
-    else:
-        keyboard = [
-            [KeyboardButton("💸 Добавить трату", web_app=WebAppInfo(url=web_app_url))],
-            [KeyboardButton("➕ Создать пространство")],
-            [KeyboardButton("📊 Статистика"), KeyboardButton("📅 Статистика за месяц")],
-            [KeyboardButton("📝 Последние траты"), KeyboardButton("📈 Выгрузить в Excel")],
-            [KeyboardButton("🆘 Помощь")]
-        ]
+    keyboard = [
+        [KeyboardButton("💸 Добавить трату", web_app=WebAppInfo(url=web_app_url))],
+        [KeyboardButton("🏠 Мои пространства"), KeyboardButton("➕ Создать пространство")],
+        [KeyboardButton("📊 Статистика"), KeyboardButton("📅 Статистика за месяц")],
+        [KeyboardButton("📝 Последние траты"), KeyboardButton("📈 Выгрузить в Excel")],
+        [KeyboardButton("🆘 Помощь")]
+    ]
     
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -860,6 +890,65 @@ def get_simple_confirmation_keyboard():
         [KeyboardButton("✅ Да, сохранить"), KeyboardButton("❌ Отменить")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_spaces_keyboard(user_id):
+    """Инлайн клавиатура для выбора пространств"""
+    spaces = get_user_spaces(user_id)
+    keyboard = []
+    
+    for _, space in spaces.iterrows():
+        type_emoji = {
+            'personal': '🏠',
+            'private': '👨‍👩‍👧‍👦', 
+            'public': '🌐'
+        }.get(space['space_type'], '📁')
+        
+        button_text = f"{type_emoji} {space['name']}"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"select_space_{space['id']}")])
+    
+    # Добавляем кнопку управления если есть пространства
+    if not spaces.empty:
+        keyboard.append([InlineKeyboardButton("🔧 Управление участниками", callback_data="manage_spaces")])
+    
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel")])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+def get_manage_spaces_keyboard(user_id):
+    """Инлайн клавиатура для управления пространствами"""
+    spaces = get_user_spaces(user_id)
+    keyboard = []
+    
+    for _, space in spaces.iterrows():
+        type_emoji = {
+            'personal': '🏠',
+            'private': '👨‍👩‍👧‍👦', 
+            'public': '🌐'
+        }.get(space['space_type'], '📁')
+        
+        button_text = f"{type_emoji} {space['name']}"
+        keyboard.append([
+            InlineKeyboardButton(button_text, callback_data=f"space_info_{space['id']}"),
+            InlineKeyboardButton("👥", callback_data=f"space_members_{space['id']}")
+        ])
+    
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_spaces")])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+def get_space_management_keyboard(space_id, user_role):
+    """Клавиатура для управления конкретным пространством"""
+    keyboard = []
+    
+    if user_role in ['owner', 'admin']:
+        keyboard.append([InlineKeyboardButton("👥 Участники", callback_data=f"space_members_{space_id}")])
+        keyboard.append([InlineKeyboardButton("🔗 Пригласить", callback_data=f"invite_{space_id}")])
+    
+    keyboard.append([InlineKeyboardButton("📊 Статистика", callback_data=f"stats_{space_id}")])
+    keyboard.append([InlineKeyboardButton("🚪 Выйти", callback_data=f"leave_{space_id}")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="manage_spaces")])
+    
+    return InlineKeyboardMarkup(keyboard)
 
 # ===== ОСНОВНЫЕ КОМАНДЫ =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -925,7 +1014,7 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=get_main_keyboard()
         )
 
-# ===== ОБРАБОТЧИК ГОЛОСОВЫХ СООБЩЕНИЙ =====
+# ===== ОБРАБОТЧИК ГОЛОСОВЫХ СООБЩЕНИЙ С VOSK =====
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = update.effective_user
@@ -944,7 +1033,7 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             # Скачиваем файл
             await voice_file.download_to_drive(temp_path)
             
-            # Распознаем речь
+            # Распознаем речь с Vosk
             text = await voice_recognizer.transcribe_audio(temp_path)
             
             if not text:
@@ -1050,7 +1139,7 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=get_main_keyboard(user.id)
         )
 
-# ===== ОБРАБОТЧИК ФОТО ЧЕКОВ =====
+# ===== ОБРАБОТЧИК ФОТО ЧЕКОВ С ПРОВЕРКОЙ TESSERACT =====
 async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = update.effective_user
@@ -1061,7 +1150,8 @@ async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 "💡 **Вы можете:**\n"
                 "• Ввести трату вручную через форму\n"
                 "• Отправить голосовое сообщение\n"
-                "• Написать текстом: '500 продукты'",
+                "• Написать текстом: '500 продукты'\n\n"
+                "Для распознавания чеков нужен Tesseract OCR",
                 reply_markup=get_main_keyboard(user.id)
             )
             return
@@ -1123,6 +1213,7 @@ async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYP
                     "💡 **Попробуйте:**\n"
                     "• Сфотографировать чек более четко\n"
                     "• Убедиться, что фото хорошо освещено\n"
+                    "• Сфотографировать только область с суммой\n"
                     "• Или ввести данные вручную через форму",
                     reply_markup=get_main_keyboard(user.id)
                 )
@@ -1215,38 +1306,33 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data.pop('pending_receipt_expense', None)
         return
 
-# ===== ОБРАБОТЧИКИ ПРОСТРАНСТВ =====
+# ===== ОБРАБОТЧИКИ ПРОСТРАНСТВ С ИНЛАЙН КНОПКАМИ =====
+async def handle_my_spaces(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать пространства пользователя с инлайн кнопками"""
+    user = update.effective_user
+    spaces = get_user_spaces(user.id)
+    
+    if spaces.empty:
+        await update.message.reply_text(
+            "🏠 **У вас пока нет финансовых пространств**\n\n"
+            "Создайте свое первое пространство с помощью кнопки '➕ Создать пространство'!",
+            reply_markup=get_main_keyboard(user.id)
+        )
+        return
+    
+    response = "🏠 **Ваши финансовые пространства:**\n\n"
+    response += "💡 **Выберите пространство для работы:**\n\n"
+    
+    await update.message.reply_text(
+        response,
+        reply_markup=get_spaces_keyboard(user.id)
+    )
+
 async def handle_create_space(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик создания пространства"""
     user = update.effective_user
     
-    if context.args:
-        # Создание через команду с аргументами (простое создание закрытой группы)
-        space_name = ' '.join(context.args)
-        space_id, invite_code = create_financial_space(
-            space_name, 
-            f"Группа создана {user.first_name}", 
-            'private', 
-            user.id, 
-            user.first_name
-        )
-        
-        if space_id:
-            response = f"""👨‍👩‍👧‍👦 **Создана новая закрытая группа!**
-
-📝 **Название:** {space_name}
-👤 **Создатель:** {user.first_name}
-🔑 **Код приглашения:** `{invite_code}`
-
-💡 Поделитесь кодом с другими участниками!
-👥 Используйте /space_members {space_id} для управления"""
-        else:
-            response = "❌ Ошибка при создании пространства"
-            
-        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
-    else:
-        # Интерактивное создание с выбором типа
-        response = """🏠 **Создание финансового пространства**
+    response = """🏠 **Создание финансового пространства**
 
 Выберите тип пространства:
 
@@ -1265,9 +1351,9 @@ async def handle_create_space(update: Update, context: ContextTypes.DEFAULT_TYPE
 • Только агрегированные данные
 
 Выберите тип пространства:"""
-        
-        await update.message.reply_text(response, reply_markup=get_space_type_keyboard())
-        context.user_data['awaiting_space_creation'] = True
+    
+    await update.message.reply_text(response, reply_markup=get_space_type_keyboard())
+    context.user_data['awaiting_space_creation'] = True
 
 async def handle_space_type_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора типа пространства"""
@@ -1346,10 +1432,11 @@ async def handle_space_name_input(update: Update, context: ContextTypes.DEFAULT_
 • Идеально для семьи и близких друзей
 • Приватное пространство
 
-👥 **Для управления участниками:**
-`/space_members {space_id}`
-
-💬 Поделитесь кодом с другими участниками!"""
+**📋 Чтобы пригласить участников:**
+1. Нажмите «🏠 Мои пространства»
+2. Выберите это пространство  
+3. Нажмите «🔗 Пригласить»
+4. Отправьте код друзьям"""
             else:  # public
                 response = f"""🌐 **Создано новое публичное сообщество!**
 
@@ -1362,7 +1449,11 @@ async def handle_space_name_input(update: Update, context: ContextTypes.DEFAULT_
 • Сравнение своих трат с сообществом
 • Идеально для тематических групп
 
-👥 Делитесь кодом для пополнения сообщества!"""
+**📋 Чтобы пригласить участников:**
+1. Нажмите «🏠 Мои пространства»  
+2. Выберите это пространство
+3. Нажмите «🔗 Приглашить»
+4. Поделитесь кодом"""
         else:
             response = "❌ Ошибка при создании пространства"
     else:
@@ -1399,363 +1490,174 @@ async def handle_join_space(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Или используйте команду:
 `/join_space КОД_ПРИГЛАШЕНИЯ`
 
-💡 **Совет:** Код приглашения выглядит примерно так: `A1B2C3D4`"""
+💡 **Совет:** Попросите у друга код приглашения и просто отправьте его боту!"""
 
     await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
 
-async def handle_my_spaces(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать пространства пользователя"""
+# ===== ИНЛАЙН ОБРАБОТЧИКИ =====
+async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик инлайн кнопок"""
+    query = update.callback_query
     user = update.effective_user
-    spaces_df = get_user_spaces(user.id)
+    data = query.data
     
-    if spaces_df.empty:
-        response = """🏠 **У вас пока нет финансовых пространств**
-
-Создайте свое первое пространство или присоединитесь к существующему!
-
-💡 **Советы:**
-• 🏠 **Личное** - уже создано автоматически
-• 👨‍👩‍👧‍👦 **Закрытая группа** - для семьи и друзей  
-• 🌐 **Публичное сообщество** - для тематического общения"""
-    else:
-        response = "🏠 **Ваши финансовые пространства:**\n\n"
+    await query.answer()
+    
+    # Выбор пространства
+    if data.startswith('select_space_'):
+        space_id = int(data.split('_')[2])
+        spaces = get_user_spaces(user.id)
         
-        for _, space in spaces_df.iterrows():
-            # Эмодзи для типа пространства
+        if space_id in spaces['id'].values:
+            context.user_data['current_space'] = space_id
+            space_info = spaces[spaces['id'] == space_id].iloc[0]
+            
             type_emoji = {
                 'personal': '🏠',
                 'private': '👨‍👩‍👧‍👦', 
                 'public': '🌐'
-            }.get(space['space_type'], '📁')
+            }.get(space_info['space_type'], '📁')
             
-            # Эмодзи для роли
-            role_emoji = "👑" if space['role'] == 'owner' else "👤" if space['role'] == 'admin' else "🙂"
-            
-            response += f"{type_emoji} **{space['name']}** {role_emoji}\n"
-            response += f"   📝 {space['description'] or 'Без описания'}\n"
-            
-            if space['space_type'] != 'personal':
-                response += f"   🔑 Код: `{space['invite_code']}`\n"
-            
-            response += f"   🆔 ID: {space['id']}\n\n"
-        
-        response += "💡 **Используйте:**\n"
-        response += "• `/switch_space ID` - переключиться на пространство\n"
-        response += "• `/space_members ID` - управление участниками\n"
-        response += "• `/join_space КОД` - присоединиться к новому\n"
-        response += "• Траты сохраняются в текущее активное пространство"
-
-    await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
-
-async def handle_switch_space(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Переключение между пространствами"""
-    user = update.effective_user
-    
-    if context.args:
-        try:
-            space_id = int(context.args[0])
-            spaces_df = get_user_spaces(user.id)
-            
-            if space_id in spaces_df['id'].values:
-                context.user_data['current_space'] = space_id
-                space_info = spaces_df[spaces_df['id'] == space_id].iloc[0]
-                space_name = space_info['name']
-                space_type = space_info['space_type']
-                
-                type_names = {
-                    'personal': 'личное пространство',
-                    'private': 'закрытая группа', 
-                    'public': 'публичное сообщество'
-                }
-                
-                response = f"✅ **Переключено на {type_names.get(space_type, 'пространство')}:** {space_name}"
-            else:
-                response = "❌ У вас нет доступа к этому пространству"
-        except ValueError:
-            response = "❌ Неверный ID пространства"
-    else:
-        response = """🔄 **Переключение пространства**
-
-Используйте команду:
-`/switch_space ID_ПРОСТРАНСТВА`
-
-ID пространства можно посмотреть в списке ваших пространств (/my_spaces).
-
-💡 **По умолчанию** траты сохраняются в ваше личное пространство."""
-
-    await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
-
-# ===== ОБРАБОТЧИКИ УПРАВЛЕНИЯ УЧАСТНИКАМИ =====
-async def handle_space_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать участников пространства с управлением"""
-    user = update.effective_user
-    
-    if context.args:
-        try:
-            space_id = int(context.args[0])
-            spaces_df = get_user_spaces(user.id)
-            
-            if space_id not in spaces_df['id'].values:
-                await update.message.reply_text(
-                    "❌ У вас нет доступа к этому пространству",
-                    reply_markup=get_main_keyboard(user.id)
-                )
-                return
-            
-            await show_space_members_details(update, context, space_id, user.id)
-            
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Неверный ID пространства",
+            await query.edit_message_text(
+                f"✅ **Выбрано пространство:** {type_emoji} {space_info['name']}\n\n"
+                f"Теперь все траты будут сохраняться в это пространство.",
                 reply_markup=get_main_keyboard(user.id)
             )
-    else:
-        # Показываем список пространств для выбора
-        spaces_df = get_user_spaces(user.id)
-        
-        if spaces_df.empty:
-            await update.message.reply_text(
-                "❌ У вас нет пространств для управления",
+        else:
+            await query.edit_message_text(
+                "❌ Пространство не найдено.",
                 reply_markup=get_main_keyboard(user.id)
             )
-            return
+    
+    # Управление пространствами
+    elif data == "manage_spaces":
+        await query.edit_message_text(
+            "🔧 **Управление пространствами**\n\n"
+            "Выберите пространство для управления:",
+            reply_markup=get_manage_spaces_keyboard(user.id)
+        )
+    
+    # Информация о пространстве
+    elif data.startswith('space_info_'):
+        space_id = int(data.split('_')[2])
+        space_info = get_space_info(space_id)
         
-        response = "👥 **Управление участниками**\n\nВыберите пространство:\n\n"
-        
-        for _, space in spaces_df.iterrows():
-            members_count = len(get_space_members(space['id']))
-            response += f"🆔 {space['id']} - **{space['name']}** ({members_count} участ.)\n"
-        
-        response += "\nИспользуйте: `/space_members ID_ПРОСТРАНСТВА`"
-        
-        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
+        if space_info is not None:
+            type_emoji = {
+                'personal': '🏠',
+                'private': '👨‍👩‍👧‍👦', 
+                'public': '🌐'
+            }.get(space_info['space_type'], '📁')
+            
+            response = f"""**{type_emoji} {space_info['name']}**
 
-async def show_space_members_details(update: Update, context: ContextTypes.DEFAULT_TYPE, space_id, user_id):
-    """Показать детальную информацию об участниках пространства"""
-    try:
-        members_df = get_detailed_space_members(space_id)
-        space_info_df = get_user_spaces(user_id)
-        space_info = space_info_df[space_info_df['id'] == space_id].iloc[0]
-        
-        if members_df.empty:
-            await update.message.reply_text(
-                "❌ В пространстве нет участников",
-                reply_markup=get_main_keyboard(user_id)
+📝 **Описание:** {space_info['description'] or 'Без описания'}
+👥 **Участников:** {space_info['member_count']}
+🔑 **Код приглашения:** `{space_info['invite_code']}`
+
+💡 **Для приглашения:** просто отправьте код друзьям!"""
+            
+            await query.edit_message_text(
+                response,
+                reply_markup=get_space_management_keyboard(space_id, 'owner')
             )
-            return
-        
-        response = f"👥 **Участники пространства**\n**{space_info['name']}**\n\n"
-        
-        # Получаем роль текущего пользователя
-        current_user_role = members_df[members_df['user_id'] == user_id]['role'].iloc[0]
-        can_manage = current_user_role in ['owner', 'admin']
-        
-        for _, member in members_df.iterrows():
-            role_emoji = "👑" if member['role'] == 'owner' else "👤" if member['role'] == 'admin' else "🙂"
-            join_date = datetime.strptime(str(member['joined_at']), '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y')
-            
-            response += f"{role_emoji} **{member['user_name']}**\n"
-            response += f"   🆔 ID: {member['user_id']}\n"
-            response += f"   📊 Роль: {member['role']}\n"
-            response += f"   💸 Траты: {member['expense_count']} шт., {member['total_spent'] or 0:,.0f} руб\n"
-            response += f"   📅 Вступил: {join_date}\n"
-            
-            # Кнопки управления (только для владельцев/админов и не для себя)
-            if can_manage and member['user_id'] != user_id and member['role'] != 'owner':
-                response += f"   🔧 Управление: "
-                response += f"/remove_member_{space_id}_{member['user_id']} 🗑️"
-                if member['role'] == 'member':
-                    response += f" /make_admin_{space_id}_{member['user_id']} ⬆️"
-                else:
-                    response += f" /make_member_{space_id}_{member['user_id']} ⬇️"
-                response += "\n"
-            
-            response += "\n"
-        
-        if can_manage:
-            response += "**🔧 Команды управления:**\n"
-            response += "• `/remove_member_ID_ПРОСТРАНСТВА_ID_УЧАСТНИКА` - удалить\n"
-            response += "• `/make_admin_ID_ПРОСТРАНСТВА_ID_УЧАСТНИКА` - сделать админом\n"
-            response += "• `/make_member_ID_ПРОСТРАНСТВА_ID_УЧАСТНИКА` - сделать участником\n"
-        
-        response += f"\n**🔗 Код приглашения:** `{space_info['invite_code']}`"
-        
-        # Кнопка для выхода из пространства
-        if current_user_role != 'owner':
-            response += f"\n\n🚪 Выйти: /leave_space_{space_id}"
-        
-        await update.message.reply_text(response, reply_markup=get_main_keyboard(user_id))
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка показа участников: {e}")
-        await update.message.reply_text(
-            "❌ Ошибка при получении информации об участниках",
-            reply_markup=get_main_keyboard(user_id)
-        )
-
-async def handle_remove_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик удаления участника"""
-    user = update.effective_user
-    text = update.message.text
+        else:
+            await query.edit_message_text(
+                "❌ Пространство не найдено.",
+                reply_markup=get_manage_spaces_keyboard(user.id)
+            )
     
-    try:
-        # Парсим команду: /remove_member_SPACEID_USERID
-        parts = text.split('_')
-        if len(parts) >= 4:
-            space_id = int(parts[2])
-            target_user_id = int(parts[3])
+    # Участники пространства
+    elif data.startswith('space_members_'):
+        space_id = int(data.split('_')[2])
+        members = get_space_members(space_id)
+        space_info = get_space_info(space_id)
+        
+        if space_info is not None and not members.empty:
+            response = f"👥 **Участники пространства**\n**{space_info['name']}**\n\n"
             
-            success, message = remove_member_from_space(space_id, target_user_id, user.id)
-            
-            if success:
-                # Получаем имя удаленного пользователя для красивого ответа
-                members_df = get_detailed_space_members(space_id)
-                target_user_name = "пользователь"
-                if not members_df.empty:
-                    target_user = members_df[members_df['user_id'] == target_user_id]
-                    if not target_user.empty:
-                        target_user_name = target_user.iloc[0]['user_name']
+            for _, member in members.iterrows():
+                role_emoji = "👑" if member['role'] == 'owner' else "👤" if member['role'] == 'admin' else "🙂"
+                join_date = datetime.strptime(str(member['joined_at']), '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y')
                 
-                response = f"✅ **Участник удален**\n\n👤 {target_user_name} был удален из пространства."
-            else:
-                response = f"❌ {message}"
+                response += f"{role_emoji} **{member['user_name']}**\n"
+                response += f"   📊 Роль: {member['role']}\n"
+                response += f"   📅 Вступил: {join_date}\n\n"
+            
+            response += f"🔑 **Код приглашения:** `{space_info['invite_code']}`"
+            
+            await query.edit_message_text(
+                response,
+                reply_markup=get_space_management_keyboard(space_id, 'owner')
+            )
         else:
-            response = "❌ Неверный формат команды"
-        
-        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка удаления участника: {e}")
-        await update.message.reply_text(
-            "❌ Ошибка при удалении участника",
-            reply_markup=get_main_keyboard(user.id)
-        )
-
-async def handle_change_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик изменения роли участника"""
-    user = update.effective_user
-    text = update.message.text
+            await query.edit_message_text(
+                "❌ В пространстве нет участников или оно не найдено.",
+                reply_markup=get_manage_spaces_keyboard(user.id)
+            )
     
-    try:
-        # Парсим команду: /make_admin_SPACEID_USERID или /make_member_SPACEID_USERID
-        parts = text.split('_')
-        if len(parts) >= 4:
-            command = parts[1]  # admin или member
-            space_id = int(parts[2])
-            target_user_id = int(parts[3])
-            
-            new_role = 'admin' if command == 'admin' else 'member'
-            success, message = change_member_role(space_id, target_user_id, new_role, user.id)
-            
-            if success:
-                role_name = "администратором" if new_role == 'admin' else "участником"
-                response = f"✅ **Роль изменена**\n\nПользователь теперь {role_name}."
-            else:
-                response = f"❌ {message}"
-        else:
-            response = "❌ Неверный формат команды"
+    # Приглашение
+    elif data.startswith('invite_'):
+        space_id = int(data.split('_')[1])
+        space_info = get_space_info(space_id)
         
-        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка изменения роли: {e}")
-        await update.message.reply_text(
-            "❌ Ошибка при изменении роли",
-            reply_markup=get_main_keyboard(user.id)
-        )
-
-async def handle_leave_space(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик выхода из пространства"""
-    user = update.effective_user
-    text = update.message.text
-    
-    try:
-        # Парсим команду: /leave_space_SPACEID
-        parts = text.split('_')
-        if len(parts) >= 3:
-            space_id = int(parts[2])
-            
-            success, message = leave_space(space_id, user.id)
-            
-            if success:
-                response = f"✅ **Вы вышли из пространства**\n\n{message}"
-                
-                # Если пользователь вышел из текущего пространства - сбрасываем его
-                if context.user_data.get('current_space') == space_id:
-                    context.user_data.pop('current_space', None)
-            else:
-                response = f"❌ {message}"
-        else:
-            response = "❌ Неверный формат команды"
-        
-        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка выхода из пространства: {e}")
-        await update.message.reply_text(
-            "❌ Ошибка при выходе из пространства",
-            reply_markup=get_main_keyboard(user.id)
-        )
-
-async def handle_invite_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Информация о приглашении"""
-    user = update.effective_user
-    
-    if context.args:
-        try:
-            space_id = int(context.args[0])
-            spaces_df = get_user_spaces(user.id)
-            
-            if space_id not in spaces_df['id'].values:
-                await update.message.reply_text(
-                    "❌ У вас нет доступа к этому пространству",
-                    reply_markup=get_main_keyboard(user.id)
-                )
-                return
-            
-            space_info = spaces_df[spaces_df['id'] == space_id].iloc[0]
-            
+        if space_info is not None:
             response = f"""🔗 **Приглашение в пространство**
 
 📝 **Название:** {space_info['name']}
 🔑 **Код приглашения:** `{space_info['invite_code']}`
-👥 **Тип:** {get_space_type_display_name(space_info['space_type'])}
 
-**Как пригласить:**
-1. Отправьте код приглашения другу
-2. Попросите его использовать команду:
-   `/join_space {space_info['invite_code']}`
-3. Или отправить код боту: `{space_info['invite_code']}`
+**📋 Как пригласить:**
+1. Скопируйте код: `{space_info['invite_code']}`
+2. Отправьте его друзьям в Telegram
+3. Они просто отправят этот код боту
 
-💡 **Совет:** Код можно отправлять прямо в чат!"""
-
-            await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
+💡 **Просто отправьте этот код любому пользователю!**"""
             
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Неверный ID пространства",
+            await query.edit_message_text(
+                response,
+                reply_markup=get_space_management_keyboard(space_id, 'owner')
+            )
+        else:
+            await query.edit_message_text(
+                "❌ Пространство не найдено.",
+                reply_markup=get_manage_spaces_keyboard(user.id)
+            )
+    
+    # Выход из пространства
+    elif data.startswith('leave_'):
+        space_id = int(data.split('_')[1])
+        success, message = leave_space(space_id, user.id)
+        
+        if success:
+            # Если пользователь вышел из текущего пространства - сбрасываем его
+            if context.user_data.get('current_space') == space_id:
+                context.user_data.pop('current_space', None)
+            
+            await query.edit_message_text(
+                f"✅ {message}",
                 reply_markup=get_main_keyboard(user.id)
             )
-    else:
-        response = """🔗 **Приглашение участников**
-
-Используйте команду:
-`/invite_info ID_ПРОСТРАНСТВА`
-
-Чтобы получить код приглашения и инструкции.
-
-💡 **Совет:** Участники могут присоединиться к приватным пространствам только по коду приглашения!"""
-
-        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
-
-def get_space_type_display_name(space_type):
-    """Получение отображаемого имени типа пространства"""
-    names = {
-        'personal': 'Личное',
-        'private': 'Закрытая группа',
-        'public': 'Публичное сообщество'
-    }
-    return names.get(space_type, space_type)
+        else:
+            await query.edit_message_text(
+                f"❌ {message}",
+                reply_markup=get_manage_spaces_keyboard(user.id)
+            )
+    
+    # Назад к пространствам
+    elif data == "back_to_spaces":
+        await query.edit_message_text(
+            "🏠 **Ваши финансовые пространства**\n\n"
+            "💡 **Выберите пространство для работы:**",
+            reply_markup=get_spaces_keyboard(user.id)
+        )
+    
+    # Отмена
+    elif data == "cancel":
+        await query.edit_message_text(
+            "❌ Выбор отменен.",
+            reply_markup=get_main_keyboard(user.id)
+        )
 
 # ===== ОБРАБОТЧИК ТЕКСТА =====
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1797,19 +1699,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await handle_create_space(update, context)
     elif text == "🏠 Мои пространства":
         await handle_my_spaces(update, context)
-    elif text == "👥 Управление участниками":
-        await handle_space_members(update, context)
-    elif text == "🔗 Пригласить":
-        await handle_invite_info(update, context)
     elif text in ["🏠 Личное пространство", "👨‍👩‍👧‍👦 Закрытая группа (семья/друзья)", "🌐 Публичное сообщество", "❌ Отмена"]:
         await handle_space_type_selection(update, context)
-    # === ОБРАБОТКА КОМАНД УПРАВЛЕНИЯ УЧАСТНИКАМИ ===
-    elif text.startswith('/remove_member_'):
-        await handle_remove_member(update, context)
-    elif text.startswith('/make_admin_') or text.startswith('/make_member_'):
-        await handle_change_role(update, context)
-    elif text.startswith('/leave_space_'):
-        await handle_leave_space(update, context)
     # === ОБРАБОТКА КОДОВ ПРИГЛАШЕНИЯ ===
     elif len(text) == 8 and text.isalnum() and text.isupper():
         # Если сообщение похоже на код приглашения
@@ -2277,16 +2168,16 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • **Последние траты** - история операций
 
 🔄 **Управление пространствами:**
-• `/my_spaces` - список ваших пространств
-• `/switch_space ID` - переключиться на другое пространство  
-• `/join_space КОД` - присоединиться по коду приглашения
-• `/create_space` - создать новое пространство
+• **🏠 Мои пространства** - выбрать активное пространство
+• **➕ Создать пространство** - создать новое
+• **🔗 Пригласить** - через управление пространством
 
-👥 **Управление участниками:**
-• `/space_members ID` - просмотр и управление участниками
-• `/invite_info ID` - получить код приглашения
-• Владельцы могут: удалять участников, назначать админов
-• Админы могут: удалять обычных участников
+👥 **Приглашение участников:**
+1. Нажмите «🏠 Мои пространства»
+2. Выберите пространство
+3. Нажмите «🔗 Пригласить» 
+4. Скопируйте код и отправьте друзьям
+5. Друзья просто отправят код боту
 
 📈 **Excel** - полная выгрузка данных текущего пространства
 
@@ -2295,9 +2186,8 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **💡 Советы:**
 • Используйте разные пространства для разных целей
 • Регулярно проверяйте статистику
-• Экспортируйте данные для ведения бюджета
 • Приглашайте в закрытые группы только доверенных людей
-• Владелец не может покинуть пространство пока в нем есть другие участники
+• Коды приглашения можно просто отправлять в чат!
 """
     await update.message.reply_text(help_text, reply_markup=get_main_keyboard(user.id))
 
@@ -2323,9 +2213,7 @@ def main():
     application.add_handler(CommandHandler("create_space", handle_create_space))
     application.add_handler(CommandHandler("join_space", handle_join_space))
     application.add_handler(CommandHandler("my_spaces", handle_my_spaces))
-    application.add_handler(CommandHandler("switch_space", handle_switch_space))
-    application.add_handler(CommandHandler("space_members", handle_space_members))
-    application.add_handler(CommandHandler("invite_info", handle_invite_info))
+    application.add_handler(CallbackQueryHandler(handle_callback_query))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
