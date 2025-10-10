@@ -271,21 +271,112 @@
             margin: 10px 0;
         }
         
+        /* Бюджет - исправленные стили */
         .budget-section {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border: 1px solid #e1e1e1;
+        }
+
+        .budget-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .budget-title {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .budget-input-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .budget-amount {
+            flex: 3;
+            padding: 10px;
+            border: 2px solid #e1e1e1;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .budget-save-btn {
+            flex: 1;
+            padding: 10px 15px;
+            background: #5856d6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            white-space: nowrap;
+            font-size: 14px;
+        }
+
+        .budget-save-btn:hover {
+            background: #4846c6;
+        }
+
+        .budget-display {
             margin-top: 10px;
             padding: 10px;
-            background: #f8f9fa;
+            background: white;
             border-radius: 8px;
+            border: 1px solid #e1e1e1;
         }
-        
-        .budget-input {
+
+        .budget-stats {
             display: flex;
-            gap: 10px;
-            margin-top: 5px;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 5px;
         }
-        
-        .budget-input input {
-            flex: 1;
+
+        .budget-progress {
+            background: #e9ecef;
+            border-radius: 10px;
+            height: 8px;
+            overflow: hidden;
+        }
+
+        .budget-bar {
+            height: 100%;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .budget-bar.safe {
+            background: #34c759;
+        }
+
+        .budget-bar.warning {
+            background: #ff9500;
+        }
+
+        .budget-bar.danger {
+            background: #ff3b30;
+        }
+
+        /* Улучшенные стили для чеков */
+        .receipt-processing {
+            text-align: center;
+            padding: 20px;
+            background: #f0f8ff;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+
+        .receipt-result {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #007aff;
         }
     </style>
 </head>
@@ -352,20 +443,28 @@
                     <textarea id="description" placeholder="Например: Обед в столовой" rows="2"></textarea>
                 </div>
 
-                <!-- Бюджет -->
+                <!-- Бюджет - исправленная версия -->
                 <div class="budget-section">
-                    <label>💰 Бюджет на месяц</label>
-                    <div class="budget-input">
-                        <input type="number" id="monthlyBudget" placeholder="Введите бюджет" step="100" min="0">
-                        <button class="btn" onclick="setBudget()" style="padding: 10px;">💾 Сохранить</button>
+                    <div class="budget-header">
+                        <div class="budget-title">💰 Бюджет на месяц</div>
+                        <div id="budgetStatus" style="font-size: 12px; color: #666;">Не установлен</div>
                     </div>
-                    <div id="budgetProgress" style="margin-top: 10px; display: none;">
-                        <div style="display: flex; justify-content: space-between; font-size: 12px;">
-                            <span>Использовано: <span id="usedBudget">0</span></span>
-                            <span>Осталось: <span id="remainingBudget">0</span></span>
+                    
+                    <div class="budget-input-group">
+                        <input type="number" id="monthlyBudget" class="budget-amount" placeholder="Введите сумму бюджета" step="100" min="0">
+                        <button class="budget-save-btn" onclick="setBudget()">💾 Сохранить</button>
+                    </div>
+                    
+                    <div id="budgetProgress" class="budget-display" style="display: none;">
+                        <div class="budget-stats">
+                            <span>Использовано: <span id="usedBudget">0</span> ₽</span>
+                            <span>Осталось: <span id="remainingBudget">0</span> ₽</span>
                         </div>
-                        <div style="background: #e9ecef; border-radius: 10px; height: 8px; margin-top: 5px;">
-                            <div id="budgetBar" style="background: #34c759; height: 100%; border-radius: 10px; width: 0%; transition: width 0.3s;"></div>
+                        <div class="budget-progress">
+                            <div id="budgetBar" class="budget-bar safe" style="width: 0%;"></div>
+                        </div>
+                        <div style="text-align: center; font-size: 11px; color: #666; margin-top: 5px;">
+                            <span id="budgetPercentage">0%</span> от бюджета
                         </div>
                     </div>
                 </div>
@@ -812,27 +911,37 @@
             const type = document.getElementById('spaceType').value;
             const description = document.getElementById('spaceDescription').value.trim();
             
+            console.log('📝 Создание пространства:', { name, type, description });
+            
             if (!name) {
                 showError('Введите название пространства');
                 return;
             }
             
             try {
+                const requestData = {
+                    initData: tg.initData,
+                    name: name,
+                    type: type,
+                    description: description
+                };
+                
+                console.log('📤 Отправляем запрос:', requestData);
+                
                 const response = await fetch('/create_space', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        name: name,
-                        type: type,
-                        description: description
-                    })
+                    body: JSON.stringify(requestData)
                 });
+                
+                console.log('📥 Получен ответ:', response.status);
                 
                 if (response.ok) {
                     const data = await response.json();
+                    console.log('📊 Данные ответа:', data);
+                    
                     if (data.success) {
                         await loadUserSpaces();
                         hideCreateSpaceForm();
@@ -842,11 +951,13 @@
                         showError(data.error || 'Ошибка создания');
                     }
                 } else {
-                    showError('Ошибка сервера при создании пространства');
+                    const errorText = await response.text();
+                    console.error('❌ Ошибка сервера:', errorText);
+                    showError('Ошибка сервера при создании пространства: ' + response.status);
                 }
             } catch (error) {
-                console.error('Error creating space:', error);
-                showError('Ошибка создания пространства');
+                console.error('❌ Ошибка создания пространства:', error);
+                showError('Ошибка создания пространства: ' + error.message);
             }
         }
         
@@ -1022,27 +1133,41 @@
             
             if (monthlyBudget > 0) {
                 document.getElementById('budgetProgress').style.display = 'block';
+                document.getElementById('budgetStatus').textContent = monthlyBudget.toLocaleString('ru-RU') + ' ₽';
                 
-                // Здесь будет расчет потраченной суммы
-                const spentAmount = 12500; // Пример
+                // Здесь будет реальный расчет потраченной суммы
+                // Пока используем примерные данные
+                const spentAmount = calculateTotalSpent();
                 const remaining = Math.max(0, monthlyBudget - spentAmount);
                 const percentage = Math.min(100, (spentAmount / monthlyBudget) * 100);
                 
-                document.getElementById('usedBudget').textContent = spentAmount.toLocaleString('ru-RU') + ' ₽';
-                document.getElementById('remainingBudget').textContent = remaining.toLocaleString('ru-RU') + ' ₽';
-                document.getElementById('budgetBar').style.width = percentage + '%';
+                document.getElementById('usedBudget').textContent = spentAmount.toLocaleString('ru-RU');
+                document.getElementById('remainingBudget').textContent = remaining.toLocaleString('ru-RU');
+                document.getElementById('budgetPercentage').textContent = percentage.toFixed(1) + '%';
+                
+                const budgetBar = document.getElementById('budgetBar');
+                budgetBar.style.width = percentage + '%';
                 
                 // Меняем цвет в зависимости от использования
+                budgetBar.className = 'budget-bar ';
                 if (percentage > 90) {
-                    document.getElementById('budgetBar').style.background = '#ff3b30';
+                    budgetBar.classList.add('danger');
                 } else if (percentage > 70) {
-                    document.getElementById('budgetBar').style.background = '#ff9500';
+                    budgetBar.classList.add('warning');
                 } else {
-                    document.getElementById('budgetBar').style.background = '#34c759';
+                    budgetBar.classList.add('safe');
                 }
             } else {
                 document.getElementById('budgetProgress').style.display = 'none';
+                document.getElementById('budgetStatus').textContent = 'Не установлен';
             }
+        }
+        
+        // Функция для расчета потраченной суммы
+        function calculateTotalSpent() {
+            // Пока возвращаем примерное значение
+            // В реальном приложении здесь будет запрос к API
+            return Math.floor(Math.random() * 10000) + 5000; // Случайное значение для демо
         }
         
         // Добавление траты
