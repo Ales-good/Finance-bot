@@ -572,6 +572,316 @@ def ensure_user_has_personal_space(user_id, user_name):
     finally:
         conn.close()
 
+# ===== ОБРАБОТЧИКИ ТЕКСТА И МЕДИА =====
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик текстовых сообщений"""
+    user = update.effective_user
+    text = update.message.text
+    
+    logger.info(f"📨 Текст от {user.first_name}: {text}")
+    
+    # Обработка кнопок главного меню
+    if text == "📊 Статистика":
+        await show_stats(update, context)
+    elif text == "📝 Последние траты":
+        await show_list(update, context)
+    elif text == "🆘 Помощь":
+        await show_help(update, context)
+    elif text == "🗑️ Очистить данные":
+        await clear_data(update, context)
+    else:
+        # Попытка распознать текстовую трату
+        try:
+            parts = text.split()
+            if len(parts) >= 2:
+                amount = float(parts[0].replace(',', '.'))
+                category = parts[1].lower()
+                description = " ".join(parts[2:]) if len(parts) > 2 else ""
+                
+                space_id = ensure_user_has_personal_space(user.id, user.first_name)
+                add_expense(user.id, user.first_name, amount, category, description, space_id)
+                
+                response = f"""✅ **Трата добавлена!**
+
+💁 **Кто:** {user.first_name}
+💸 **Сумма:** {amount} руб
+📂 **Категория:** {category}"""
+                
+                if description:
+                    response += f"\n📝 **Описание:** {description}"
+                    
+                await update.message.reply_text(response, reply_markup=get_main_keyboard())
+                return
+        except ValueError:
+            pass
+        
+        # Если не распознали - показываем помощь
+        await show_help(update, context)
+
+async def clear_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Очистка данных пользователя"""
+    user = update.effective_user
+    
+    try:
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            c = conn.cursor()
+            c.execute('DELETE FROM expenses WHERE user_id = ?', (user.id,))
+        else:
+            c = conn.cursor()
+            c.execute('DELETE FROM expenses WHERE user_id = %s', (user.id,))
+        
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text(
+            "✅ Все ваши данные успешно очищены!\n"
+            "Начинаем с чистого листа 🎯",
+            reply_markup=get_main_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка очистки данных: {str(e)}")
+        await update.message.reply_text(
+            f"❌ Ошибка при очистке данных: {str(e)}",
+            reply_markup=get_main_keyboard()
+        )
+
+# ===== ОБРАБОТЧИКИ ГОЛОСА И ФОТО (сохраняем существующий функционал) =====
+class VoiceRecognizer:
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+        self.recognizer.energy_threshold = 300
+        self.recognizer.pause_threshold = 0.8
+        self.recognizer.dynamic_energy_threshold = True
+        
+    async def transcribe_audio(self, audio_path):
+        """Транскрибируем аудио файл"""
+        try:
+            with sr.AudioFile(audio_path) as source:
+                audio = self.recognizer.record(source)
+                text = self.recognizer.recognize_google(audio, language='ru-RU')
+                return text
+        except sr.UnknownValueError:
+            return None
+        except Exception as e:
+            logger.error(f"❌ Ошибка распознавания голоса: {e}")
+            return None
+
+voice_recognizer = VoiceRecognizer()
+
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик голосовых сообщений"""
+    try:
+        user = update.effective_user
+        voice = update.message.voice
+        
+        processing_msg = await update.message.reply_text("🎤 Обрабатываю голосовое сообщение...")
+        
+        # Скачиваем голосовое сообщение
+        voice_file = await voice.get_file()
+        
+        # Создаем временный файл
+        with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as temp_file:
+            temp_path = temp_file.name
+        
+        try:
+            # Скачиваем файл
+            await voice_file.download_to_drive(temp_path)
+            
+            # Распознаем речь
+            text = await voice_recognizer.transcribe_audio(temp_path)
+            
+            if not text:
+                await processing_msg.edit_text(
+                    "❌ Не удалось распознать голосовое сообщение.\n\n"
+                    "💡 **Попробуйте:**\n"
+                    "• Говорить четче и ближе к микрофону\n"
+                    "• Использовать формат: '500 продукты'\n"
+                    "• Или ввести трату текстом"
+                )
+                return
+            
+            await processing_msg.edit_text(f"🎤 **Распознано:** _{text}_", parse_mode='Markdown')
+            
+            # Парсим текст
+            words = text.lower().split()
+            amount = None
+            category = "Другое"
+            
+            # Ищем сумму
+            for word in words:
+                cleaned_word = re.sub(r'[^\d]', '', word)
+                if cleaned_word:
+                    try:
+                        potential_amount = int(cleaned_word)
+                        if 10 <= potential_amount <= 100000:
+                            amount = potential_amount
+                            break
+                    except:
+                        pass
+            
+            # Определяем категорию
+            category_keywords = {
+                'Продукты': ['продукт', 'еда', 'магазин', 'супермаркет', 'покупк'],
+                'Кафе': ['кафе', 'ресторан', 'кофе', 'обед', 'ужин'],
+                'Транспорт': ['транспорт', 'такси', 'метро', 'автобус', 'бензин'],
+                'Дом': ['дом', 'квартир', 'коммунал', 'аренд'],
+                'Одежда': ['одежд', 'обув', 'шопинг'],
+                'Здоровье': ['здоров', 'аптек', 'врач', 'лекарств'],
+                'Развлечения': ['развлечен', 'кино', 'концерт', 'театр'],
+                'Подписки': ['подписк', 'интернет', 'телефон'],
+                'Маркетплейсы': ['wildberries', 'озон', 'яндекс маркет']
+            }
+            
+            for cat, keywords in category_keywords.items():
+                if any(keyword in text.lower() for keyword in keywords):
+                    category = cat
+                    break
+            
+            description = " ".join([w for w in words if not w.isdigit()])
+            
+            if amount:
+                space_id = ensure_user_has_personal_space(user.id, user.first_name)
+                add_expense(user.id, user.first_name, amount, category, description, space_id)
+                
+                response = f"""✅ **Голосовая трата добавлена!**
+
+💁 **Кто:** {user.first_name}
+💸 **Сумма:** {amount} руб
+📂 **Категория:** {category}"""
+                
+                if description:
+                    response += f"\n📝 **Комментарий:** {description}"
+                
+                await update.message.reply_text(response, reply_markup=get_main_keyboard())
+            else:
+                await update.message.reply_text(
+                    f"❌ Не удалось распознать сумму в сообщении: *{text}*\n\n"
+                    "💡 **Попробуйте сказать четче:**\n"
+                    "• '500 продукты'\n" 
+                    "• '1000 такси до работы'",
+                    parse_mode='Markdown',
+                    reply_markup=get_main_keyboard()
+                )
+                
+        finally:
+            # Удаляем временный файл
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки голосового сообщения: {str(e)}")
+        await update.message.reply_text(
+            "❌ Ошибка при обработке голоса. Попробуйте текстовый ввод.",
+            reply_markup=get_main_keyboard()
+        )
+
+async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик фото чеков"""
+    try:
+        user = update.effective_user
+        
+        # Проверяем доступность Tesseract
+        try:
+            import pytesseract
+            TESSERACT_AVAILABLE = True
+        except:
+            TESSERACT_AVAILABLE = False
+        
+        if not TESSERACT_AVAILABLE:
+            await update.message.reply_text(
+                "❌ Распознавание чеков временно недоступно.\n\n"
+                "💡 **Вы можете:**\n"
+                "• Ввести трату вручную через текстовый ввод\n"
+                "• Отправить голосовое сообщение\n"
+                "• Написать текстом: '500 продукты'",
+                reply_markup=get_main_keyboard()
+            )
+            return
+        
+        photo = update.message.photo[-1]
+        processing_msg = await update.message.reply_text("📸 Обрабатываю фото чека...")
+        
+        try:
+            # Скачиваем фото
+            photo_file = await photo.get_file()
+            
+            # Создаем временный файл
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                temp_path = temp_file.name
+            
+            # Скачиваем файл
+            await photo_file.download_to_drive(temp_path)
+            
+            # Обрабатываем через Tesseract
+            image = Image.open(temp_path)
+            text = pytesseract.image_to_string(image, lang='rus+eng')
+            
+            if not text.strip():
+                await processing_msg.edit_text(
+                    "❌ Не удалось распознать чек.\n\n"
+                    "💡 **Попробуйте:**\n"
+                    "• Сфотографировать чек более четко\n"
+                    "• Убедиться, что фото хорошо освещено\n"
+                    "• Или ввести данные вручную"
+                )
+                return
+            
+            # Простой парсинг чека
+            lines = text.split('\n')
+            total_amount = 0
+            
+            for line in lines:
+                # Ищем суммы
+                amounts = re.findall(r'(\d+[.,]\d+)', line)
+                for amount_str in amounts:
+                    try:
+                        amount = float(amount_str.replace(',', '.'))
+                        if 10 <= amount <= 100000 and amount > total_amount:
+                            total_amount = amount
+                    except:
+                        pass
+            
+            if total_amount > 0:
+                category = "Другое"
+                description = "Распознанный чек"
+                
+                space_id = ensure_user_has_personal_space(user.id, user.first_name)
+                add_expense(user.id, user.first_name, total_amount, category, description, space_id)
+                
+                response = f"""✅ **Трата из чека добавлена!**
+
+💁 **Кто:** {user.first_name}
+💸 **Сумма:** {total_amount} руб
+📂 **Категория:** {category}
+📝 **Комментарий:** {description}"""
+                
+                await processing_msg.delete()
+                await update.message.reply_text(response, reply_markup=get_main_keyboard())
+            else:
+                await processing_msg.edit_text(
+                    "❌ Не удалось распознать сумму в чеке.\n\n"
+                    "💡 Попробуйте сфотографировать более четко область с итоговой суммой."
+                )
+                
+        finally:
+            # Удаляем временный файл
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки фото: {str(e)}")
+        try:
+            await processing_msg.delete()
+        except:
+            pass
+        await update.message.reply_text(
+            "❌ Ошибка при обработке фото. Попробуйте текстовый ввод.",
+            reply_markup=get_main_keyboard()
+        )
+
 # ===== ОСНОВНЫЕ ФУНКЦИИ БОТА =====
 def get_main_keyboard():
     """Основная клавиатура для навигации в WebApp"""
@@ -774,6 +1084,8 @@ def main():
     # Регистрация обработчиков
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
     
     # Запуск бота
     logger.info("🚀 Бот запускается...")
@@ -781,3 +1093,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
