@@ -1,26 +1,24 @@
 import sqlite3
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import os
 import json
 import tempfile
 import re
 import io
 import subprocess
-import sys
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 import speech_recognition as sr
 import numpy as np
 import psycopg2
 from urllib.parse import urlparse
 import logging
 from flask import Flask, request, jsonify
-import hashlib
-import hmac
-import time
+import random
+import string
 
 # Настройка логирования
 logging.basicConfig(
@@ -96,6 +94,16 @@ def init_db():
                       date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                       FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
         
+        # Таблица бюджетов
+        c.execute('''CREATE TABLE IF NOT EXISTS budgets
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user_id INTEGER,
+                      space_id INTEGER,
+                      amount REAL,
+                      month_year TEXT,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+        
     else:
         # PostgreSQL
         c = conn.cursor()
@@ -127,6 +135,14 @@ def init_db():
                       category TEXT, 
                       description TEXT, 
                       date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        
+        c.execute('''CREATE TABLE IF NOT EXISTS budgets
+                     (id SERIAL PRIMARY KEY,
+                      user_id BIGINT,
+                      space_id INTEGER REFERENCES financial_spaces(id),
+                      amount REAL,
+                      month_year TEXT,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
     conn.commit()
     conn.close()
@@ -163,6 +179,181 @@ def get_user_from_init_data(init_data):
         logger.error(f"❌ Ошибка парсинга initData: {e}")
     
     return None
+
+# ===== УЛУЧШЕННОЕ РАСПОЗНАВАНИЕ ЧЕКОВ =====
+def check_tesseract_installation():
+    """Проверяем установлен ли Tesseract"""
+    try:
+        result = subprocess.run(['tesseract', '--version'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            logger.info("✅ Tesseract доступен в PATH")
+            return True
+        else:
+            logger.warning("❌ Tesseract не найден в PATH")
+            return False
+    except FileNotFoundError:
+        logger.warning("❌ Tesseract не установлен или не добавлен в PATH")
+        return False
+
+# Проверяем перед запуском
+logger.info("🔄 Проверяю Tesseract OCR...")
+TESSERACT_AVAILABLE = check_tesseract_installation()
+
+if TESSERACT_AVAILABLE:
+    try:
+        import pytesseract
+        # Настройка пути к Tesseract (для Windows)
+        if os.name == 'nt':  # Windows
+            possible_paths = [
+                r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+                r'C:\Users\*\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    pytesseract.pytesseract.tesseract_cmd = path
+                    break
+        
+        # Проверяем доступность
+        pytesseract.get_tesseract_version()
+        logger.info("✅ Tesseract OCR доступен")
+    except Exception as e:
+        TESSERACT_AVAILABLE = False
+        logger.warning(f"❌ Tesseract OCR недоступен: {e}")
+else:
+    logger.warning("⚠️ Tesseract не установлен. Распознавание чеков недоступно.")
+
+def preprocess_image_for_ocr(image):
+    """Улучшение качества изображения для OCR"""
+    try:
+        # Конвертируем в grayscale
+        if image.mode != 'L':
+            image = image.convert('L')
+        
+        # Увеличиваем разрешение
+        width, height = image.size
+        if width < 1000 or height < 1000:
+            new_size = (width * 2, height * 2)
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # Увеличиваем контрастность
+        enhancer = ImageEnhance.Contrast(image)
+        image = enhancer.enhance(2.0)
+        
+        # Увеличиваем резкость
+        image = image.filter(ImageFilter.SHARPEN)
+        
+        # Применяем бинаризацию
+        image = image.point(lambda x: 0 if x < 128 else 255, '1')
+        
+        return image
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки изображения: {e}")
+        return image
+
+def parse_receipt_text(text):
+    """Улучшенный парсинг распознанного текста чека"""
+    logger.info("🔍 Анализирую текст чека...")
+    
+    lines = text.split('\n')
+    receipt_data = {
+        'total': 0,
+        'store': None,
+        'date': None,
+        'items': [],
+        'raw_text': text
+    }
+    
+    # Паттерны для поиска сумм (улучшенные)
+    total_patterns = [
+        r'(?:итого|всего|сумма|к\s*оплате|total|итог|чек)[^\d]*(\d+[.,]\d{2})',
+        r'(\d+[.,]\d{2})\s*(?:руб|р|₽|rur|rub|r|рублей)',
+        r'(?:цена|стоимость|оплат|внесен)[^\d]*(\d+[.,]\d{2})',
+        r'(\d+[.,]\d{2})\s*$',  # Числа в конце строки
+    ]
+    
+    # Поиск магазина
+    store_keywords = ['магазин', 'супермаркет', 'торговый', 'центр', 'аптека', 'кафе', 'ресторан']
+    
+    # Поиск по паттернам
+    for line in lines:
+        line_clean = re.sub(r'[^\w\s\d.,]', '', line.lower())
+        
+        # Поиск суммы
+        for pattern in total_patterns:
+            matches = re.findall(pattern, line_clean, re.IGNORECASE)
+            if matches:
+                try:
+                    amount_str = matches[-1].replace(',', '.')
+                    amount_str = re.sub(r'[^\d.]', '', amount_str)
+                    amount = float(amount_str)
+                    # Более строгая проверка на реалистичную сумму
+                    if 10 <= amount <= 50000 and amount > receipt_data['total']:
+                        receipt_data['total'] = amount
+                        logger.info(f"💰 Найдена сумма: {amount}")
+                        break
+                except ValueError:
+                    continue
+        
+        # Поиск магазина
+        if not receipt_data['store']:
+            # Ищем строки с названиями магазинов
+            if any(keyword in line_clean for keyword in store_keywords):
+                # Берем первую строку с ключевым словом как название магазина
+                receipt_data['store'] = line.strip()[:50]  # Ограничиваем длину
+                logger.info(f"🏪 Найден магазин: {receipt_data['store']}")
+            
+            # Альтернативный поиск - строки в верхнем регистре (часто это названия)
+            if line.strip().isupper() and len(line.strip()) > 3 and len(line.strip()) < 30:
+                receipt_data['store'] = line.strip()
+                logger.info(f"🏪 Найдено название (верхний регистр): {receipt_data['store']}")
+    
+    return receipt_data
+
+async def process_receipt_photo(image_bytes):
+    """Обрабатываем фото чека через Tesseract с улучшенной обработкой"""
+    if not TESSERACT_AVAILABLE:
+        logger.warning("❌ Tesseract недоступен для распознавания чеков")
+        return None
+    
+    try:
+        logger.info("🔍 Распознаю чек через Tesseract...")
+        
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Улучшаем качество изображения
+        image = preprocess_image_for_ocr(image)
+        
+        # Пробуем разные настройки OCR
+        configs = [
+            r'--oem 3 --psm 6',
+            r'--oem 3 --psm 4', 
+            r'--oem 3 --psm 8',
+            r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789.,рубРУБкКтТ₽'
+        ]
+        
+        best_text = ""
+        for config in configs:
+            try:
+                text = pytesseract.image_to_string(image, lang='rus+eng', config=config)
+                if len(text.strip()) > len(best_text.strip()):
+                    best_text = text
+            except Exception as e:
+                logger.warning(f"❌ Ошибка OCR с конфигом {config}: {e}")
+                continue
+        
+        if not best_text.strip():
+            logger.warning("❌ Не удалось распознать текст")
+            return None
+        
+        logger.info(f"✅ Распознано символов: {len(best_text)}")
+        logger.info(f"📄 Текст чека: {best_text[:300]}...")
+        
+        return parse_receipt_text(best_text)
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки чека: {e}")
+        return None
 
 # ===== API ENDPOINTS =====
 @flask_app.route('/get_user_spaces', methods=['POST'])
@@ -305,12 +496,13 @@ def api_create_space():
             return jsonify({'error': 'Missing required fields'}), 400
         
         # Создаем пространство
-        space_id, invite_code = create_financial_space(
+        result = create_financial_space(
             name, description, space_type, 
             user_data['id'], user_data['first_name']
         )
         
-        if space_id:
+        if result and result[0] is not None:
+            space_id, invite_code = result
             logger.info(f"✅ Пространство создано: {space_id}, код: {invite_code}")
             return jsonify({
                 'success': True,
@@ -318,11 +510,13 @@ def api_create_space():
                 'invite_code': invite_code
             })
         else:
-            logger.error("❌ Ошибка создания пространства")
-            return jsonify({'error': 'Failed to create space'}), 500
+            logger.error("❌ Ошибка создания пространства - функция вернула None")
+            return jsonify({'error': 'Failed to create space - check database connection'}), 500
             
     except Exception as e:
         logger.error(f"❌ API Error in create_space: {e}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 @flask_app.route('/add_expense', methods=['POST'])
@@ -411,6 +605,10 @@ def api_get_analytics():
                 
                 count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = ? AND user_id = ?'''
                 count_df = pd.read_sql_query(count_query, conn, params=(space_id, user_id))
+                
+                # Получаем общую сумму для бюджета
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = ? AND user_id = ? AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id, user_id))
             else:
                 query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
                            FROM expenses 
@@ -421,6 +619,9 @@ def api_get_analytics():
                 
                 count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = %s AND user_id = %s'''
                 count_df = pd.read_sql_query(count_query, conn, params=(space_id, user_id))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = %s AND user_id = %s AND DATE_TRUNC('month', date) = DATE_TRUNC('month', CURRENT_DATE)'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id, user_id))
         else:
             if isinstance(conn, sqlite3.Connection):
                 query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
@@ -432,6 +633,9 @@ def api_get_analytics():
                 
                 count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = ?'''
                 count_df = pd.read_sql_query(count_query, conn, params=(space_id,))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = ? AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id,))
             else:
                 query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
                            FROM expenses 
@@ -442,6 +646,9 @@ def api_get_analytics():
                 
                 count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = %s'''
                 count_df = pd.read_sql_query(count_query, conn, params=(space_id,))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = %s AND DATE_TRUNC('month', date) = DATE_TRUNC('month', CURRENT_DATE)'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id,))
         
         conn.close()
         
@@ -453,10 +660,13 @@ def api_get_analytics():
                 'count': int(row['count'])
             })
         
+        total_spent = float(total_spent_df.iloc[0]['total_spent']) if not total_spent_df.empty else 0
+        
         return jsonify({
             'categories': categories,
             'total_count': int(count_df.iloc[0]['total_count']) if not count_df.empty else 0,
-            'users': users
+            'users': users,
+            'total_spent': total_spent
         })
             
     except Exception as e:
@@ -493,6 +703,72 @@ def api_remove_member():
             
     except Exception as e:
         logger.error(f"❌ API Error in remove_member: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@flask_app.route('/set_budget', methods=['POST'])
+def api_set_budget():
+    """API для установки бюджета"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        amount = data.get('amount')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if not amount or amount <= 0:
+            return jsonify({'error': 'Invalid budget amount'}), 400
+        
+        # Проверяем, что пользователь состоит в пространстве
+        if not is_user_in_space(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        # Сохраняем бюджет
+        success = set_user_budget(user_data['id'], space_id, float(amount))
+        
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'error': 'Failed to set budget'}), 500
+            
+    except Exception as e:
+        logger.error(f"❌ API Error in set_budget: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@flask_app.route('/get_budget', methods=['POST'])
+def api_get_budget():
+    """API для получения бюджета"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        # Проверяем, что пользователь состоит в пространстве
+        if not is_user_in_space(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        # Получаем бюджет
+        budget = get_user_budget(user_data['id'], space_id)
+        
+        return jsonify({
+            'success': True,
+            'budget': budget
+        })
+            
+    except Exception as e:
+        logger.error(f"❌ API Error in get_budget: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 # ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
@@ -573,14 +849,11 @@ def create_financial_space(name, description, space_type, created_by, created_by
     """Создание нового финансового пространства"""
     conn = get_db_connection()
     
-    if space_type == 'personal':
-        return create_personal_space(created_by, created_by_name)
-    
-    import random
-    import string
-    invite_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    
     try:
+        invite_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        
+        logger.info(f"🔧 Создание пространства: {name}, тип: {space_type}, created_by: {created_by}")
+        
         if isinstance(conn, sqlite3.Connection):
             c = conn.cursor()
             c.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
@@ -601,12 +874,19 @@ def create_financial_space(name, description, space_type, created_by, created_by
                          VALUES (%s, %s, %s, %s)''', (space_id, created_by, created_by_name, 'owner'))
         
         conn.commit()
+        logger.info(f"✅ Пространство успешно создано: ID {space_id}")
         return space_id, invite_code
+        
     except Exception as e:
         logger.error(f"❌ Ошибка создания пространства: {e}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        if conn:
+            conn.rollback()
         return None, None
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 def add_expense(user_id, user_name, amount, category, description="", space_id=None):
     """Добавление траты в базу"""
@@ -679,6 +959,69 @@ def remove_member_from_space(space_id, user_id, remover_id):
     except Exception as e:
         logger.error(f"❌ Error removing member: {e}")
         return False, "Ошибка при удалении"
+    finally:
+        conn.close()
+
+def set_user_budget(user_id, space_id, amount):
+    """Установка бюджета пользователя"""
+    conn = get_db_connection()
+    
+    try:
+        current_month = datetime.now().strftime('%Y-%m')
+        
+        if isinstance(conn, sqlite3.Connection):
+            c = conn.cursor()
+            # Проверяем, есть ли уже бюджет на этот месяц
+            c.execute('SELECT id FROM budgets WHERE user_id = ? AND space_id = ? AND month_year = ?', 
+                     (user_id, space_id, current_month))
+            existing = c.fetchone()
+            
+            if existing:
+                c.execute('UPDATE budgets SET amount = ? WHERE id = ?', (amount, existing[0]))
+            else:
+                c.execute('INSERT INTO budgets (user_id, space_id, amount, month_year) VALUES (?, ?, ?, ?)',
+                         (user_id, space_id, amount, current_month))
+        else:
+            c = conn.cursor()
+            c.execute('SELECT id FROM budgets WHERE user_id = %s AND space_id = %s AND month_year = %s', 
+                     (user_id, space_id, current_month))
+            existing = c.fetchone()
+            
+            if existing:
+                c.execute('UPDATE budgets SET amount = %s WHERE id = %s', (amount, existing[0]))
+            else:
+                c.execute('INSERT INTO budgets (user_id, space_id, amount, month_year) VALUES (%s, %s, %s, %s)',
+                         (user_id, space_id, amount, current_month))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error setting budget: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_user_budget(user_id, space_id):
+    """Получение бюджета пользователя"""
+    conn = get_db_connection()
+    
+    try:
+        current_month = datetime.now().strftime('%Y-%m')
+        
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT amount FROM budgets WHERE user_id = ? AND space_id = ? AND month_year = ?'''
+            df = pd.read_sql_query(query, conn, params=(user_id, space_id, current_month))
+        else:
+            query = '''SELECT amount FROM budgets WHERE user_id = %s AND space_id = %s AND month_year = %s'''
+            df = pd.read_sql_query(query, conn, params=(user_id, space_id, current_month))
+        
+        if not df.empty:
+            return float(df.iloc[0]['amount'])
+        else:
+            return 0
+    except Exception as e:
+        logger.error(f"❌ Error getting budget: {e}")
+        return 0
     finally:
         conn.close()
 
@@ -1062,16 +1405,9 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
 async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик фото чеков"""
+    """Обработчик фото чеков с улучшенным распознаванием"""
     try:
         user = update.effective_user
-        
-        # Проверяем доступность Tesseract
-        try:
-            import pytesseract
-            TESSERACT_AVAILABLE = True
-        except:
-            TESSERACT_AVAILABLE = False
         
         if not TESSERACT_AVAILABLE:
             await update.message.reply_text(
@@ -1098,55 +1434,69 @@ async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYP
             # Скачиваем файл
             await photo_file.download_to_drive(temp_path)
             
-            # Обрабатываем через Tesseract
-            image = Image.open(temp_path)
-            text = pytesseract.image_to_string(image, lang='rus+eng')
+            # Читаем байты для обработки
+            with open(temp_path, 'rb') as f:
+                photo_bytes = f.read()
             
-            if not text.strip():
+            logger.info(f"📷 Получено фото: {len(photo_bytes)} байт")
+            
+            # Обрабатываем чек с улучшенным распознаванием
+            receipt_data = await process_receipt_photo(photo_bytes)
+            
+            if receipt_data and receipt_data['total'] > 0:
+                # Улучшенное определение категории
+                store_name = receipt_data.get('store', '')
+                category = "Другое"
+                
+                if any(word in store_name.lower() for word in ['магазин', 'супермаркет', 'продукт']):
+                    category = "Продукты"
+                elif any(word in store_name.lower() for word in ['кафе', 'ресторан', 'кофе', 'столов']):
+                    category = "Кафе"
+                elif any(word in store_name.lower() for word in ['аптек', 'лекарств', 'медицин']):
+                    category = "Здоровье"
+                elif any(word in store_name.lower() for word in ['заправк', 'бензин', 'авто']):
+                    category = "Транспорт"
+                
+                description = f"Чек {store_name}".strip() if store_name else "Распознанный чек"
+                
+                response = f"""📸 **Чек распознан!**
+
+💸 **Сумма:** {receipt_data['total']} руб
+📂 **Категория:** {category}"""
+                
+                if store_name:
+                    response += f"\n🏪 **Магазин:** {store_name}"
+
+                await processing_msg.delete()
+                
+                # Спрашиваем подтверждение
+                confirm_keyboard = [
+                    ["✅ Да, сохранить", "❌ Отменить"]
+                ]
+                reply_markup = ReplyKeyboardMarkup(confirm_keyboard, resize_keyboard=True)
+                
+                await update.message.reply_text(
+                    response + "\n\nСохраняем трату?",
+                    reply_markup=reply_markup
+                )
+                
+                # Сохраняем данные для подтверждения
+                context.user_data['pending_receipt'] = {
+                    'amount': receipt_data['total'],
+                    'category': category,
+                    'description': description,
+                    'store': store_name
+                }
+                
+            else:
                 await processing_msg.edit_text(
                     "❌ Не удалось распознать чек.\n\n"
                     "💡 **Попробуйте:**\n"
                     "• Сфотографировать чек более четко\n"
                     "• Убедиться, что фото хорошо освещено\n"
-                    "• Или ввести данные вручную"
-                )
-                return
-            
-            # Простой парсинг чека
-            lines = text.split('\n')
-            total_amount = 0
-            
-            for line in lines:
-                # Ищем суммы
-                amounts = re.findall(r'(\d+[.,]\d+)', line)
-                for amount_str in amounts:
-                    try:
-                        amount = float(amount_str.replace(',', '.'))
-                        if 10 <= amount <= 100000 and amount > total_amount:
-                            total_amount = amount
-                    except:
-                        pass
-            
-            if total_amount > 0:
-                category = "Другое"
-                description = "Распознанный чек"
-                
-                space_id = ensure_user_has_personal_space(user.id, user.first_name)
-                add_expense(user.id, user.first_name, total_amount, category, description, space_id)
-                
-                response = f"""✅ **Трата из чека добавлена!**
-
-💁 **Кто:** {user.first_name}
-💸 **Сумма:** {total_amount} руб
-📂 **Категория:** {category}
-📝 **Комментарий:** {description}"""
-                
-                await processing_msg.delete()
-                await update.message.reply_text(response, reply_markup=get_main_keyboard())
-            else:
-                await processing_msg.edit_text(
-                    "❌ Не удалось распознать сумму в чеке.\n\n"
-                    "💡 Попробуйте сфотографировать более четко область с итоговой суммой."
+                    "• Сфотографировать только область с суммой\n"
+                    "• Или ввести данные вручную через форму",
+                    reply_markup=get_main_keyboard()
                 )
                 
         finally:
