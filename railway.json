@@ -4,7 +4,8 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "gunicorn bot:flask_app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120",
-    "restartPolicyType": "ON_FAILURE"
+    "startCommand": "python bot.py",
+    "restartPolicyType": "ON_FAILURE",
+    "numReplicas": 1
   }
 }
