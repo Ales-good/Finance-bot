@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-rus \
     tesseract-ocr-eng \
     ffmpeg \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Установка переменных окружения
