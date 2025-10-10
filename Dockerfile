@@ -19,9 +19,5 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Установка переменных окружения
-ENV FLASK_PORT=5000
-ENV PORT=5000
-
-# Запуск Flask API
-CMD ["python", "-m", "flask", "--app", "bot:flask_app", "run", "--host=0.0.0.0", "--port=5000"]
+# Запуск приложения
+CMD gunicorn bot:flask_app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
