@@ -97,12 +97,54 @@
             padding: 15px;
             background: #f8f9fa;
             border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         
         .buttons { 
             display: grid; 
             grid-template-columns: repeat(3, 1fr); 
             gap: 10px; 
+            margin-bottom: 10px;
+        }
+        
+        .currency-flags {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .flag {
+            width: 30px;
+            height: 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: border-color 0.3s;
+            background-size: cover;
+        }
+        
+        .flag.active {
+            border-color: #007aff;
+        }
+        
+        .flag.ru { 
+            background: linear-gradient(to bottom, white 33%, blue 33%, blue 66%, red 66%); 
+        }
+        .flag.by { 
+            background: linear-gradient(to bottom, #C83127 50%, #0D5B26 50%);
+        }
+        .flag.kz { 
+            background: blue;
+            position: relative;
+        }
+        .flag.kz::after {
+            content: "☀️";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 10px;
         }
         
         /* Пространства */
@@ -228,6 +270,23 @@
             border-radius: 8px;
             margin: 10px 0;
         }
+        
+        .budget-section {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .budget-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 5px;
+        }
+        
+        .budget-input input {
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -252,10 +311,15 @@
                     </select>
                 </div>
                 
-                <!-- Калькулятор -->
+                <!-- Калькулятор с валютами -->
                 <div class="calculator">
                     <div class="amount-display">
                         <span id="amountDisplay">0 ₽</span>
+                        <div class="currency-flags">
+                            <div class="flag ru active" onclick="setCurrency('RUB')" title="Российский рубль"></div>
+                            <div class="flag by" onclick="setCurrency('BYN')" title="Белорусский рубль"></div>
+                            <div class="flag kz" onclick="setCurrency('KZT')" title="Казахский тенге"></div>
+                        </div>
                     </div>
                     
                     <div class="buttons" id="calculatorButtons">
@@ -286,6 +350,24 @@
                 <div class="input-group">
                     <label>📝 Описание (необязательно)</label>
                     <textarea id="description" placeholder="Например: Обед в столовой" rows="2"></textarea>
+                </div>
+
+                <!-- Бюджет -->
+                <div class="budget-section">
+                    <label>💰 Бюджет на месяц</label>
+                    <div class="budget-input">
+                        <input type="number" id="monthlyBudget" placeholder="Введите бюджет" step="100" min="0">
+                        <button class="btn" onclick="setBudget()" style="padding: 10px;">💾 Сохранить</button>
+                    </div>
+                    <div id="budgetProgress" style="margin-top: 10px; display: none;">
+                        <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                            <span>Использовано: <span id="usedBudget">0</span></span>
+                            <span>Осталось: <span id="remainingBudget">0</span></span>
+                        </div>
+                        <div style="background: #e9ecef; border-radius: 10px; height: 8px; margin-top: 5px;">
+                            <div id="budgetBar" style="background: #34c759; height: 100%; border-radius: 10px; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                    </div>
                 </div>
                 
                 <button class="btn btn-success" onclick="submitExpense()">✅ Добавить трату</button>
@@ -346,6 +428,15 @@
                 <div class="member-list" id="membersList">
                     <div class="loading">Загрузка участников...</div>
                 </div>
+
+                <!-- Кнопка удаления участников для админов -->
+                <div id="adminControls" style="display: none; margin-top: 15px;">
+                    <h4>🔧 Управление участниками</h4>
+                    <select id="memberSelect" style="margin-bottom: 10px;">
+                        <option value="">Выберите участника для удаления</option>
+                    </select>
+                    <button class="btn btn-danger" onclick="removeMember()">🗑️ Удалить участника</button>
+                </div>
                 
                 <button class="btn btn-secondary" onclick="backToSpaces()">← Назад к списку</button>
             </div>
@@ -360,6 +451,13 @@
                     <label>🏠 Пространство для анализа</label>
                     <select id="analyticsSpaceSelect" onchange="loadAnalytics()">
                         <option value="">Загрузка...</option>
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label>👤 Фильтр по участникам</label>
+                    <select id="userFilter" onchange="loadAnalytics()">
+                        <option value="all">Все участники</option>
                     </select>
                 </div>
                 
@@ -377,16 +475,38 @@
         let userSpaces = [];
         let tg = window.Telegram.WebApp;
         
-        // Инициализация при загрузке
+        // Валюты и их настройки
+        const currencies = {
+            'RUB': {
+                symbol: '₽',
+                name: 'Российский рубль',
+                calculatorSteps: [100, 200, 500, 1000, 2000, 5000]
+            },
+            'BYN': {
+                symbol: 'Br',
+                name: 'Белорусский рубль',
+                calculatorSteps: [5, 10, 20, 50, 100, 200]
+            },
+            'KZT': {
+                symbol: '₸',
+                name: 'Казахский тенге',
+                calculatorSteps: [500, 1000, 2000, 5000, 10000, 20000]
+            }
+        };
+
+        let currentCurrency = 'RUB';
+        let monthlyBudget = parseInt(localStorage.getItem('monthlyBudget')) || 0;
+        
+        // Инициализация приложения
         tg.expand();
         tg.ready();
         
-        // Инициализация приложения
         async function initializeApp() {
             await loadUserSpaces();
             updateCalculatorButtons();
             loadSpacesList();
             loadAnalyticsSpaces();
+            loadBudget();
         }
         
         // Загрузка пространств пользователя
@@ -445,11 +565,24 @@
             return emojis[type] || '📁';
         }
         
-        // Калькулятор
-        function updateCalculatorButtons() {
-            const buttonsContainer = document.getElementById('calculatorButtons');
-            const steps = [100, 200, 500, 1000, 2000, 5000];
+        // Управление валютами
+        function setCurrency(currency) {
+            currentCurrency = currency;
             
+            // Обновляем флаги
+            document.querySelectorAll('.flag').forEach(flag => flag.classList.remove('active'));
+            document.querySelector(`.flag.${currency.toLowerCase().slice(0,2)}`).classList.add('active');
+            
+            // Обновляем отображение суммы
+            updateDisplay();
+            
+            // Обновляем кнопки калькулятора
+            updateCalculatorButtons();
+        }
+        
+        function updateCalculatorButtons() {
+            const steps = currencies[currentCurrency].calculatorSteps;
+            const buttonsContainer = document.getElementById('calculatorButtons');
             buttonsContainer.innerHTML = '';
             
             steps.forEach(step => {
@@ -472,7 +605,9 @@
         }
         
         function updateDisplay() {
-            document.getElementById('amountDisplay').textContent = `${currentAmount.toLocaleString('ru-RU')} ₽`;
+            const formatted = currentAmount.toLocaleString('ru-RU');
+            document.getElementById('amountDisplay').textContent = 
+                `${formatted} ${currencies[currentCurrency].symbol}`;
         }
         
         // Управление вкладками
@@ -567,6 +702,15 @@
                 if (response.ok) {
                     const data = await response.json();
                     displayMembers(data.members);
+                    
+                    // Проверяем права администратора
+                    const user = get_user_from_init_data(tg.initData);
+                    const isAdmin = data.members.some(m => m.user_id === user.id && (m.role === 'owner' || m.role === 'admin'));
+                    
+                    if (isAdmin) {
+                        document.getElementById('adminControls').style.display = 'block';
+                        updateMemberSelect(data.members, user.id);
+                    }
                 }
             } catch (error) {
                 console.error('Error loading members:', error);
@@ -592,6 +736,63 @@
                     </div>
                 </div>
             `).join('');
+        }
+        
+        function updateMemberSelect(members, currentUserId) {
+            const select = document.getElementById('memberSelect');
+            select.innerHTML = '<option value="">Выберите участника для удаления</option>';
+            
+            members.forEach(member => {
+                // Не позволяем удалять себя и владельцев
+                if (member.user_id !== currentUserId && member.role !== 'owner') {
+                    const option = document.createElement('option');
+                    option.value = member.user_id;
+                    option.textContent = `${member.user_name} (${member.role})`;
+                    select.appendChild(option);
+                }
+            });
+        }
+        
+        async function removeMember() {
+            const memberSelect = document.getElementById('memberSelect');
+            const memberId = memberSelect.value;
+            
+            if (!memberId) {
+                showError('Выберите участника для удаления');
+                return;
+            }
+            
+            if (!confirm('Вы уверены, что хотите удалить этого участника?')) {
+                return;
+            }
+            
+            try {
+                const spaceId = currentSpaceId;
+                const response = await fetch('/remove_member', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        memberId: memberId
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        showSuccess('Участник удален');
+                        loadSpaceMembers(spaceId);
+                    } else {
+                        showError(data.error);
+                    }
+                }
+            } catch (error) {
+                console.error('Error removing member:', error);
+                showError('Ошибка удаления участника');
+            }
         }
         
         function showCreateSpaceForm() {
@@ -636,9 +837,12 @@
                         await loadUserSpaces();
                         hideCreateSpaceForm();
                         showTab('spaces');
+                        showSuccess('Пространство успешно создано!');
                     } else {
                         showError(data.error || 'Ошибка создания');
                     }
+                } else {
+                    showError('Ошибка сервера при создании пространства');
                 }
             } catch (error) {
                 console.error('Error creating space:', error);
@@ -688,6 +892,8 @@
         
         async function loadAnalytics() {
             const spaceId = document.getElementById('analyticsSpaceSelect').value;
+            const userId = document.getElementById('userFilter').value;
+            
             if (!spaceId) return;
             
             const container = document.getElementById('analyticsContent');
@@ -701,18 +907,34 @@
                     },
                     body: JSON.stringify({
                         initData: tg.initData,
-                        spaceId: spaceId
+                        spaceId: spaceId,
+                        userId: userId !== 'all' ? userId : null
                     })
                 });
                 
                 if (response.ok) {
                     const data = await response.json();
                     displayAnalytics(data);
+                    
+                    // Обновляем фильтр пользователей
+                    updateUserFilter(data.users || []);
                 }
             } catch (error) {
                 console.error('Error loading analytics:', error);
                 container.innerHTML = '<div class="error">Ошибка загрузки аналитики</div>';
             }
+        }
+        
+        function updateUserFilter(users) {
+            const filter = document.getElementById('userFilter');
+            filter.innerHTML = '<option value="all">Все участники</option>';
+            
+            users.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user.id;
+                option.textContent = user.name;
+                filter.appendChild(option);
+            });
         }
         
         function displayAnalytics(data) {
@@ -780,6 +1002,49 @@
             });
         }
         
+        // Управление бюджетом
+        function setBudget() {
+            const budgetInput = document.getElementById('monthlyBudget');
+            monthlyBudget = parseInt(budgetInput.value) || 0;
+            
+            if (monthlyBudget > 0) {
+                localStorage.setItem('monthlyBudget', monthlyBudget.toString());
+                loadBudget();
+                showSuccess('Бюджет сохранен!');
+            } else {
+                showError('Введите корректную сумму бюджета');
+            }
+        }
+        
+        function loadBudget() {
+            const budgetInput = document.getElementById('monthlyBudget');
+            budgetInput.value = monthlyBudget;
+            
+            if (monthlyBudget > 0) {
+                document.getElementById('budgetProgress').style.display = 'block';
+                
+                // Здесь будет расчет потраченной суммы
+                const spentAmount = 12500; // Пример
+                const remaining = Math.max(0, monthlyBudget - spentAmount);
+                const percentage = Math.min(100, (spentAmount / monthlyBudget) * 100);
+                
+                document.getElementById('usedBudget').textContent = spentAmount.toLocaleString('ru-RU') + ' ₽';
+                document.getElementById('remainingBudget').textContent = remaining.toLocaleString('ru-RU') + ' ₽';
+                document.getElementById('budgetBar').style.width = percentage + '%';
+                
+                // Меняем цвет в зависимости от использования
+                if (percentage > 90) {
+                    document.getElementById('budgetBar').style.background = '#ff3b30';
+                } else if (percentage > 70) {
+                    document.getElementById('budgetBar').style.background = '#ff9500';
+                } else {
+                    document.getElementById('budgetBar').style.background = '#34c759';
+                }
+            } else {
+                document.getElementById('budgetProgress').style.display = 'none';
+            }
+        }
+        
         // Добавление траты
         async function submitExpense() {
             if (currentAmount <= 0) {
@@ -824,6 +1089,9 @@
                         currentAmount = 0;
                         updateDisplay();
                         document.getElementById('description').value = '';
+                        
+                        // Обновляем бюджет
+                        loadBudget();
                     } else {
                         showError(data.error || 'Ошибка добавления');
                     }
@@ -849,6 +1117,19 @@
                 message: message,
                 buttons: [{ type: 'ok' }]
             });
+        }
+        
+        function get_user_from_init_data(initData) {
+            try {
+                const params = new URLSearchParams(initData);
+                const userStr = params.get('user');
+                if (userStr) {
+                    return JSON.parse(decodeURIComponent(userStr));
+                }
+            } catch (e) {
+                console.error('Error parsing user data:', e);
+            }
+            return null;
         }
         
         // Инициализация при загрузке
