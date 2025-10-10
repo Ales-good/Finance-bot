@@ -19,6 +19,8 @@ import logging
 from flask import Flask, request, jsonify
 import random
 import string
+import threading
+import asyncio
 
 # Настройка логирования
 logging.basicConfig(
@@ -29,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 # Flask app для API
 flask_app = Flask(__name__)
+
+# Глобальные переменные
+bot_instance = None
+application = None
 
 # ===== НАСТРОЙКА БАЗЫ ДАННЫХ =====
 def get_db_connection():
@@ -301,7 +307,7 @@ def parse_receipt_text(text):
             if any(keyword in line_clean for keyword in store_keywords):
                 # Берем первую строку с ключевым словом как название магазина
                 receipt_data['store'] = line.strip()[:50]  # Ограничиваем длину
-                logger.info(f"🏪 Найден магазин: {receipt_data['store']}")
+                logger.info(f"🏪 Найден магазин: {rece_data['store']}")
             
             # Альтернативный поиск - строки в верхнем регистре (часто это названия)
             if line.strip().isupper() and len(line.strip()) > 3 and len(line.strip()) < 30:
@@ -874,37 +880,91 @@ def create_financial_space(name, description, space_type, created_by, created_by
                          VALUES (%s, %s, %s, %s)''', (space_id, created_by, created_by_name, 'owner'))
         
         conn.commit()
-        logger.info(f"✅ Пространство создано успешно: ID={space_id}")
+        logger.info(f"✅ Пространство успешно создано: ID {space_id}")
         return space_id, invite_code
+        
     except Exception as e:
-        logger.error(f"❌ Ошибка создания финансового пространства: {e}")
+        logger.error(f"❌ Ошибка создания пространства: {e}")
         import traceback
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        if conn:
+            conn.rollback()
         return None, None
+    finally:
+        if conn:
+            conn.close()
+
+def add_expense(user_id, user_name, amount, category, description="", space_id=None):
+    """Добавление траты в базу"""
+    try:
+        if space_id is None:
+            space_id = ensure_user_has_personal_space(user_id, user_name)
+        
+        logger.info(f"💾 Сохраняем в базу: {user_name} - {amount} руб - {category} - space: {space_id}")
+        
+        conn = get_db_connection()
+        c = conn.cursor()
+        
+        if isinstance(conn, sqlite3.Connection):
+            c.execute('''INSERT INTO expenses (user_id, user_name, amount, category, description, space_id)
+                         VALUES (?, ?, ?, ?, ?, ?)''',
+                      (user_id, user_name, amount, category, description, space_id))
+        else:
+            c.execute('''INSERT INTO expenses (user_id, user_name, amount, category, description, space_id)
+                         VALUES (%s, %s, %s, %s, %s, %s)''',
+                      (user_id, user_name, amount, category, description, space_id))
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"✅ Добавлена трата: {user_name} - {amount} руб - {category} - space: {space_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при сохранении в базу: {str(e)}")
+
+def ensure_user_has_personal_space(user_id, user_name):
+    """Гарантирует, что у пользователя есть личное пространство"""
+    conn = get_db_connection()
+    
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT fs.id FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = ? AND fs.space_type = 'personal' AND fs.is_active = TRUE'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            query = '''SELECT fs.id FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = %s AND fs.space_type = 'personal' AND fs.is_active = TRUE'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        
+        if not df.empty:
+            return df.iloc[0]['id']
+        else:
+            return create_personal_space(user_id, user_name)
+            
+    except Exception as e:
+        logger.error(f"❌ Error ensuring personal space: {e}")
+        return create_personal_space(user_id, user_name)
     finally:
         conn.close()
 
-def add_expense(user_id, user_name, amount, category, description, space_id):
-    """Добавление траты"""
+def remove_member_from_space(space_id, user_id, remover_id):
+    """Удаление участника из пространства"""
     conn = get_db_connection()
     
     try:
         if isinstance(conn, sqlite3.Connection):
             c = conn.cursor()
-            c.execute('''INSERT INTO expenses (user_id, user_name, space_id, amount, category, description)
-                         VALUES (?, ?, ?, ?, ?, ?)''', 
-                     (user_id, user_name, space_id, amount, category, description))
+            c.execute('DELETE FROM space_members WHERE space_id = ? AND user_id = ?', (space_id, user_id))
         else:
             c = conn.cursor()
-            c.execute('''INSERT INTO expenses (user_id, user_name, space_id, amount, category, description)
-                         VALUES (%s, %s, %s, %s, %s, %s)''', 
-                     (user_id, user_name, space_id, amount, category, description))
+            c.execute('DELETE FROM space_members WHERE space_id = %s AND user_id = %s', (space_id, user_id))
         
         conn.commit()
-        return True
+        return True, "Участник удален"
     except Exception as e:
-        logger.error(f"❌ Ошибка добавления траты: {e}")
-        return False
+        logger.error(f"❌ Error removing member: {e}")
+        return False, "Ошибка при удалении"
     finally:
         conn.close()
 
@@ -913,25 +973,36 @@ def set_user_budget(user_id, space_id, amount):
     conn = get_db_connection()
     
     try:
-        month_year = datetime.now().strftime('%Y-%m')
+        current_month = datetime.now().strftime('%Y-%m')
         
         if isinstance(conn, sqlite3.Connection):
             c = conn.cursor()
-            c.execute('''INSERT OR REPLACE INTO budgets (user_id, space_id, amount, month_year)
-                         VALUES (?, ?, ?, ?)''', 
-                     (user_id, space_id, amount, month_year))
+            # Проверяем, есть ли уже бюджет на этот месяц
+            c.execute('SELECT id FROM budgets WHERE user_id = ? AND space_id = ? AND month_year = ?', 
+                     (user_id, space_id, current_month))
+            existing = c.fetchone()
+            
+            if existing:
+                c.execute('UPDATE budgets SET amount = ? WHERE id = ?', (amount, existing[0]))
+            else:
+                c.execute('INSERT INTO budgets (user_id, space_id, amount, month_year) VALUES (?, ?, ?, ?)',
+                         (user_id, space_id, amount, current_month))
         else:
             c = conn.cursor()
-            c.execute('''INSERT INTO budgets (user_id, space_id, amount, month_year)
-                         VALUES (%s, %s, %s, %s)
-                         ON CONFLICT (user_id, space_id, month_year) 
-                         DO UPDATE SET amount = EXCLUDED.amount''', 
-                     (user_id, space_id, amount, month_year))
+            c.execute('SELECT id FROM budgets WHERE user_id = %s AND space_id = %s AND month_year = %s', 
+                     (user_id, space_id, current_month))
+            existing = c.fetchone()
+            
+            if existing:
+                c.execute('UPDATE budgets SET amount = %s WHERE id = %s', (amount, existing[0]))
+            else:
+                c.execute('INSERT INTO budgets (user_id, space_id, amount, month_year) VALUES (%s, %s, %s, %s)',
+                         (user_id, space_id, amount, current_month))
         
         conn.commit()
         return True
     except Exception as e:
-        logger.error(f"❌ Ошибка установки бюджета: {e}")
+        logger.error(f"❌ Error setting budget: {e}")
         return False
     finally:
         conn.close()
@@ -941,213 +1012,559 @@ def get_user_budget(user_id, space_id):
     conn = get_db_connection()
     
     try:
-        month_year = datetime.now().strftime('%Y-%m')
+        current_month = datetime.now().strftime('%Y-%m')
         
         if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT amount FROM budgets 
-                       WHERE user_id = ? AND space_id = ? AND month_year = ?'''
-            df = pd.read_sql_query(query, conn, params=(user_id, space_id, month_year))
+            query = '''SELECT amount FROM budgets WHERE user_id = ? AND space_id = ? AND month_year = ?'''
+            df = pd.read_sql_query(query, conn, params=(user_id, space_id, current_month))
         else:
-            query = '''SELECT amount FROM budgets 
-                       WHERE user_id = %s AND space_id = %s AND month_year = %s'''
-            df = pd.read_sql_query(query, conn, params=(user_id, space_id, month_year))
+            query = '''SELECT amount FROM budgets WHERE user_id = %s AND space_id = %s AND month_year = %s'''
+            df = pd.read_sql_query(query, conn, params=(user_id, space_id, current_month))
         
         if not df.empty:
             return float(df.iloc[0]['amount'])
-        return None
-    except Exception as e:
-        logger.error(f"❌ Ошибка получения бюджета: {e}")
-        return None
-    finally:
-        conn.close()
-
-def remove_member_from_space(space_id, member_id, current_user_id):
-    """Удаление участника из пространства"""
-    conn = get_db_connection()
-    
-    try:
-        # Проверяем, что текущий пользователь имеет права
-        if not is_user_admin_in_space(current_user_id, space_id):
-            return False, "Недостаточно прав"
-        
-        # Нельзя удалить владельца
-        if isinstance(conn, sqlite3.Connection):
-            c = conn.cursor()
-            c.execute('''SELECT role FROM space_members WHERE space_id = ? AND user_id = ?''', (space_id, member_id))
-            result = c.fetchone()
-            
-            if result and result[0] == 'owner':
-                return False, "Нельзя удалить владельца пространства"
-            
-            c.execute('''DELETE FROM space_members WHERE space_id = ? AND user_id = ?''', (space_id, member_id))
         else:
-            c = conn.cursor()
-            c.execute('''SELECT role FROM space_members WHERE space_id = %s AND user_id = %s''', (space_id, member_id))
-            result = c.fetchone()
-            
-            if result and result[0] == 'owner':
-                return False, "Нельзя удалить владельца пространства"
-            
-            c.execute('''DELETE FROM space_members WHERE space_id = %s AND user_id = %s''', (space_id, member_id))
-        
-        conn.commit()
-        return True, "Участник удален"
+            return 0
     except Exception as e:
-        logger.error(f"❌ Ошибка удаления участника: {e}")
-        return False, str(e)
+        logger.error(f"❌ Error getting budget: {e}")
+        return 0
     finally:
         conn.close()
 
-# ===== TELEGRAM BOT HANDLERS =====
+# ===== ОСНОВНЫЕ ФУНКЦИИ БОТА =====
+def get_main_keyboard():
+    """Основная клавиатура для навигации в WebApp"""
+    web_app_url = os.environ.get('WEB_APP_URL', 'https://your-app-url.com')
+    
+    keyboard = [
+        [KeyboardButton("💸 Открыть форму", web_app=WebAppInfo(url=web_app_url))],
+        [KeyboardButton("📊 Статистика"), KeyboardButton("📝 Последние траты")],
+        [KeyboardButton("🆘 Помощь"), KeyboardButton("🗑️ Очистить данные")]
+    ]
+    
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
     user = update.effective_user
-    logger.info(f"👋 Пользователь {user.first_name} (ID: {user.id}) запустил бота")
     
-    # Проверяем и создаем личное пространство если нужно
-    conn = get_db_connection()
+    # Гарантируем, что у пользователя есть личное пространство
+    ensure_user_has_personal_space(user.id, user.first_name)
     
+    welcome_text = f"""
+Привет, {user.first_name}! 👋
+
+Я бот для учета финансов 💰 с **полноценным Web-интерфейсом**!
+
+🚀 **Основные возможности:**
+• 💸 **Удобное добавление трат** через Web-форму
+• 🏠 **Управление пространствами** - личные, семейные, публичные
+• 👥 **Совместные бюджеты** с друзьями и семьей  
+• 📊 **Детальная аналитика** с графиками
+• 📸 **Распознавание чеков** и 🎤 **голосовой ввод**
+
+💡 **Нажмите «💸 Открыть форму» для доступа ко всем функциям!**
+"""
+    
+    await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
+
+async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Быстрая статистика через бота"""
     try:
+        user = update.effective_user
+        space_id = ensure_user_has_personal_space(user.id, user.first_name)
+        
+        conn = get_db_connection()
+        
         if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT 1 FROM space_members WHERE user_id = ?'''
-            df = pd.read_sql_query(query, conn, params=(user.id,))
+            df = pd.read_sql_query(f'''
+                SELECT category, SUM(amount) as total
+                FROM expenses 
+                WHERE user_id = {user.id} AND space_id = {space_id}
+                GROUP BY category 
+                ORDER BY total DESC
+                LIMIT 5
+            ''', conn)
         else:
-            query = '''SELECT 1 FROM space_members WHERE user_id = %s'''
-            df = pd.read_sql_query(query, conn, params=(user.id,))
+            df = pd.read_sql_query(f'''
+                SELECT category, SUM(amount) as total
+                FROM expenses 
+                WHERE user_id = {user.id} AND space_id = {space_id}
+                GROUP BY category 
+                ORDER BY total DESC
+                LIMIT 5
+            ''', conn)
+        
+        conn.close()
         
         if df.empty:
-            create_personal_space(user.id, user.first_name)
-            logger.info(f"✅ Создано личное пространство для пользователя {user.id}")
+            await update.message.reply_text(
+                "📊 Пока нет данных для статистики.\n\n"
+                "💡 Откройте Web-форму для детальной аналитики!",
+                reply_markup=get_main_keyboard()
+            )
+            return
+        
+        total_spent = df['total'].sum()
+        stats_text = f"📊 **Быстрая статистика**\n\n💰 **Всего потрачено:** {total_spent:,.0f} руб\n\n**Топ категории:**\n"
+        
+        for _, row in df.iterrows():
+            percentage = (row['total'] / total_spent) * 100
+            stats_text += f"• {row['category']}: {row['total']:,.0f} руб ({percentage:.1f}%)\n"
+        
+        stats_text += "\n💡 **Для детальной аналитики откройте Web-форму!**"
+        
+        await update.message.reply_text(stats_text, reply_markup=get_main_keyboard())
+        
     except Exception as e:
-        logger.error(f"❌ Ошибка проверки личного пространства: {e}")
-    finally:
-        conn.close()
-    
-    # Создаем клавиатуру с WebApp кнопкой
-    keyboard = [
-        [KeyboardButton("📱 Открыть приложение", web_app=WebAppInfo(url=f"https://{os.environ.get('RAILWAY_STATIC_URL', 'your-domain.railway.app')}"))],
-        [KeyboardButton("➕ Добавить трату"), KeyboardButton("📊 Статистика")],
-        [KeyboardButton("👥 Мои пространства"), KeyboardButton("🔗 Присоединиться")]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    welcome_text = (
-        f"Привет, {user.first_name}! 👋\n\n"
-        "Я помогу тебе управлять финансами:\n"
-        "• 📱 Открыть веб-приложение для полного функционала\n"
-        "• ➕ Добавлять траты\n" 
-        "• 📊 Смотреть статистику\n"
-        "• 👥 Создавать совместные пространства\n\n"
-        "Нажми кнопку ниже, чтобы открыть приложение! 📱"
-    )
-    
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик текстовых сообщений"""
-    text = update.message.text
-    user = update.effective_user
-    
-    if text == "➕ Добавить трату":
-        await update.message.reply_text("Используйте веб-приложение для удобного добавления трат! 📱\n\nНажмите кнопку '📱 Открыть приложение'")
-    
-    elif text == "📊 Статистика":
-        await update.message.reply_text("Вся статистика доступна в веб-приложении! 📊\n\nНажмите кнопку '📱 Открыть приложение'")
-    
-    elif text == "👥 Мои пространства":
-        await update.message.reply_text("Управление пространствами в веб-приложении! 👥\n\nНажмите кнопку '📱 Открыть приложение'")
-    
-    elif text == "🔗 Присоединиться":
-        await update.message.reply_text("Для присоединения к пространству используйте веб-приложение или получите пригласительный код от администратора! 🔗")
-    
-    else:
-        await update.message.reply_text("Используйте кнопки ниже или откройте веб-приложение для полного функционала! 📱")
-
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик фото (для распознавания чеков)"""
-    user = update.effective_user
-    
-    if not TESSERACT_AVAILABLE:
+        logger.error(f"❌ Ошибка статистики: {str(e)}")
         await update.message.reply_text(
-            "❌ Распознавание чеков временно недоступно. "
-            "Пожалуйста, введите трату вручную через веб-приложение."
+            "❌ Ошибка при формировании статистики. Попробуйте открыть Web-форму.",
+            reply_markup=get_main_keyboard()
         )
-        return
-    
-    await update.message.reply_text("🔍 Обрабатываю фото чека...")
+
+async def show_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Последние траты"""
+    try:
+        user = update.effective_user
+        space_id = ensure_user_has_personal_space(user.id, user.first_name)
+        
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            df = pd.read_sql_query(f'''
+                SELECT amount, category, description, date
+                FROM expenses 
+                WHERE user_id = {user.id} AND space_id = {space_id}
+                ORDER BY date DESC 
+                LIMIT 5
+            ''', conn)
+        else:
+            df = pd.read_sql_query(f'''
+                SELECT amount, category, description, date
+                FROM expenses 
+                WHERE user_id = {user.id} AND space_id = {space_id}
+                ORDER BY date DESC 
+                LIMIT 5
+            ''', conn)
+        
+        conn.close()
+        
+        if df.empty:
+            await update.message.reply_text(
+                "📝 Пока нет добавленных трат.\n\n"
+                "💡 Откройте Web-форму для удобного добавления!",
+                reply_markup=get_main_keyboard()
+            )
+            return
+        
+        list_text = "📝 **Последние траты:**\n\n"
+        
+        for _, row in df.iterrows():
+            date = datetime.strptime(str(row['date']), '%Y-%m-%d %H:%M:%S').strftime('%d.%m %H:%M')
+            list_text += f"💸 **{row['amount']} руб** - {row['category']}\n"
+            
+            if row['description']:
+                list_text += f"   📋 {row['description']}\n"
+            
+            list_text += f"   📅 {date}\n\n"
+        
+        list_text += "💡 **Откройте Web-форму для полной истории!**"
+        
+        await update.message.reply_text(list_text, parse_mode='Markdown', reply_markup=get_main_keyboard())
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка списка трат: {str(e)}")
+        await update.message.reply_text(
+            "❌ Ошибка при получении списка трат.",
+            reply_markup=get_main_keyboard()
+        )
+
+async def clear_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Очистка данных пользователя"""
+    user = update.effective_user
     
     try:
-        # Получаем фото
-        photo_file = await update.message.photo[-1].get_file()
-        photo_bytes = await photo_file.download_as_bytearray()
+        conn = get_db_connection()
         
-        # Обрабатываем чек
-        receipt_data = await process_receipt_photo(photo_bytes)
-        
-        if receipt_data and receipt_data['total'] > 0:
-            message = (
-                f"✅ Чек распознан!\n\n"
-                f"🏪 Магазин: {receipt_data['store'] or 'Не определено'}\n"
-                f"💰 Сумма: {receipt_data['total']:.2f} руб.\n\n"
-                f"Для добавления траты используйте веб-приложение 📱"
-            )
-            
-            # Сохраняем данные чека в контексте
-            context.user_data['last_receipt'] = receipt_data
-            
+        if isinstance(conn, sqlite3.Connection):
+            c = conn.cursor()
+            c.execute('DELETE FROM expenses WHERE user_id = ?', (user.id,))
         else:
-            message = (
-                "❌ Не удалось распознать сумму чека.\n\n"
-                "Пожалуйста, введите трату вручную через веб-приложение."
-            )
+            c = conn.cursor()
+            c.execute('DELETE FROM expenses WHERE user_id = %s', (user.id,))
         
-        await update.message.reply_text(message)
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text(
+            "✅ Все ваши данные успешно очищены!\n"
+            "Начинаем с чистого листа 🎯",
+            reply_markup=get_main_keyboard()
+        )
         
     except Exception as e:
-        logger.error(f"❌ Ошибка обработки фото: {e}")
+        logger.error(f"❌ Ошибка очистки данных: {str(e)}")
         await update.message.reply_text(
-            "❌ Произошла ошибка при обработке фото. "
-            "Пожалуйста, попробуйте еще раз или введите трату вручную."
+            f"❌ Ошибка при очистке данных: {str(e)}",
+            reply_markup=get_main_keyboard()
         )
 
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик голосовых сообщений"""
+async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """
+🆘 **ПОМОЩЬ**
+
+💡 **Основные команды:**
+• **💸 Открыть форму** - Полноценный Web-интерфейс со всеми функциями
+• **📊 Статистика** - Быстрая статистика в чате
+• **📝 Последние траты** - История операций
+
+🚀 **Что можно в Web-форме:**
+• Удобное добавление трат с калькулятором
+• Управление пространствами (личные, семейные, публичные)
+• Приглашение участников в группы
+• Детальная аналитика с графиками
+• Просмотр участников и управление
+
+🎯 **Быстрый ввод через бота:**
+• Текстом: `500 продукты` или `1500 кафе обед`
+• Голосовым сообщением
+• Фото чека (автораспознавание)
+
+💬 **Просто отправьте сумму и категорию текстом для быстрого добавления!**
+"""
+    await update.message.reply_text(help_text, reply_markup=get_main_keyboard())
+
+# ===== ОБРАБОТЧИКИ ТЕКСТА И МЕДИА =====
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик текстовых сообщений"""
     user = update.effective_user
-    await update.message.reply_text("🎤 Голосовые команды скоро будут доступны! Пока используйте текстовый ввод или веб-приложение.")
+    text = update.message.text
+    
+    logger.info(f"📨 Текст от {user.first_name}: {text}")
+    
+    # Обработка кнопок главного меню
+    if text == "📊 Статистика":
+        await show_stats(update, context)
+    elif text == "📝 Последние траты":
+        await show_list(update, context)
+    elif text == "🆘 Помощь":
+        await show_help(update, context)
+    elif text == "🗑️ Очистить данные":
+        await clear_data(update, context)
+    else:
+        # Попытка распознать текстовую трату
+        try:
+            parts = text.split()
+            if len(parts) >= 2:
+                amount = float(parts[0].replace(',', '.'))
+                category = parts[1].lower()
+                description = " ".join(parts[2:]) if len(parts) > 2 else ""
+                
+                space_id = ensure_user_has_personal_space(user.id, user.first_name)
+                add_expense(user.id, user.first_name, amount, category, description, space_id)
+                
+                response = f"""✅ **Трата добавлена!**
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик ошибок"""
-    logger.error(f"❌ Ошибка: {context.error}", exc_info=context.error)
+💁 **Кто:** {user.first_name}
+💸 **Сумма:** {amount} руб
+📂 **Категория:** {category}"""
+                
+                if description:
+                    response += f"\n📝 **Описание:** {description}"
+                    
+                await update.message.reply_text(response, reply_markup=get_main_keyboard())
+                return
+        except ValueError:
+            pass
+        
+        # Если не распознали - показываем помощь
+        await show_help(update, context)
 
-# ===== MAIN APPLICATION SETUP =====
+# ===== ОБРАБОТЧИКИ ГОЛОСА И ФОТО =====
+class VoiceRecognizer:
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+        self.recognizer.energy_threshold = 300
+        self.recognizer.pause_threshold = 0.8
+        self.recognizer.dynamic_energy_threshold = True
+        
+    async def transcribe_audio(self, audio_path):
+        """Транскрибируем аудио файл"""
+        try:
+            with sr.AudioFile(audio_path) as source:
+                audio = self.recognizer.record(source)
+                text = self.recognizer.recognize_google(audio, language='ru-RU')
+                return text
+        except sr.UnknownValueError:
+            return None
+        except Exception as e:
+            logger.error(f"❌ Ошибка распознавания голоса: {e}")
+            return None
+
+voice_recognizer = VoiceRecognizer()
+
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик голосовых сообщений"""
+    try:
+        user = update.effective_user
+        voice = update.message.voice
+        
+        processing_msg = await update.message.reply_text("🎤 Обрабатываю голосовое сообщение...")
+        
+        # Скачиваем голосовое сообщение
+        voice_file = await voice.get_file()
+        
+        # Создаем временный файл
+        with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as temp_file:
+            temp_path = temp_file.name
+        
+        try:
+            # Скачиваем файл
+            await voice_file.download_to_drive(temp_path)
+            
+            # Распознаем речь
+            text = await voice_recognizer.transcribe_audio(temp_path)
+            
+            if not text:
+                await processing_msg.edit_text(
+                    "❌ Не удалось распознать голосовое сообщение.\n\n"
+                    "💡 **Попробуйте:**\n"
+                    "• Говорить четче и ближе к микрофону\n"
+                    "• Использовать формат: '500 продукты'\n"
+                    "• Или ввести трату текстом"
+                )
+                return
+            
+            await processing_msg.edit_text(f"🎤 **Распознано:** _{text}_", parse_mode='Markdown')
+            
+            # Парсим текст
+            words = text.lower().split()
+            amount = None
+            category = "Другое"
+            
+            # Ищем сумму
+            for word in words:
+                cleaned_word = re.sub(r'[^\d]', '', word)
+                if cleaned_word:
+                    try:
+                        potential_amount = int(cleaned_word)
+                        if 10 <= potential_amount <= 100000:
+                            amount = potential_amount
+                            break
+                    except:
+                        pass
+            
+            # Определяем категорию
+            category_keywords = {
+                'Продукты': ['продукт', 'еда', 'магазин', 'супермаркет', 'покупк'],
+                'Кафе': ['кафе', 'ресторан', 'кофе', 'обед', 'ужин'],
+                'Транспорт': ['транспорт', 'такси', 'метро', 'автобус', 'бензин'],
+                'Дом': ['дом', 'квартир', 'коммунал', 'аренд'],
+                'Одежда': ['одежд', 'обув', 'шопинг'],
+                'Здоровье': ['здоров', 'аптек', 'врач', 'лекарств'],
+                'Развлечения': ['развлечен', 'кино', 'концерт', 'театр'],
+                'Подписки': ['подписк', 'интернет', 'телефон'],
+                'Маркетплейсы': ['wildberries', 'озон', 'яндекс маркет']
+            }
+            
+            for cat, keywords in category_keywords.items():
+                if any(keyword in text.lower() for keyword in keywords):
+                    category = cat
+                    break
+            
+            description = " ".join([w for w in words if not w.isdigit()])
+            
+            if amount:
+                space_id = ensure_user_has_personal_space(user.id, user.first_name)
+                add_expense(user.id, user.first_name, amount, category, description, space_id)
+                
+                response = f"""✅ **Голосовая трата добавлена!**
+
+💁 **Кто:** {user.first_name}
+💸 **Сумма:** {amount} руб
+📂 **Категория:** {category}"""
+                
+                if description:
+                    response += f"\n📝 **Комментарий:** {description}"
+                
+                await update.message.reply_text(response, reply_markup=get_main_keyboard())
+            else:
+                await update.message.reply_text(
+                    f"❌ Не удалось распознать сумму в сообщении: *{text}*\n\n"
+                    "💡 **Попробуйте сказать четче:**\n"
+                    "• '500 продукты'\n" 
+                    "• '1000 такси до работы'",
+                    parse_mode='Markdown',
+                    reply_markup=get_main_keyboard()
+                )
+                
+        finally:
+            # Удаляем временный файл
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки голосового сообщения: {str(e)}")
+        await update.message.reply_text(
+            "❌ Ошибка при обработке голоса. Попробуйте текстовый ввод.",
+            reply_markup=get_main_keyboard()
+        )
+
+async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик фото чеков с улучшенным распознаванием"""
+    try:
+        user = update.effective_user
+        
+        if not TESSERACT_AVAILABLE:
+            await update.message.reply_text(
+                "❌ Распознавание чеков временно недоступно.\n\n"
+                "💡 **Вы можете:**\n"
+                "• Ввести трату вручную через текстовый ввод\n"
+                "• Отправить голосовое сообщение\n"
+                "• Написать текстом: '500 продукты'",
+                reply_markup=get_main_keyboard()
+            )
+            return
+        
+        photo = update.message.photo[-1]
+        processing_msg = await update.message.reply_text("📸 Обрабатываю фото чека...")
+        
+        try:
+            # Скачиваем фото
+            photo_file = await photo.get_file()
+            
+            # Создаем временный файл
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                temp_path = temp_file.name
+            
+            # Скачиваем файл
+            await photo_file.download_to_drive(temp_path)
+            
+            # Читаем байты для обработки
+            with open(temp_path, 'rb') as f:
+                photo_bytes = f.read()
+            
+            logger.info(f"📷 Получено фото: {len(photo_bytes)} байт")
+            
+            # Обрабатываем чек с улучшенным распознаванием
+            receipt_data = await process_receipt_photo(photo_bytes)
+            
+            if receipt_data and receipt_data['total'] > 0:
+                # Улучшенное определение категории
+                store_name = receipt_data.get('store', '')
+                category = "Другое"
+                
+                if any(word in store_name.lower() for word in ['магазин', 'супермаркет', 'продукт']):
+                    category = "Продукты"
+                elif any(word in store_name.lower() for word in ['кафе', 'ресторан', 'кофе', 'столов']):
+                    category = "Кафе"
+                elif any(word in store_name.lower() for word in ['аптек', 'лекарств', 'медицин']):
+                    category = "Здоровье"
+                elif any(word in store_name.lower() for word in ['заправк', 'бензин', 'авто']):
+                    category = "Транспорт"
+                
+                description = f"Чек {store_name}".strip() if store_name else "Распознанный чек"
+                
+                response = f"""📸 **Чек распознан!**
+
+💸 **Сумма:** {receipt_data['total']} руб
+📂 **Категория:** {category}"""
+                
+                if store_name:
+                    response += f"\n🏪 **Магазин:** {store_name}"
+
+                await processing_msg.delete()
+                
+                # Спрашиваем подтверждение
+                confirm_keyboard = [
+                    ["✅ Да, сохранить", "❌ Отменить"]
+                ]
+                reply_markup = ReplyKeyboardMarkup(confirm_keyboard, resize_keyboard=True)
+                
+                await update.message.reply_text(
+                    response + "\n\nСохраняем трату?",
+                    reply_markup=reply_markup
+                )
+                
+                # Сохраняем данные для подтверждения
+                context.user_data['pending_receipt'] = {
+                    'amount': receipt_data['total'],
+                    'category': category,
+                    'description': description,
+                    'store': store_name
+                }
+                
+            else:
+                await processing_msg.edit_text(
+                    "❌ Не удалось распознать чек.\n\n"
+                    "💡 **Попробуйте:**\n"
+                    "• Сфотографировать чек более четко\n"
+                    "• Убедиться, что фото хорошо освещено\n"
+                    "• Сфотографировать только область с суммой\n"
+                    "• Или ввести данные вручную через форму",
+                    reply_markup=get_main_keyboard()
+                )
+                
+        finally:
+            # Удаляем временный файл
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки фото: {str(e)}")
+        try:
+            await processing_msg.delete()
+        except:
+            pass
+        await update.message.reply_text(
+            "❌ Ошибка при обработке фото. Попробуйте текстовый ввод.",
+            reply_markup=get_main_keyboard()
+        )
+
+# ===== ЗАПУСК ПРИЛОЖЕНИЯ =====
+def run_bot():
+    """Запуск Telegram бота в отдельном потоке"""
+    try:
+        # Создаем приложение бота
+        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        if not bot_token:
+            logger.error("❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения")
+            return
+        
+        global application
+        application = Application.builder().token(bot_token).build()
+        
+        # Добавляем обработчики
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
+        
+        logger.info("🤖 Бот запускается...")
+        application.run_polling()
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка запуска бота: {e}")
+
+def run_flask():
+    """Запуск Flask приложения"""
+    port = int(os.environ.get('PORT', 5000))
+    flask_app.run(host='0.0.0.0', port=port, debug=False)
+
 def main():
-    """Основная функция запуска приложения"""
+    """Основная функция запуска"""
     # Инициализация базы данных
     init_db()
     logger.info("✅ База данных инициализирована")
     
-    # Создаем приложение бота
-    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-    if not bot_token:
-        logger.error("❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения")
-        return
+    # Запускаем бота в отдельном потоке
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    logger.info("✅ Бот запущен в отдельном потоке")
     
-    application = Application.builder().token(bot_token).build()
-    
-    # Добавляем обработчики
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    application.add_error_handler(error_handler)
-    
-    logger.info("🤖 Бот запущен и готов к работе")
-    
-    # Запускаем бота (не в отдельном потоке!)
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Запускаем Flask (основной поток для Railway)
+    logger.info("🚀 Запускаем Flask приложение...")
+    run_flask()
 
-# Запуск Flask приложения для Railway
 if __name__ == "__main__":
-    # В Railway приложение запускается через gunicorn, поэтому просто инициализируем базу
-    init_db()
-    logger.info("🚀 Приложение запущено на Railway")
+    main()
