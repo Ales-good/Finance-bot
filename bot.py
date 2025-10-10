@@ -145,6 +145,224 @@ def init_db():
     conn.close()
     logger.info("✅ База данных с многоуровневой системой пространств инициализирована")
 
+# ===== TESSERACT OCR ИНИЦИАЛИЗАЦИЯ =====
+def check_tesseract_installation():
+    """Проверяем установлен ли Tesseract"""
+    try:
+        result = subprocess.run(['tesseract', '--version'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            logger.info("✅ Tesseract доступен в PATH")
+            return True
+        else:
+            logger.warning("❌ Tesseract не найден в PATH")
+            return False
+    except FileNotFoundError:
+        logger.warning("❌ Tesseract не установлен или не добавлен в PATH")
+        return False
+
+# Проверяем перед запуском
+logger.info("🔄 Проверяю Tesseract OCR...")
+TESSERACT_AVAILABLE = check_tesseract_installation()
+
+if TESSERACT_AVAILABLE:
+    try:
+        import pytesseract
+        # Настройка пути к Tesseract (для Windows)
+        if os.name == 'nt':  # Windows
+            possible_paths = [
+                r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+                r'C:\Users\*\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    pytesseract.pytesseract.tesseract_cmd = path
+                    break
+        
+        # Проверяем доступность
+        pytesseract.get_tesseract_version()
+        logger.info("✅ Tesseract OCR доступен")
+    except Exception as e:
+        TESSERACT_AVAILABLE = False
+        logger.warning(f"❌ Tesseract OCR недоступен: {e}")
+else:
+    logger.warning("⚠️ Tesseract не установлен. Распознавание чеков недоступно.")
+
+# ===== ГОЛОСОВОЕ РАСПОЗНАВАНИЕ =====
+class VoiceRecognizer:
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+        self.recognizer.energy_threshold = 300
+        self.recognizer.pause_threshold = 0.8
+        self.recognizer.dynamic_energy_threshold = True
+        
+        # Проверяем доступность Google Speech Recognition
+        self.google_available = True  # По умолчанию доступен
+        logger.info("✅ Голосовое распознавание инициализировано")
+    
+    async def transcribe_audio(self, audio_path):
+        """Транскрибируем аудио файл"""
+        logger.info(f"🎤 Распознаю аудио: {audio_path}")
+        
+        try:
+            with sr.AudioFile(audio_path) as source:
+                # Убираем шумы и настраиваем чувствительность
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                audio = self.recognizer.record(source)
+                
+                # Пробуем распознать через Google
+                try:
+                    text = self.recognizer.recognize_google(audio, language='ru-RU')
+                    logger.info(f"✅ Распознано: {text}")
+                    return text
+                except sr.UnknownValueError:
+                    logger.warning("❌ Не удалось распознать речь")
+                    return None
+                except sr.RequestError as e:
+                    logger.warning(f"❌ Ошибка Google Speech Recognition: {e}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки аудио: {e}")
+            return None
+
+# Инициализируем распознаватель голоса
+voice_recognizer = VoiceRecognizer()
+
+# ===== ПРОСТОЙ ML КЛАССИФИКАТОР =====
+class SimpleExpenseClassifier:
+    def __init__(self):
+        self.categories = ['Продукты', 'Кафе', 'Транспорт', 'Дом', 'Одежда', 'Здоровье', 'Развлечения', 'Подписки', 'Маркетплейсы', 'Другое']
+        logger.info("✅ Простой классификатор инициализирован")
+    
+    def predict_category(self, text):
+        """Простой rule-based классификатор категорий"""
+        if not text:
+            return "Другое", 0.0
+            
+        text_lower = text.lower()
+        
+        # Ключевые слова для каждой категории
+        keyword_categories = {
+            'Продукты': ['продукт', 'еда', 'магазин', 'супермаркет', 'покупк', 'молоко', 'хлеб', 'мясо', 'рыба', 'овощ', 'фрукт'],
+            'Кафе': ['кафе', 'ресторан', 'кофе', 'обед', 'ужин', 'завтрак', 'столов', 'бургер', 'пицц', 'суши'],
+            'Транспорт': ['транспорт', 'такси', 'метро', 'автобус', 'бензин', 'заправк', 'парковк', 'такса', 'uber', 'яндекс.такси'],
+            'Дом': ['дом', 'квартир', 'коммунал', 'аренд', 'ремонт', 'ипотек', 'мебель', 'бытов', 'техник'],
+            'Одежда': ['одежд', 'обув', 'шопинг', 'вещ', 'магазин', 'бренд', 'куртк', 'джинс', 'футболк'],
+            'Здоровье': ['здоров', 'аптек', 'врач', 'лекарств', 'больнич', 'стоматолог', 'поликлиник', 'анализ'],
+            'Развлечения': ['развлечен', 'кино', 'концерт', 'театр', 'клуб', 'бар', 'дискотек', 'караоке', 'билет'],
+            'Подписки': ['подписк', 'интернет', 'телефон', 'связ', 'мобильн', 'ютуб', 'нетфликс', 'спотифай', 'яндекс.плюс'],
+            'Маркетплейсы': ['wildberries', 'озон', 'яндекс маркет', 'алиэкспресс', 'маркетплейс', 'интернет-магазин'],
+        }
+        
+        scores = {}
+        for category, keywords in keyword_categories.items():
+            score = sum(1 for keyword in keywords if keyword in text_lower)
+            scores[category] = score
+        
+        best_category = max(scores, key=scores.get)
+        confidence = scores[best_category] / max(1, len(text_lower.split()))
+        
+        return best_category if scores[best_category] > 0 else "Другое", min(confidence, 1.0)
+
+# Инициализируем классификатор
+classifier = SimpleExpenseClassifier()
+
+# ===== УЛУЧШЕННОЕ РАСПОЗНАВАНИЕ ЧЕКОВ =====
+def parse_receipt_text(text):
+    """Улучшенный парсинг распознанного текста чека"""
+    logger.info("🔍 Анализирую текст чека...")
+    
+    lines = text.split('\n')
+    receipt_data = {
+        'total': 0,
+        'store': None,
+        'date': None,
+        'raw_text': text
+    }
+    
+    # Паттерны для поиска сумм
+    total_patterns = [
+        r'(?:итого|всего|сумма|к\s*оплате|total|итог)[^\d]*(\d+[.,]\d+)',
+        r'(\d+[.,]\d+)\s*(?:руб|р|₽|rur|rub|r|рублей)',
+        r'(?:чек|сумма)[^\d]*(\d+[.,]\d+)',
+        r'(?:цена|стоимость)[^\d]*(\d+[.,]\d+)',
+    ]
+    
+    # Поиск магазина
+    store_patterns = [
+        r'([А-ЯЁ][а-яё]+\s*[А-ЯЁ]?[а-яё]*\s*(?:магазин|супермаркет|торговый|центр))',
+        r'([А-ЯЁ][а-яё]+\s*[А-ЯЁ]?[а-яё]*)',
+    ]
+    
+    # Поиск по паттернам
+    for line in lines:
+        line_clean = re.sub(r'[^\w\s\d.,]', '', line.lower())
+        
+        # Поиск суммы
+        for pattern in total_patterns:
+            matches = re.findall(pattern, line_clean)
+            if matches:
+                try:
+                    amount_str = matches[-1].replace(',', '.')
+                    amount_str = re.sub(r'[^\d.]', '', amount_str)
+                    amount = float(amount_str)
+                    if 1 <= amount <= 100000 and amount > receipt_data['total']:
+                        receipt_data['total'] = amount
+                        logger.info(f"💰 Найдена сумма: {amount}")
+                        break
+                except ValueError:
+                    continue
+        
+        # Поиск магазина
+        if not receipt_data['store']:
+            for pattern in store_patterns:
+                matches = re.findall(pattern, line)
+                if matches:
+                    receipt_data['store'] = matches[0]
+                    logger.info(f"🏪 Найден магазин: {receipt_data['store']}")
+                    break
+    
+    return receipt_data
+
+async def process_receipt_photo(image_bytes):
+    """Обрабатываем фото чека через Tesseract"""
+    if not TESSERACT_AVAILABLE:
+        return None
+    
+    try:
+        logger.info("🔍 Распознаю чек через Tesseract...")
+        
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Улучшаем качество изображения
+        width, height = image.size
+        if width < 1000 or height < 1000:
+            new_size = (width * 2, height * 2)
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # Увеличиваем контрастность
+        image = image.convert('L')  # В grayscale
+        # Применяем фильтр для улучшения читаемости
+        from PIL import ImageEnhance
+        enhancer = ImageEnhance.Contrast(image)
+        image = enhancer.enhance(2.0)  # Увеличиваем контрастность
+        
+        # Распознаем текст
+        text = pytesseract.image_to_string(image, lang='rus+eng')
+        
+        if not text.strip():
+            logger.warning("❌ Не удалось распознать текст")
+            return None
+        
+        logger.info(f"✅ Распознано символов: {len(text)}")
+        logger.info(f"📄 Текст чека: {text[:200]}...")
+        return parse_receipt_text(text)
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки чека: {e}")
+        return None
+
 # ===== СИСТЕМА ПРОСТРАНСТВ =====
 def create_personal_space(user_id, user_name):
     """Создание личного пространства для нового пользователя"""
@@ -388,6 +606,184 @@ def ensure_user_has_personal_space(user_id, user_name):
     else:
         return personal_spaces.iloc[0]['id']
 
+# ===== ФУНКЦИИ УПРАВЛЕНИЯ УЧАСТНИКАМИ =====
+def remove_member_from_space(space_id, user_id, remover_id):
+    """Удаление участника из пространства"""
+    conn = get_db_connection()
+    
+    try:
+        # Проверяем права удаляющего
+        if isinstance(conn, sqlite3.Connection):
+            c = conn.cursor()
+            c.execute('SELECT role FROM space_members WHERE space_id = ? AND user_id = ?', (space_id, remover_id))
+            remover_role = c.fetchone()
+            
+            if not remover_role or remover_role[0] not in ['owner', 'admin']:
+                return False, "Недостаточно прав для удаления участников"
+            
+            # Не позволяем владельцу удалить себя
+            c.execute('SELECT role FROM space_members WHERE space_id = ? AND user_id = ?', (space_id, user_id))
+            target_role = c.fetchone()
+            
+            if target_role and target_role[0] == 'owner':
+                return False, "Нельзя удалить владельца пространства"
+            
+            # Удаляем участника
+            c.execute('DELETE FROM space_members WHERE space_id = ? AND user_id = ?', (space_id, user_id))
+        else:
+            c = conn.cursor()
+            c.execute('SELECT role FROM space_members WHERE space_id = %s AND user_id = %s', (space_id, remover_id))
+            remover_role = c.fetchone()
+            
+            if not remover_role or remover_role[0] not in ['owner', 'admin']:
+                return False, "Недостаточно прав для удаления участников"
+            
+            c.execute('SELECT role FROM space_members WHERE space_id = %s AND user_id = %s', (space_id, user_id))
+            target_role = c.fetchone()
+            
+            if target_role and target_role[0] == 'owner':
+                return False, "Нельзя удалить владельца пространства"
+            
+            c.execute('DELETE FROM space_members WHERE space_id = %s AND user_id = %s', (space_id, user_id))
+        
+        conn.commit()
+        return True, "Участник успешно удален"
+    except Exception as e:
+        logger.error(f"❌ Ошибка удаления участника: {e}")
+        return False, "Ошибка при удалении участника"
+    finally:
+        conn.close()
+
+def change_member_role(space_id, user_id, new_role, changer_id):
+    """Изменение роли участника"""
+    conn = get_db_connection()
+    
+    try:
+        # Проверяем права изменяющего
+        if isinstance(conn, sqlite3.Connection):
+            c = conn.cursor()
+            c.execute('SELECT role FROM space_members WHERE space_id = ? AND user_id = ?', (space_id, changer_id))
+            changer_role = c.fetchone()
+            
+            if not changer_role or changer_role[0] != 'owner':
+                return False, "Только владелец может изменять роли"
+            
+            # Не позволяем изменить роль владельца
+            if user_id == changer_id and new_role != 'owner':
+                return False, "Нельзя изменить свою роль владельца"
+            
+            c.execute('UPDATE space_members SET role = ? WHERE space_id = ? AND user_id = ?', 
+                     (new_role, space_id, user_id))
+        else:
+            c = conn.cursor()
+            c.execute('SELECT role FROM space_members WHERE space_id = %s AND user_id = %s', (space_id, changer_id))
+            changer_role = c.fetchone()
+            
+            if not changer_role or changer_role[0] != 'owner':
+                return False, "Только владелец может изменять роли"
+            
+            if user_id == changer_id and new_role != 'owner':
+                return False, "Нельзя изменить свою роль владельца"
+            
+            c.execute('UPDATE space_members SET role = %s WHERE space_id = %s AND user_id = %s', 
+                     (new_role, space_id, user_id))
+        
+        conn.commit()
+        return True, f"Роль изменена на {new_role}"
+    except Exception as e:
+        logger.error(f"❌ Ошибка изменения роли: {e}")
+        return False, "Ошибка при изменении роли"
+    finally:
+        conn.close()
+
+def leave_space(space_id, user_id):
+    """Выход пользователя из пространства"""
+    conn = get_db_connection()
+    
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            c = conn.cursor()
+            
+            # Проверяем, не является ли пользователь владельцем
+            c.execute('SELECT role FROM space_members WHERE space_id = ? AND user_id = ?', (space_id, user_id))
+            user_role = c.fetchone()
+            
+            if user_role and user_role[0] == 'owner':
+                # Если владелец - проверяем, есть ли другие участники
+                c.execute('SELECT COUNT(*) FROM space_members WHERE space_id = ? AND user_id != ?', (space_id, user_id))
+                other_members = c.fetchone()[0]
+                
+                if other_members > 0:
+                    return False, "Владелец не может покинуть пространство с другими участниками. Сначала передайте владение или удалите других участников."
+                else:
+                    # Если участников нет - удаляем пространство
+                    c.execute('DELETE FROM financial_spaces WHERE id = ?', (space_id,))
+            
+            c.execute('DELETE FROM space_members WHERE space_id = ? AND user_id = ?', (space_id, user_id))
+        else:
+            c = conn.cursor()
+            
+            c.execute('SELECT role FROM space_members WHERE space_id = %s AND user_id = %s', (space_id, user_id))
+            user_role = c.fetchone()
+            
+            if user_role and user_role[0] == 'owner':
+                c.execute('SELECT COUNT(*) FROM space_members WHERE space_id = %s AND user_id != %s', (space_id, user_id))
+                other_members = c.fetchone()[0]
+                
+                if other_members > 0:
+                    return False, "Владелец не может покинуть пространство с другими участниками"
+                else:
+                    c.execute('DELETE FROM financial_spaces WHERE id = %s', (space_id,))
+            
+            c.execute('DELETE FROM space_members WHERE space_id = %s AND user_id = %s', (space_id, user_id))
+        
+        conn.commit()
+        return True, "Вы вышли из пространства"
+    except Exception as e:
+        logger.error(f"❌ Ошибка выхода из пространства: {e}")
+        return False, "Ошибка при выходе из пространства"
+    finally:
+        conn.close()
+
+def get_detailed_space_members(space_id):
+    """Получение подробной информации об участниках пространства"""
+    conn = get_db_connection()
+    
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT sm.user_id, sm.user_name, sm.role, sm.joined_at,
+                              (SELECT COUNT(*) FROM expenses WHERE user_id = sm.user_id AND space_id = sm.space_id) as expense_count,
+                              (SELECT SUM(amount) FROM expenses WHERE user_id = sm.user_id AND space_id = sm.space_id) as total_spent
+                       FROM space_members sm
+                       WHERE sm.space_id = ?
+                       ORDER BY 
+                         CASE sm.role 
+                           WHEN 'owner' THEN 1 
+                           WHEN 'admin' THEN 2 
+                           ELSE 3 
+                         END, sm.joined_at'''
+            df = pd.read_sql_query(query, conn, params=(space_id,))
+        else:
+            query = '''SELECT sm.user_id, sm.user_name, sm.role, sm.joined_at,
+                              (SELECT COUNT(*) FROM expenses WHERE user_id = sm.user_id AND space_id = sm.space_id) as expense_count,
+                              (SELECT SUM(amount) FROM expenses WHERE user_id = sm.user_id AND space_id = sm.space_id) as total_spent
+                       FROM space_members sm
+                       WHERE sm.space_id = %s
+                       ORDER BY 
+                         CASE sm.role 
+                           WHEN 'owner' THEN 1 
+                           WHEN 'admin' THEN 2 
+                           ELSE 3 
+                         END, sm.joined_at'''
+            df = pd.read_sql_query(query, conn, params=(space_id,))
+        
+        return df
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения участников: {e}")
+        return pd.DataFrame()
+    finally:
+        conn.close()
+
 # ===== ОБНОВЛЕННАЯ ФУНКЦИЯ ДОБАВЛЕНИЯ ТРАТ =====
 def add_expense(user_id, user_name, amount, category, description="", space_id=None, visibility="full"):
     """Добавление траты в базу с поддержкой пространств"""
@@ -417,262 +813,6 @@ def add_expense(user_id, user_name, amount, category, description="", space_id=N
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении в базу: {str(e)}")
 
-# ===== TESSERACT OCR ИНИЦИАЛИЗАЦИЯ =====
-def check_tesseract_installation():
-    """Проверяем установлен ли Tesseract"""
-    try:
-        result = subprocess.run(['tesseract', '--version'], 
-                              capture_output=True, text=True)
-        if result.returncode == 0:
-            logger.info("✅ Tesseract доступен в PATH")
-            return True
-        else:
-            logger.warning("❌ Tesseract не найден в PATH")
-            return False
-    except FileNotFoundError:
-        logger.warning("❌ Tesseract не установлен или не добавлен в PATH")
-        return False
-
-# Проверяем перед запуском
-if not check_tesseract_installation():
-    logger.warning("⚠️ Установите Tesseract OCR и перезагрузите компьютер!")
-    logger.warning("📥 Скачайте с: https://github.com/UB-Mannheim/tesseract/wiki")
-    
-logger.info("🔄 Проверяю Tesseract OCR...")
-try:
-    import pytesseract
-    # Настройка пути к Tesseract (для Windows)
-    if os.name == 'nt':  # Windows
-        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    
-    # Проверяем доступность
-    pytesseract.get_tesseract_version()
-    TESSERACT_AVAILABLE = True
-    logger.info("✅ Tesseract OCR доступен")
-except Exception as e:
-    TESSERACT_AVAILABLE = False
-    logger.warning(f"❌ Tesseract OCR недоступен: {e}")
-
-# ===== ГОЛОСОВОЕ РАСПОЗНАВАНИЕ =====
-class VoiceRecognizer:
-    def __init__(self):
-        self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 300
-        self.recognizer.pause_threshold = 0.8
-        self.recognizer.dynamic_energy_threshold = True
-        
-        # Проверяем доступность Google Speech Recognition
-        try:
-            # Тестовый запрос
-            with sr.Microphone() as source:
-                self.recognizer.adjust_for_ambient_noise(source, duration=1)
-            self.google_available = True
-            logger.info("✅ Google Speech Recognition доступен")
-        except:
-            self.google_available = False
-            logger.warning("⚠️ Google Speech Recognition недоступен, будет использоваться Vosk")
-        
-        # Пробуем загрузить Vosk как резервный вариант
-        try:
-            import vosk
-            # Скачиваем модель если нужно
-            model_path = "vosk-model-small-ru-0.22"
-            if not os.path.exists(model_path):
-                logger.info("📥 Скачиваю модель Vosk...")
-                import urllib.request
-                import zipfile
-                url = "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip"
-                urllib.request.urlretrieve(url, "model.zip")
-                with zipfile.ZipFile("model.zip", 'r') as zip_ref:
-                    zip_ref.extractall(".")
-                os.remove("model.zip")
-            
-            self.vosk_model = vosk.Model(model_path)
-            self.vosk_available = True
-            logger.info("✅ Vosk распознавание доступен")
-        except Exception as e:
-            logger.warning(f"⚠️ Vosk недоступен: {e}")
-            self.vosk_available = False
-    
-    async def transcribe_audio(self, audio_path):
-        """Транскрибируем аудио файл"""
-        logger.info(f"🎤 Распознаю аудио: {audio_path}")
-        
-        # Сначала пробуем Google (самый точный)
-        if self.google_available:
-            try:
-                with sr.AudioFile(audio_path) as source:
-                    audio = self.recognizer.record(source)
-                    text = self.recognizer.recognize_google(audio, language='ru-RU')
-                    logger.info(f"✅ Google распознал: {text}")
-                    return text
-            except sr.UnknownValueError:
-                logger.warning("❌ Google не смог распознать аудио")
-            except sr.RequestError as e:
-                logger.warning(f"❌ Ошибка Google API: {e}")
-        
-        # Пробуем Vosk как резервный вариант
-        if self.vosk_available:
-            try:
-                return self._transcribe_with_vosk(audio_path)
-            except Exception as e:
-                logger.warning(f"❌ Ошибка Vosk: {e}")
-        
-        # Если ничего не работает, используем встроенное распознавание Telegram
-        return None
-    
-    def _transcribe_with_vosk(self, audio_path):
-        """Распознавание через Vosk"""
-        import wave
-        import json
-        import vosk
-        
-        # Конвертируем в WAV если нужно
-        wav_path = audio_path
-        if not audio_path.endswith('.wav'):
-            wav_path = audio_path.replace('.ogg', '.wav')
-            subprocess.run(['ffmpeg', '-i', audio_path, '-ar', '16000', '-ac', '1', '-y', wav_path], 
-                         capture_output=True)
-        
-        # Распознаем через Vosk
-        wf = wave.open(wav_path, 'rb')
-        rec = vosk.KaldiRecognizer(self.vosk_model, wf.getframerate())
-        
-        results = []
-        while True:
-            data = wf.readframes(4000)
-            if len(data) == 0:
-                break
-            if rec.AcceptWaveform(data):
-                result = json.loads(rec.Result())
-                if result['text']:
-                    results.append(result['text'])
-        
-        final_result = json.loads(rec.FinalResult())
-        if final_result['text']:
-            results.append(final_result['text'])
-        
-        wf.close()
-        
-        # Удаляем временный файл если создавали
-        if wav_path != audio_path and os.path.exists(wav_path):
-            os.remove(wav_path)
-        
-        text = ' '.join(results)
-        logger.info(f"✅ Vosk распознал: {text}")
-        return text if text.strip() else None
-
-# Инициализируем распознаватель голоса
-voice_recognizer = VoiceRecognizer()
-
-# ===== ПРОСТОЙ ML КЛАССИФИКАТОР =====
-class SimpleExpenseClassifier:
-    def __init__(self):
-        self.categories = ['Продукты', 'Кафе', 'Транспорт', 'Дом', 'Одежда', 'Здоровье', 'Развлечения', 'Подписки', 'Маркетплейсы', 'Другое']
-        logger.info("✅ Простой классификатор инициализирован")
-    
-    def predict_category(self, text):
-        """Простой rule-based классификатор категорий"""
-        if not text:
-            return "Другое", 0.0
-            
-        text_lower = text.lower()
-        
-        # Ключевые слова для каждой категории
-        keyword_categories = {
-            'Продукты': ['продукт', 'еда', 'магазин', 'супермаркет', 'покупк'],
-            'Кафе': ['кафе', 'ресторан', 'кофе', 'обед', 'ужин'],
-            'Транспорт': ['транспорт', 'такси', 'метро', 'автобус', 'бензин'],
-            'Дом': ['дом', 'квартир', 'коммунал', 'аренд', 'ремонт'],
-            'Одежда': ['одежд', 'обув', 'шопинг', 'вещ', 'магазин'],
-            'Здоровье': ['здоров', 'аптек', 'врач', 'лекарств', 'больнич'],
-            'Развлечения': ['развлечен', 'кино', 'концерт', 'театр', 'клуб'],
-            'Подписки': ['подписк', 'интернет', 'телефон', 'связ', 'мобильн'],
-            'Маркетплейсы': ['wildberries', 'озон', 'яндекс маркет', 'алиэкспресс'],
-        }
-        
-        scores = {}
-        for category, keywords in keyword_categories.items():
-            score = sum(1 for keyword in keywords if keyword in text_lower)
-            scores[category] = score
-        
-        best_category = max(scores, key=scores.get)
-        confidence = scores[best_category] / max(1, len(text_lower.split()))
-        
-        return best_category if scores[best_category] > 0 else "Другое", min(confidence, 1.0)
-
-# Инициализируем классификатор
-classifier = SimpleExpenseClassifier()
-
-# ===== УЛУЧШЕННОЕ РАСПОЗНАВАНИЕ ЧЕКОВ =====
-def parse_receipt_text(text):
-    """Улучшенный парсинг распознанного текста чека"""
-    logger.info("🔍 Анализирую текст чека...")
-    
-    lines = text.split('\n')
-    receipt_data = {
-        'total': 0,
-        'store': None,
-        'date': None,
-        'raw_text': text
-    }
-    
-    # Паттерны для поиска сумм
-    total_patterns = [
-        r'(?:итого|всего|сумма|к\s*оплате|total|итог)[^\d]*(\d+[.,]\d+)',
-        r'(\d+[.,]\d+)\s*(?:руб|р|₽|rur|rub|r|рублей)',
-    ]
-    
-    # Поиск по паттернам
-    for line in lines:
-        line_clean = re.sub(r'[^\w\s\d.,]', '', line.lower())
-        
-        for pattern in total_patterns:
-            matches = re.findall(pattern, line_clean)
-            if matches:
-                try:
-                    amount_str = matches[-1].replace(',', '.')
-                    amount_str = re.sub(r'[^\d.]', '', amount_str)
-                    amount = float(amount_str)
-                    if 1 <= amount <= 100000 and amount > receipt_data['total']:
-                        receipt_data['total'] = amount
-                        logger.info(f"💰 Найдена сумма: {amount}")
-                        break
-                except ValueError:
-                    continue
-    
-    return receipt_data
-
-async def process_receipt_photo(image_bytes):
-    """Обрабатываем фото чека через Tesseract"""
-    if not TESSERACT_AVAILABLE:
-        return None
-    
-    try:
-        logger.info("🔍 Распознаю чек через Tesseract...")
-        
-        image = Image.open(io.BytesIO(image_bytes))
-        
-        # Улучшаем качество изображения
-        width, height = image.size
-        if width < 1000 or height < 1000:
-            new_size = (width * 2, height * 2)
-            image = image.resize(new_size, Image.Resampling.LANCZOS)
-        
-        # Распознаем текст
-        text = pytesseract.image_to_string(image, lang='rus+eng')
-        
-        if not text.strip():
-            logger.warning("❌ Не удалось распознать текст")
-            return None
-        
-        logger.info(f"✅ Распознано символов: {len(text)}")
-        return parse_receipt_text(text)
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка обработки чека: {e}")
-        return None
-
 # ===== КЛАВИАТУРЫ =====
 def get_main_keyboard(user_id=None):
     """Основная клавиатура с учетом пространств"""
@@ -687,7 +827,8 @@ def get_main_keyboard(user_id=None):
     if has_multiple_spaces:
         keyboard = [
             [KeyboardButton("💸 Добавить трату", web_app=WebAppInfo(url=web_app_url))],
-            [KeyboardButton("🏠 Мои пространства"), KeyboardButton("➕ Создать пространство")],
+            [KeyboardButton("🏠 Мои пространства"), KeyboardButton("👥 Управление участниками")],
+            [KeyboardButton("➕ Создать пространство"), KeyboardButton("🔗 Пригласить")],
             [KeyboardButton("📊 Статистика"), KeyboardButton("📅 Статистика за месяц")],
             [KeyboardButton("📝 Последние траты"), KeyboardButton("📈 Выгрузить в Excel")],
             [KeyboardButton("🆘 Помощь")]
@@ -738,10 +879,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 🌐 **Публичные сообщества** - анонимная статистика
 
 💸 **Основные возможности:**
-• Удобная форма с калькулятором
-• Голосовой ввод и распознавание чеков  
-• Подробная статистика и аналитика
-• Выгрузка в Excel
+• 📸 **Распознавание чеков** - отправьте фото чека
+• 🎤 **Голосовой ввод** - говорите сумму и категорию
+• 📊 **Подробная статистика** и аналитика
+• 👥 **Совместные бюджеты** с друзьями и семьей
+• 📈 **Выгрузка в Excel**
 
 **🚀 Начните с создания своего первого пространства!**
 """
@@ -793,65 +935,86 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         
         # Скачиваем голосовое сообщение
         voice_file = await voice.get_file()
-        voice_bytes = await voice_file.download_as_bytearray()
         
-        # Сохраняем временно
+        # Создаем временный файл
         with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as temp_file:
-            temp_file.write(voice_bytes)
             temp_path = temp_file.name
         
         try:
+            # Скачиваем файл
+            await voice_file.download_to_drive(temp_path)
+            
             # Распознаем речь
             text = await voice_recognizer.transcribe_audio(temp_path)
             
             if not text:
-                await update.message.reply_text(
+                await processing_msg.edit_text(
                     "❌ Не удалось распознать голосовое сообщение.\n\n"
-                    "Попробуйте:\n"
-                    "• Говорить четче и громче\n"
-                    "• Использовать текстовый ввод",
-                    reply_markup=get_main_keyboard(user.id)
+                    "💡 **Попробуйте:**\n"
+                    "• Говорить четче и ближе к микрофону\n"
+                    "• Использовать формат: '500 продукты'\n"
+                    "• Или введите трату текстом"
                 )
                 return
             
-            await processing_msg.edit_text(f"🎤 Распознано: *{text}*", parse_mode='Markdown')
+            await processing_msg.edit_text(f"🎤 **Распознано:** _{text}_", parse_mode='Markdown')
             
-            # Простой парсинг текста
+            # Улучшенный парсинг текста
             words = text.lower().split()
             amount = None
             category = "Другое"
             description_words = []
             
-            for word in words:
-                # Пробуем извлечь сумму
-                try:
-                    if word.isdigit():
-                        potential_amount = int(word)
-                        if 1 <= potential_amount <= 100000:
+            # Сначала ищем сумму (может быть в начале или содержать руб/рублей)
+            for i, word in enumerate(words):
+                # Пробуем извлечь сумму из чисел
+                cleaned_word = re.sub(r'[^\d]', '', word)
+                if cleaned_word:
+                    try:
+                        potential_amount = int(cleaned_word)
+                        if 10 <= potential_amount <= 100000:  # Более реалистичный диапазон
                             amount = potential_amount
-                            continue
-                except:
-                    pass
-                
-                # Определяем категорию
-                if any(keyword in word for keyword in ['еда', 'продукт', 'магазин']):
-                    category = "Продукты"
-                elif any(keyword in word for keyword in ['кафе', 'ресторан', 'кофе']):
-                    category = "Кафе"
-                elif any(keyword in word for keyword in ['такси', 'транспорт', 'бензин']):
-                    category = "Транспорт"
-                else:
-                    description_words.append(word)
+                            # Если есть слова "рубль", "руб", "р" - это точно сумма
+                            if any(rub_word in word for rub_word in ['руб', 'р', '₽']):
+                                break
+                            # Если число в начале и достаточно большое - вероятно сумма
+                            elif i == 0 and potential_amount >= 50:
+                                break
+                    except:
+                        pass
+            
+            # Если сумму не нашли, пробуем найти в другом формате
+            if not amount:
+                # Ищем паттерны типа "пятьсот рублей"
+                number_words = {
+                    'сто': 100, 'двести': 200, 'триста': 300, 'четыреста': 400, 'пятьсот': 500,
+                    'шестьсот': 600, 'семьсот': 700, 'восемьсот': 800, 'девятьсот': 900,
+                    'тысяча': 1000, 'две тысячи': 2000, 'три тысячи': 3000, 'пять тысяч': 5000
+                }
+                for word, value in number_words.items():
+                    if word in text.lower():
+                        amount = value
+                        break
+            
+            # Определяем категорию
+            category, confidence = classifier.predict_category(text)
+            
+            # Формируем описание из оставшихся слов
+            for word in words:
+                if not word.isdigit() and word not in ['руб', 'рублей', 'р', '₽']:
+                    # Пропускаем стоп-слова
+                    if word not in ['на', 'за', 'в', 'для', 'купил', 'потратил', 'оплатил']:
+                        description_words.append(word)
+            
+            description = ' '.join(description_words) if description_words else "Голосовая трата"
             
             if amount:
-                description = ' '.join(description_words) if description_words else "Голосовая трата"
-                
                 preview_text = f"""🎤 **Голосовая трата распознана!**
 
 💸 **Сумма:** {amount} руб
 📂 **Категория:** {category}"""
                 
-                if description:
+                if description and description != "Голосовая трата":
                     preview_text += f"\n📝 **Комментарий:** {description}"
                 
                 await update.message.reply_text(
@@ -866,8 +1029,12 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 
             else:
                 await update.message.reply_text(
-                    f"❌ Не удалось распознать трату в тексте: *{text}*\n\n"
-                    "Попробуйте ввести вручную: `500 продукты`",
+                    f"❌ Не удалось распознать сумму в сообщении: *{text}*\n\n"
+                    "💡 **Попробуйте сказать четче:**\n"
+                    "• '500 продукты'\n" 
+                    "• '1000 такси до работы'\n"
+                    "• '250 кофе с круассаном'",
+                    parse_mode='Markdown',
                     reply_markup=get_main_keyboard(user.id)
                 )
                 
@@ -886,56 +1053,84 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
 # ===== ОБРАБОТЧИК ФОТО ЧЕКОВ =====
 async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        user = update.effective_user
+        
         if not TESSERACT_AVAILABLE:
             await update.message.reply_text(
-                "❌ Распознавание чеков недоступно.\n\n"
-                "Вы можете ввести трату вручную через форму или текстом.",
-                reply_markup=get_main_keyboard()
+                "❌ Распознавание чеков временно недоступно.\n\n"
+                "💡 **Вы можете:**\n"
+                "• Ввести трату вручную через форму\n"
+                "• Отправить голосовое сообщение\n"
+                "• Написать текстом: '500 продукты'",
+                reply_markup=get_main_keyboard(user.id)
             )
             return
         
-        user = update.effective_user
         photo = update.message.photo[-1]
         
         processing_msg = await update.message.reply_text("📸 Обрабатываю фото чека...")
         
-        # Скачиваем фото
-        photo_file = await photo.get_file()
-        photo_bytes = await photo_file.download_as_bytearray()
-        
-        logger.info(f"📷 Получено фото: {len(photo_bytes)} байт")
-        
-        # Обрабатываем чек
-        receipt_data = await process_receipt_photo(photo_bytes)
-        
-        if receipt_data and receipt_data['total'] > 0:
-            category, confidence = classifier.predict_category(receipt_data.get('store', 'чек покупка'))
-            description = f"Чек {receipt_data.get('store', '')}".strip()
+        try:
+            # Скачиваем фото
+            photo_file = await photo.get_file()
             
-            preview_text = f"""📸 **Чек распознан!**
+            # Создаем временный файл
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                temp_path = temp_file.name
+            
+            # Скачиваем файл
+            await photo_file.download_to_drive(temp_path)
+            
+            # Читаем байты для обработки
+            with open(temp_path, 'rb') as f:
+                photo_bytes = f.read()
+            
+            logger.info(f"📷 Получено фото: {len(photo_bytes)} байт")
+            
+            # Обрабатываем чек
+            receipt_data = await process_receipt_photo(photo_bytes)
+            
+            if receipt_data and receipt_data['total'] > 0:
+                category, confidence = classifier.predict_category(receipt_data.get('store', 'чек покупка'))
+                store_name = receipt_data.get('store', '')
+                description = f"Чек {store_name}".strip() if store_name else "Распознанный чек"
+                
+                preview_text = f"""📸 **Чек распознан!**
 
 💸 **Сумма:** {receipt_data['total']} руб
 📂 **Категория:** {category}"""
+                
+                if store_name:
+                    preview_text += f"\n🏪 **Магазин:** {store_name}"
 
-            await processing_msg.delete()
-            await update.message.reply_text(
-                preview_text + "\n\nСохраняем трату?",
-                reply_markup=get_simple_confirmation_keyboard()
-            )
-            
-            context.user_data['pending_receipt_expense'] = {
-                'amount': receipt_data['total'],
-                'category': category,
-                'description': description,
-            }
-            
-        else:
-            await processing_msg.delete()
-            await update.message.reply_text(
-                "❌ Не удалось распознать чек.\n\n"
-                "Попробуйте сфотографировать чек более четко или ввести данные вручную.",
-                reply_markup=get_main_keyboard(user.id)
-            )
+                await processing_msg.delete()
+                await update.message.reply_text(
+                    preview_text + "\n\nСохраняем трату?",
+                    reply_markup=get_simple_confirmation_keyboard()
+                )
+                
+                context.user_data['pending_receipt_expense'] = {
+                    'amount': receipt_data['total'],
+                    'category': category,
+                    'description': description,
+                    'store': store_name
+                }
+                
+            else:
+                await processing_msg.delete()
+                await update.message.reply_text(
+                    "❌ Не удалось распознать чек.\n\n"
+                    "💡 **Попробуйте:**\n"
+                    "• Сфотографировать чек более четко\n"
+                    "• Убедиться, что фото хорошо освещено\n"
+                    "• Или ввести данные вручную через форму",
+                    reply_markup=get_main_keyboard(user.id)
+                )
+                
+        finally:
+            # Удаляем временный файл
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.unlink(temp_path)
             
     except Exception as e:
         logger.error(f"❌ Ошибка обработки фото: {str(e)}")
@@ -945,7 +1140,7 @@ async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYP
             pass
         await update.message.reply_text(
             "❌ Ошибка при обработке фото. Попробуйте текстовый ввод или форму.",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(user.id)
         )
 
 # ===== ОБРАБОТЧИКИ ПОДТВЕРЖДЕНИЯ =====
@@ -972,7 +1167,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
 💸 **Сумма:** {expense_data['amount']} руб
 📂 **Категория:** {expense_data['category']}"""
             
-            if expense_data['description']:
+            if expense_data['description'] and expense_data['description'] != "Голосовая трата":
                 response += f"\n📝 **Комментарий:** {expense_data['description']}"
                 
             await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
@@ -1004,7 +1199,9 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
 💸 **Сумма:** {expense_data['amount']} руб
 📂 **Категория:** {expense_data['category']}"""
             
-            if expense_data['description']:
+            if expense_data.get('store'):
+                response += f"\n🏪 **Магазин:** {expense_data['store']}"
+            elif expense_data['description']:
                 response += f"\n📝 **Комментарий:** {expense_data['description']}"
                 
             await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
@@ -1041,7 +1238,8 @@ async def handle_create_space(update: Update, context: ContextTypes.DEFAULT_TYPE
 👤 **Создатель:** {user.first_name}
 🔑 **Код приглашения:** `{invite_code}`
 
-Поделитесь кодом с другими участниками!"""
+💡 Поделитесь кодом с другими участниками!
+👥 Используйте /space_members {space_id} для управления"""
         else:
             response = "❌ Ошибка при создании пространства"
             
@@ -1148,7 +1346,10 @@ async def handle_space_name_input(update: Update, context: ContextTypes.DEFAULT_
 • Идеально для семьи и близких друзей
 • Приватное пространство
 
-Поделитесь кодом с другими участниками!"""
+👥 **Для управления участниками:**
+`/space_members {space_id}`
+
+💬 Поделитесь кодом с другими участниками!"""
             else:  # public
                 response = f"""🌐 **Создано новое публичное сообщество!**
 
@@ -1161,7 +1362,7 @@ async def handle_space_name_input(update: Update, context: ContextTypes.DEFAULT_
 • Сравнение своих трат с сообществом
 • Идеально для тематических групп
 
-Делитесь кодом для пополнения сообщества!"""
+👥 Делитесь кодом для пополнения сообщества!"""
         else:
             response = "❌ Ошибка при создании пространства"
     else:
@@ -1184,12 +1385,19 @@ async def handle_join_space(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         response = f"**{'✅' if success else '❌'} {message}**"
     else:
-        response = """🔗 **Присоединение к пространству**
+        # Если код отправлен как обычное сообщение
+        text = update.message.text
+        if len(text) == 8 and text.isalnum() and text.isupper():
+            invite_code = text
+            success, message = join_financial_space(invite_code, user.id, user.first_name)
+            response = f"**{'✅' if success else '❌'} {message}**"
+        else:
+            response = """🔗 **Присоединение к пространству**
 
-Используйте команду:
+Отправьте код приглашения (8 символов, например: A1B2C3D4)
+
+Или используйте команду:
 `/join_space КОД_ПРИГЛАШЕНИЯ`
-
-Или попросите код приглашения у владельца пространства.
 
 💡 **Совет:** Код приглашения выглядит примерно так: `A1B2C3D4`"""
 
@@ -1233,6 +1441,7 @@ async def handle_my_spaces(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         response += "💡 **Используйте:**\n"
         response += "• `/switch_space ID` - переключиться на пространство\n"
+        response += "• `/space_members ID` - управление участниками\n"
         response += "• `/join_space КОД` - присоединиться к новому\n"
         response += "• Траты сохраняются в текущее активное пространство"
 
@@ -1276,6 +1485,278 @@ ID пространства можно посмотреть в списке ва
 
     await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
 
+# ===== ОБРАБОТЧИКИ УПРАВЛЕНИЯ УЧАСТНИКАМИ =====
+async def handle_space_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать участников пространства с управлением"""
+    user = update.effective_user
+    
+    if context.args:
+        try:
+            space_id = int(context.args[0])
+            spaces_df = get_user_spaces(user.id)
+            
+            if space_id not in spaces_df['id'].values:
+                await update.message.reply_text(
+                    "❌ У вас нет доступа к этому пространству",
+                    reply_markup=get_main_keyboard(user.id)
+                )
+                return
+            
+            await show_space_members_details(update, context, space_id, user.id)
+            
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный ID пространства",
+                reply_markup=get_main_keyboard(user.id)
+            )
+    else:
+        # Показываем список пространств для выбора
+        spaces_df = get_user_spaces(user.id)
+        
+        if spaces_df.empty:
+            await update.message.reply_text(
+                "❌ У вас нет пространств для управления",
+                reply_markup=get_main_keyboard(user.id)
+            )
+            return
+        
+        response = "👥 **Управление участниками**\n\nВыберите пространство:\n\n"
+        
+        for _, space in spaces_df.iterrows():
+            members_count = len(get_space_members(space['id']))
+            response += f"🆔 {space['id']} - **{space['name']}** ({members_count} участ.)\n"
+        
+        response += "\nИспользуйте: `/space_members ID_ПРОСТРАНСТВА`"
+        
+        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
+
+async def show_space_members_details(update: Update, context: ContextTypes.DEFAULT_TYPE, space_id, user_id):
+    """Показать детальную информацию об участниках пространства"""
+    try:
+        members_df = get_detailed_space_members(space_id)
+        space_info_df = get_user_spaces(user_id)
+        space_info = space_info_df[space_info_df['id'] == space_id].iloc[0]
+        
+        if members_df.empty:
+            await update.message.reply_text(
+                "❌ В пространстве нет участников",
+                reply_markup=get_main_keyboard(user_id)
+            )
+            return
+        
+        response = f"👥 **Участники пространства**\n**{space_info['name']}**\n\n"
+        
+        # Получаем роль текущего пользователя
+        current_user_role = members_df[members_df['user_id'] == user_id]['role'].iloc[0]
+        can_manage = current_user_role in ['owner', 'admin']
+        
+        for _, member in members_df.iterrows():
+            role_emoji = "👑" if member['role'] == 'owner' else "👤" if member['role'] == 'admin' else "🙂"
+            join_date = datetime.strptime(str(member['joined_at']), '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y')
+            
+            response += f"{role_emoji} **{member['user_name']}**\n"
+            response += f"   🆔 ID: {member['user_id']}\n"
+            response += f"   📊 Роль: {member['role']}\n"
+            response += f"   💸 Траты: {member['expense_count']} шт., {member['total_spent'] or 0:,.0f} руб\n"
+            response += f"   📅 Вступил: {join_date}\n"
+            
+            # Кнопки управления (только для владельцев/админов и не для себя)
+            if can_manage and member['user_id'] != user_id and member['role'] != 'owner':
+                response += f"   🔧 Управление: "
+                response += f"/remove_member_{space_id}_{member['user_id']} 🗑️"
+                if member['role'] == 'member':
+                    response += f" /make_admin_{space_id}_{member['user_id']} ⬆️"
+                else:
+                    response += f" /make_member_{space_id}_{member['user_id']} ⬇️"
+                response += "\n"
+            
+            response += "\n"
+        
+        if can_manage:
+            response += "**🔧 Команды управления:**\n"
+            response += "• `/remove_member_ID_ПРОСТРАНСТВА_ID_УЧАСТНИКА` - удалить\n"
+            response += "• `/make_admin_ID_ПРОСТРАНСТВА_ID_УЧАСТНИКА` - сделать админом\n"
+            response += "• `/make_member_ID_ПРОСТРАНСТВА_ID_УЧАСТНИКА` - сделать участником\n"
+        
+        response += f"\n**🔗 Код приглашения:** `{space_info['invite_code']}`"
+        
+        # Кнопка для выхода из пространства
+        if current_user_role != 'owner':
+            response += f"\n\n🚪 Выйти: /leave_space_{space_id}"
+        
+        await update.message.reply_text(response, reply_markup=get_main_keyboard(user_id))
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка показа участников: {e}")
+        await update.message.reply_text(
+            "❌ Ошибка при получении информации об участниках",
+            reply_markup=get_main_keyboard(user_id)
+        )
+
+async def handle_remove_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик удаления участника"""
+    user = update.effective_user
+    text = update.message.text
+    
+    try:
+        # Парсим команду: /remove_member_SPACEID_USERID
+        parts = text.split('_')
+        if len(parts) >= 4:
+            space_id = int(parts[2])
+            target_user_id = int(parts[3])
+            
+            success, message = remove_member_from_space(space_id, target_user_id, user.id)
+            
+            if success:
+                # Получаем имя удаленного пользователя для красивого ответа
+                members_df = get_detailed_space_members(space_id)
+                target_user_name = "пользователь"
+                if not members_df.empty:
+                    target_user = members_df[members_df['user_id'] == target_user_id]
+                    if not target_user.empty:
+                        target_user_name = target_user.iloc[0]['user_name']
+                
+                response = f"✅ **Участник удален**\n\n👤 {target_user_name} был удален из пространства."
+            else:
+                response = f"❌ {message}"
+        else:
+            response = "❌ Неверный формат команды"
+        
+        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка удаления участника: {e}")
+        await update.message.reply_text(
+            "❌ Ошибка при удалении участника",
+            reply_markup=get_main_keyboard(user.id)
+        )
+
+async def handle_change_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик изменения роли участника"""
+    user = update.effective_user
+    text = update.message.text
+    
+    try:
+        # Парсим команду: /make_admin_SPACEID_USERID или /make_member_SPACEID_USERID
+        parts = text.split('_')
+        if len(parts) >= 4:
+            command = parts[1]  # admin или member
+            space_id = int(parts[2])
+            target_user_id = int(parts[3])
+            
+            new_role = 'admin' if command == 'admin' else 'member'
+            success, message = change_member_role(space_id, target_user_id, new_role, user.id)
+            
+            if success:
+                role_name = "администратором" if new_role == 'admin' else "участником"
+                response = f"✅ **Роль изменена**\n\nПользователь теперь {role_name}."
+            else:
+                response = f"❌ {message}"
+        else:
+            response = "❌ Неверный формат команды"
+        
+        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка изменения роли: {e}")
+        await update.message.reply_text(
+            "❌ Ошибка при изменении роли",
+            reply_markup=get_main_keyboard(user.id)
+        )
+
+async def handle_leave_space(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик выхода из пространства"""
+    user = update.effective_user
+    text = update.message.text
+    
+    try:
+        # Парсим команду: /leave_space_SPACEID
+        parts = text.split('_')
+        if len(parts) >= 3:
+            space_id = int(parts[2])
+            
+            success, message = leave_space(space_id, user.id)
+            
+            if success:
+                response = f"✅ **Вы вышли из пространства**\n\n{message}"
+                
+                # Если пользователь вышел из текущего пространства - сбрасываем его
+                if context.user_data.get('current_space') == space_id:
+                    context.user_data.pop('current_space', None)
+            else:
+                response = f"❌ {message}"
+        else:
+            response = "❌ Неверный формат команды"
+        
+        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка выхода из пространства: {e}")
+        await update.message.reply_text(
+            "❌ Ошибка при выходе из пространства",
+            reply_markup=get_main_keyboard(user.id)
+        )
+
+async def handle_invite_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Информация о приглашении"""
+    user = update.effective_user
+    
+    if context.args:
+        try:
+            space_id = int(context.args[0])
+            spaces_df = get_user_spaces(user.id)
+            
+            if space_id not in spaces_df['id'].values:
+                await update.message.reply_text(
+                    "❌ У вас нет доступа к этому пространству",
+                    reply_markup=get_main_keyboard(user.id)
+                )
+                return
+            
+            space_info = spaces_df[spaces_df['id'] == space_id].iloc[0]
+            
+            response = f"""🔗 **Приглашение в пространство**
+
+📝 **Название:** {space_info['name']}
+🔑 **Код приглашения:** `{space_info['invite_code']}`
+👥 **Тип:** {get_space_type_display_name(space_info['space_type'])}
+
+**Как пригласить:**
+1. Отправьте код приглашения другу
+2. Попросите его использовать команду:
+   `/join_space {space_info['invite_code']}`
+3. Или отправить код боту: `{space_info['invite_code']}`
+
+💡 **Совет:** Код можно отправлять прямо в чат!"""
+
+            await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
+            
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный ID пространства",
+                reply_markup=get_main_keyboard(user.id)
+            )
+    else:
+        response = """🔗 **Приглашение участников**
+
+Используйте команду:
+`/invite_info ID_ПРОСТРАНСТВА`
+
+Чтобы получить код приглашения и инструкции.
+
+💡 **Совет:** Участники могут присоединиться к приватным пространствам только по коду приглашения!"""
+
+        await update.message.reply_text(response, reply_markup=get_main_keyboard(user.id))
+
+def get_space_type_display_name(space_type):
+    """Получение отображаемого имени типа пространства"""
+    names = {
+        'personal': 'Личное',
+        'private': 'Закрытая группа',
+        'public': 'Публичное сообщество'
+    }
+    return names.get(space_type, space_type)
+
 # ===== ОБРАБОТЧИК ТЕКСТА =====
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1316,8 +1797,23 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await handle_create_space(update, context)
     elif text == "🏠 Мои пространства":
         await handle_my_spaces(update, context)
+    elif text == "👥 Управление участниками":
+        await handle_space_members(update, context)
+    elif text == "🔗 Пригласить":
+        await handle_invite_info(update, context)
     elif text in ["🏠 Личное пространство", "👨‍👩‍👧‍👦 Закрытая группа (семья/друзья)", "🌐 Публичное сообщество", "❌ Отмена"]:
         await handle_space_type_selection(update, context)
+    # === ОБРАБОТКА КОМАНД УПРАВЛЕНИЯ УЧАСТНИКАМИ ===
+    elif text.startswith('/remove_member_'):
+        await handle_remove_member(update, context)
+    elif text.startswith('/make_admin_') or text.startswith('/make_member_'):
+        await handle_change_role(update, context)
+    elif text.startswith('/leave_space_'):
+        await handle_leave_space(update, context)
+    # === ОБРАБОТКА КОДОВ ПРИГЛАШЕНИЯ ===
+    elif len(text) == 8 and text.isalnum() and text.isupper():
+        # Если сообщение похоже на код приглашения
+        await handle_join_space(update, context)
     else:
         # Попытка распознать текстовую трату
         try:
@@ -1771,8 +2267,9 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Отправьте голосовое сообщение с описанием траты
 • Пример: "500 продукты хлеб молоко"
 
-📸 **Фото чеков:**
+📸 **Распознавание чеков:**
 • Отправьте фото чека для автоматического распознавания
+• Бот найдет сумму и магазин
 
 📊 **Статистика:**
 • **Статистика** - по текущему пространству
@@ -1785,6 +2282,12 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/join_space КОД` - присоединиться по коду приглашения
 • `/create_space` - создать новое пространство
 
+👥 **Управление участниками:**
+• `/space_members ID` - просмотр и управление участниками
+• `/invite_info ID` - получить код приглашения
+• Владельцы могут: удалять участников, назначать админов
+• Админы могут: удалять обычных участников
+
 📈 **Excel** - полная выгрузка данных текущего пространства
 
 🗑️ **Очистить данные** - удалить траты (в текущем пространстве или все)
@@ -1794,6 +2297,7 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Регулярно проверяйте статистику
 • Экспортируйте данные для ведения бюджета
 • Приглашайте в закрытые группы только доверенных людей
+• Владелец не может покинуть пространство пока в нем есть другие участники
 """
     await update.message.reply_text(help_text, reply_markup=get_main_keyboard(user.id))
 
@@ -1820,6 +2324,8 @@ def main():
     application.add_handler(CommandHandler("join_space", handle_join_space))
     application.add_handler(CommandHandler("my_spaces", handle_my_spaces))
     application.add_handler(CommandHandler("switch_space", handle_switch_space))
+    application.add_handler(CommandHandler("space_members", handle_space_members))
+    application.add_handler(CommandHandler("invite_info", handle_invite_info))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
