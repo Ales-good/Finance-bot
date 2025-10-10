@@ -98,8 +98,8 @@
         
         .flag.ru { background: linear-gradient(to bottom, white 33%, blue 33%, blue 66%, red 66%); }
         .flag.by { 
-    background: linear-gradient(to bottom, #C83127 50%, #0D5B26 50%);
-}
+            background: linear-gradient(to bottom, #C83127 50%, #0D5B26 50%);
+        }
         .flag.kz { 
             background: blue;
             position: relative;
@@ -295,11 +295,77 @@
         .budget-input input {
             flex: 1;
         }
+
+        .space-info {
+            background: #e8f4f8;
+            border: 1px solid #b3e0f2;
+            border-radius: 10px;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        .space-type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+
+        .space-personal {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .space-private {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .space-public {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .space-members {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .space-member {
+            display: inline-block;
+            background: white;
+            padding: 2px 6px;
+            border-radius: 8px;
+            margin: 2px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h2>💸 Добавить трату</h2>
+        
+        <!-- Информация о текущем пространстве -->
+        <div class="space-info" id="spaceInfo">
+            <div>🏠 <strong id="currentSpaceName">Личное пространство</strong>
+                <span class="space-type-badge space-personal" id="spaceTypeBadge">Личное</span>
+            </div>
+            <div class="space-members" id="spaceMembers">
+                👤 Участники: <span class="space-member">Вы</span>
+            </div>
+            <div style="font-size: 12px; color: #666; margin-top: 5px;" id="spaceDescription">
+                Ваши приватные траты
+            </div>
+        </div>
         
         <!-- Режимы ввода -->
         <div class="input-modes">
@@ -327,6 +393,18 @@
         <div class="manual-input" id="manualMode">
             <div class="input-group">
                 <input type="number" id="manualAmount" placeholder="Введите сумму" step="0.01" min="0" oninput="updateManualAmount()">
+            </div>
+        </div>
+        
+        <!-- Выбор пространства -->
+        <div class="input-group">
+            <label>🏠 Пространство для траты</label>
+            <select id="spaceSelect" onchange="updateSpaceInfo()">
+                <option value="personal">🏠 Личное пространство</option>
+                <!-- Пространства будут загружены динамически -->
+            </select>
+            <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                💡 Трата будет сохранена в выбранное пространство
             </div>
         </div>
         
@@ -390,7 +468,7 @@
         <!-- Статистика -->
         <div class="tab-content active" id="statsTab">
             <div class="stats-preview">
-                <h3>📊 Ваша статистика</h3>
+                <h3>📊 Статистика пространства</h3>
                 
                 <!-- Мини-график с разделением по пользователям -->
                 <div style="margin: 15px 0;">
@@ -416,7 +494,7 @@
                 </div>
                 
                 <!-- Совместные траты -->
-                <div class="family-stats">
+                <div class="family-stats" id="familyStatsSection" style="display: none;">
                     <div style="font-size: 12px; color: #666; margin-bottom: 5px;">👨‍👩‍👧‍👦 Совместные траты</div>
                     <div id="familyStats">Загрузка...</div>
                 </div>
@@ -459,6 +537,8 @@
         let selectedEmoji = '⭐';
         let currentTab = 'stats';
         let monthlyBudget = parseInt(localStorage.getItem('monthlyBudget')) || 0;
+        let userSpaces = [];
+        let currentSpaceId = 'personal';
         
         // Валюты и их настройки
         const currencies = {
@@ -507,6 +587,7 @@
             setCurrency('RUB');
             loadCategories();
             updateCalculatorButtons();
+            loadUserSpaces();
             loadStats();
             generateFinancialAdvice();
             loadAchievements();
@@ -601,6 +682,154 @@
             });
             
             updateCustomCategoriesList();
+        }
+        
+        function loadUserSpaces() {
+            // В реальном приложении здесь будет запрос к боту для получения пространств
+            // Пока используем демо-данные
+            userSpaces = [
+                {
+                    id: 'personal',
+                    name: '🏠 Личное пространство',
+                    type: 'personal',
+                    description: 'Ваши приватные траты',
+                    members: ['Вы'],
+                    role: 'owner'
+                },
+                {
+                    id: 'family',
+                    name: '👨‍👩‍👧‍👦 Семейный бюджет',
+                    type: 'private', 
+                    description: 'Общие траты семьи',
+                    members: ['Вы', 'Мария', 'Алексей'],
+                    role: 'owner'
+                },
+                {
+                    id: 'travel',
+                    name: '✈️ Путешествие в Сочи',
+                    type: 'private',
+                    description: 'Расходы на поездку',
+                    members: ['Вы', 'Дмитрий', 'Ольга'],
+                    role: 'member'
+                },
+                {
+                    id: 'it_community',
+                    name: '🌐 IT-сообщество',
+                    type: 'public',
+                    description: 'Статистика IT-специалистов',
+                    members: ['125 участников'],
+                    role: 'member'
+                }
+            ];
+            
+            updateSpaceSelect();
+            updateSpaceInfo();
+        }
+        
+        function updateSpaceSelect() {
+            const select = document.getElementById('spaceSelect');
+            select.innerHTML = '';
+            
+            userSpaces.forEach(space => {
+                const option = document.createElement('option');
+                option.value = space.id;
+                option.textContent = space.name;
+                if (space.id === currentSpaceId) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+        }
+        
+        function updateSpaceInfo() {
+            const spaceSelect = document.getElementById('spaceSelect');
+            const selectedSpaceId = spaceSelect.value;
+            currentSpaceId = selectedSpaceId;
+            
+            const space = userSpaces.find(s => s.id === selectedSpaceId);
+            if (!space) return;
+            
+            // Обновляем информацию о пространстве
+            document.getElementById('currentSpaceName').textContent = space.name;
+            document.getElementById('spaceDescription').textContent = space.description;
+            
+            // Обновляем бейдж типа пространства
+            const badge = document.getElementById('spaceTypeBadge');
+            badge.className = 'space-type-badge';
+            badge.textContent = getSpaceTypeName(space.type);
+            badge.classList.add(`space-${space.type}`);
+            
+            // Обновляем список участников
+            const membersContainer = document.getElementById('spaceMembers');
+            membersContainer.innerHTML = `👤 Участники: ${space.members.map(m => `<span class="space-member">${m}</span>`).join('')}`;
+            
+            // Показываем/скрываем секцию совместных трат
+            const familyStatsSection = document.getElementById('familyStatsSection');
+            familyStatsSection.style.display = space.type === 'personal' ? 'none' : 'block';
+            
+            // Обновляем статистику для выбранного пространства
+            loadStatsForSpace(space);
+        }
+        
+        function getSpaceTypeName(type) {
+            const typeNames = {
+                'personal': 'Личное',
+                'private': 'Закрытая группа', 
+                'public': 'Публичное'
+            };
+            return typeNames[type] || type;
+        }
+        
+        function loadStatsForSpace(space) {
+            // Демо-данные статистики в зависимости от типа пространства
+            let todaySpent, topCategories, familyStats;
+            
+            switch(space.type) {
+                case 'personal':
+                    todaySpent = '1,250 ₽';
+                    topCategories = `
+                        <div>🛒 Продукты: 5,400 ₽</div>
+                        <div>🍽️ Кафе: 3,200 ₽</div>
+                        <div>🚗 Транспорт: 2,100 ₽</div>
+                    `;
+                    break;
+                    
+                case 'private':
+                    todaySpent = '3,800 ₽';
+                    topCategories = `
+                        <div>🛒 Продукты: 12,400 ₽</div>
+                        <div>🏠 Коммуналка: 8,200 ₽</div>
+                        <div>🚗 Транспорт: 6,500 ₽</div>
+                    `;
+                    familyStats = `
+                        <div>👤 Вы: 8,500 ₽</div>
+                        <div>👩 Мария: 4,200 ₽</div>
+                        <div>👨 Алексей: 3,800 ₽</div>
+                        <div>👨‍👩‍👧‍👦 Всего: 16,500 ₽</div>
+                    `;
+                    break;
+                    
+                case 'public':
+                    todaySpent = '2,100 ₽';
+                    topCategories = `
+                        <div>💻 Техника: 15,400 ₽</div>
+                        <div>📱 Подписки: 8,200 ₽</div>
+                        <div>🎮 Развлечения: 6,500 ₽</div>
+                    `;
+                    familyStats = `
+                        <div>📊 Средняя трата: 4,200 ₽</div>
+                        <div>👥 Участников: 125</div>
+                        <div>📈 Ваш рейтинг: 45 место</div>
+                    `;
+                    break;
+            }
+            
+            document.getElementById('todaySpent').textContent = todaySpent;
+            document.getElementById('topCategories').innerHTML = topCategories;
+            
+            if (familyStats) {
+                document.getElementById('familyStats').innerHTML = familyStats;
+            }
         }
         
         function toggleCustomCategory() {
@@ -810,7 +1039,7 @@
         }
         
         function loadStats() {
-            // Здесь будет реальная загрузка статистики из бота
+            // Базовая загрузка статистики
             const today = new Date().toLocaleDateString('ru-RU');
             
             document.getElementById('todaySpent').textContent = '1,250 ₽';
@@ -829,14 +1058,31 @@
         }
         
         function generateFinancialAdvice() {
-            const advice = [
-                "💡 Вы тратите на кафе на 15% больше, чем в прошлом месяце",
-                "💰 Отличная экономия на транспорте! Продолжайте в том же духе",
-                "📦 Маркетплейсы - ваша самая частая категория в этом месяце",
-                "🍽️ Попробуйте готовить дома - это сэкономит до 30% на еде",
-                "🚗 Совместные поездки могут сократить транспортные расходы",
-                "📱 Проверьте активные подписки - возможно, некоторые не нужны"
-            ];
+            const space = userSpaces.find(s => s.id === currentSpaceId);
+            let advice = [];
+            
+            if (space.type === 'personal') {
+                advice = [
+                    "💡 Вы тратите на кафе на 15% больше, чем в прошлом месяце",
+                    "💰 Отличная экономия на транспорте! Продолжайте в том же духе",
+                    "📦 Маркетплейсы - ваша самая частая категория в этом месяце",
+                    "🍽️ Попробуйте готовить дома - это сэкономит до 30% на еде"
+                ];
+            } else if (space.type === 'private') {
+                advice = [
+                    "👨‍👩‍👧‍👦 Семейные траты распределены равномерно - отлично!",
+                    "🏠 Коммунальные платежи составляют 25% от общих трат",
+                    "🛒 Продукты - самая крупная категория расходов",
+                    "💡 Предложите семье вести совместный grocery list"
+                ];
+            } else {
+                advice = [
+                    "🌐 Вы тратите на технологии на 20% больше среднего по сообществу",
+                    "📱 Подписки - популярная категория среди IT-специалистов",
+                    "💻 Рассмотрите оптовые закупки техники для экономии",
+                    "🎮 Ваши траты на развлечения близки к медианным по сообществу"
+                ];
+            }
             
             const randomAdvice = advice[Math.floor(Math.random() * advice.length)];
             document.getElementById('financialAdvice').textContent = randomAdvice;
@@ -850,6 +1096,9 @@
         
         function loadAchievements() {
             const userBudget = monthlyBudget > 0;
+            const currentSpace = userSpaces.find(s => s.id === currentSpaceId);
+            const hasMultipleSpaces = userSpaces.length > 1;
+            
             const achievements = [
                 { 
                     id: 'first_expense', 
@@ -866,11 +1115,25 @@
                     emoji: userBudget ? '✅' : '🔒' 
                 },
                 { 
-                    id: 'week_streak', 
-                    name: 'Экономист недели', 
-                    description: 'Уложитесь в бюджет 7 дней подряд', 
-                    unlocked: false, 
-                    emoji: '🔒' 
+                    id: 'space_creator', 
+                    name: 'Организатор', 
+                    description: 'Создайте свое пространство', 
+                    unlocked: hasMultipleSpaces, 
+                    emoji: hasMultipleSpaces ? '✅' : '🔒' 
+                },
+                { 
+                    id: 'community_member', 
+                    name: 'Участник сообщества', 
+                    description: 'Присоединитесь к публичному пространству', 
+                    unlocked: userSpaces.some(s => s.type === 'public'), 
+                    emoji: userSpaces.some(s => s.type === 'public') ? '✅' : '🔒' 
+                },
+                { 
+                    id: 'family_manager', 
+                    name: 'Семейный менеджер', 
+                    description: 'Создайте семейный бюджет', 
+                    unlocked: userSpaces.some(s => s.type === 'private'), 
+                    emoji: userSpaces.some(s => s.type === 'private') ? '✅' : '🔒' 
                 },
                 { 
                     id: 'category_master', 
@@ -916,21 +1179,37 @@
             
             const category = document.getElementById('category').value;
             const description = document.getElementById('description').value;
+            const spaceId = document.getElementById('spaceSelect').value;
             
             if (!amount || amount <= 0) {
                 alert('Пожалуйста, введите корректную сумму');
                 return;
             }
             
+            const selectedSpace = userSpaces.find(s => s.id === spaceId);
+            
             const data = {
                 amount: amount,
                 category: category,
                 description: description,
-                currency: currentCurrency
+                currency: currentCurrency,
+                space_id: spaceId,
+                space_name: selectedSpace ? selectedSpace.name : 'Неизвестное пространство'
             };
             
-            Telegram.WebApp.sendData(JSON.stringify(data));
-            Telegram.WebApp.close();
+            // Показываем подтверждение
+            const confirmation = confirm(
+                `Добавить трату?\n\n` +
+                `💸 Сумма: ${amount} ${currencies[currentCurrency].symbol}\n` +
+                `📂 Категория: ${category}\n` +
+                `🏠 Пространство: ${selectedSpace ? selectedSpace.name : 'Личное'}\n` +
+                `${description ? `📝 Описание: ${description}` : ''}`
+            );
+            
+            if (confirmation) {
+                Telegram.WebApp.sendData(JSON.stringify(data));
+                Telegram.WebApp.close();
+            }
         }
         
         // Инициализация при загрузке
@@ -938,4 +1217,3 @@
     </script>
 </body>
 </html>
-
