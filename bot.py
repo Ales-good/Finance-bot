@@ -1562,9 +1562,14 @@ def main():
     bot_thread.start()
     logger.info("✅ Бот запущен в отдельном потоке")
     
-    # Запускаем Flask (основной поток для Railway)
-    logger.info("🚀 Запускаем Flask приложение...")
-    run_flask()
+    # В Railway Flask будет запущен через gunicorn из Procfile
+    # Не запускаем Flask здесь, чтобы избежать дублирования
+    if not os.environ.get('RAILWAY_ENVIRONMENT'):
+        logger.info("🚀 Запускаем Flask приложение...")
+        run_flask()
+    else:
+        logger.info("🚀 Flask будет запущен через gunicorn из Procfile")
 
 if __name__ == "__main__":
     main()
+
