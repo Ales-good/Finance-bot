@@ -37,7 +37,7 @@ CORS(flask_app)
 # ===== КОНФИГУРАЦИЯ =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '7911885739:AAGrMekWmLgz_ej8JDFqG-CbDA5Nie7vKFc')
 WEB_APP_URL = os.environ.get('WEB_APP_URL', 'https://your-app.railway.app')
-DEV_MODE = os.environ.get('DEV_MODE', 'True').lower() == 'true'  # Режим разработки
+DEV_MODE = os.environ.get('DEV_MODE', 'False').lower() == 'true'  # Режим разработки
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не найден в переменных окружения!")
@@ -1438,3 +1438,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
