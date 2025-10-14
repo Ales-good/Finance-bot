@@ -986,7 +986,28 @@
         const API_URL = "https://web-production-4c423.up.railway.app";
         let currentSpaceId = null;
         let currentSpaceData = null;
-        let userData = tg.initDataUnsafe.user;
+        let userData = null;
+
+        function getUserData() {
+            if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                return tg.initDataUnsafe.user;
+            }
+            // Альтернативный способ для новых версий WebApp
+            try {
+                const initData = new URLSearchParams(tg.initData);
+                const userParam = initData.get('user');
+                if (userParam) {
+                    return JSON.parse(decodeURIComponent(userParam));
+                }
+            } catch (e) {
+                console.error('Error parsing user data:', e);
+            }
+            return null;
+        }
+
+        // Инициализация пользователя:
+        userData = getUserData();
+        console.log('User data после парсинга:', userData);        
 
         // ==== Утилиты ====
         function showMessage(text, type = 'success') {
@@ -1102,6 +1123,15 @@
             if (!name) {
                 showError('Введите название пространства');
                 return;
+            }
+
+            // Проверяем, что userData загружен
+            if (!userData) {
+                userData = getUserData();
+                if (!userData) {
+                    showError('Не удалось получить данные пользователя');
+                    return;
+                }
             }
 
             try {
@@ -1899,3 +1929,4 @@
     </script>
 </body>
 </html>
+
