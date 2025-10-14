@@ -782,10 +782,30 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
+flask_app = Flask(__name__)
+CORS(flask_app)
+
+# 🔥 ДОБАВЬТЕ ЭТОТ МАРШРУТ
 @flask_app.route('/', methods=['GET'])
 def health_check():
-    return jsonify({'status': 'ok', 'message': 'Finance Bot API is running'})
+    return jsonify({
+        'status': 'ok', 
+        'message': 'Finance Bot API is running',
+        'timestamp': datetime.now().isoformat()
+    })
+# 🔥 ДОБАВЬТЕ ЭТИ ОБРАБОТЧИКИ ОШИБОК
+@flask_app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Endpoint not found', 'status': 404}), 404
 
+@flask_app.errorhandler(405)
+def method_not_allowed(error):
+    return jsonify({'error': 'Method not allowed', 'status': 405}), 405
+
+@flask_app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"Server error: {error}")
+    return jsonify({'error': 'Internal server error', 'status': 500}), 500
 # ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 def is_user_in_space(user_id, space_id):
     """Проверяет, состоит ли пользователь в пространстве"""
@@ -1577,3 +1597,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
