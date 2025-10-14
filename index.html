@@ -1004,7 +1004,6 @@
             if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
                 userData = tg.initDataUnsafe.user;
                 console.log('User data from initDataUnsafe:', userData);
-                return true;
                 return userData;
             }
     
@@ -1016,7 +1015,7 @@
                     if (userParam) {
                         userData = JSON.parse(decodeURIComponent(userParam));
                         console.log('User data from initData:', userData);
-                        return true;
+                        return userData;
                     }
                 } catch (e) {
                     console.error('Error parsing initData:', e);
@@ -1033,7 +1032,7 @@
                 language_code: 'ru'
             };
     
-            return true;
+            return userData;
         }
 
         // Функция для отправки запросов с обработкой ошибок
@@ -1067,7 +1066,6 @@
         }
 
         // Инициализация пользователя:
-        // Удаляем вызов несуществующей функции getUserData()
         // userData будет установлен в initializeUser()
         console.log('User data после парсинга:', userData);        
 
@@ -1203,44 +1201,6 @@
                 hideCreateSpaceForm();
                 loadSpaces();
         
-                document.getElementById('spaceName').value = '';
-                document.getElementById('spaceDescription').value = '';
-            } catch (error) {
-                showError(`Ошибка: ${error.message}`);
-            }
-        
-
-            // Проверяем, что userData загружен
-            if (!userData) {
-                userData = getUserData();
-                if (!userData) {
-                    showError('Не удалось получить данные пользователя');
-                    return;
-                }
-            }
-
-            try {
-                const response = await fetch(`${API_URL}/create_space`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        name: name,
-                        type: type,
-                        description: description
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка создания пространства');
-                }
-                
-                const data = await response.json();
-                showMessage(`Пространство "${name}" создано! Код: ${data.invite_code}`);
-                hideCreateSpaceForm();
-                loadSpaces();
-                
                 document.getElementById('spaceName').value = '';
                 document.getElementById('spaceDescription').value = '';
             } catch (error) {
@@ -2022,7 +1982,3 @@
     </script>
 </body>
 </html>
-
-
-
-
