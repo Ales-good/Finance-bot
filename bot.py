@@ -1187,13 +1187,18 @@ def api_remove_member():
 
 # ===== TELEGRAM BOT HANDLERS =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
-    user = update.effective_user
-    
-    # Создаем клавиатуру с кнопкой веб-приложения
+    # УБЕРИ web_app кнопку временно
     keyboard = [
-        [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=WEB_APP_URL))]
+        [KeyboardButton("📊 Открыть финансовый трекер")]  # Без WebAppInfo!
     ]
+    
+    await update.message.reply_text(
+        f"Привет! Чтобы открыть финансовый трекер:\n"
+        f"1. Нажми на меню бота (кнопка с 4 квадратами)\n"
+        f"2. Выбери 'Open App'\n"
+        f"3. Или перейди по ссылке: {WEB_APP_URL}",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    )
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     await update.message.reply_text(
@@ -1436,6 +1441,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
