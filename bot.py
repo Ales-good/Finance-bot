@@ -19,7 +19,10 @@ import logging
 from flask import Flask, request, jsonify
 import random
 import string
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
+
+flask_app = Flask(__name__)
+CORS(flask_app)  # Это разрешит все CORS запросы
 
 # Настройка логирования
 logging.basicConfig(
