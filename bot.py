@@ -1289,7 +1289,7 @@ def main():
     init_db()
     
     # Создаем приложение бота
-    application = Application.builder().token(os.environ['TELEGRAM_BOT_TOKEN']).build()
+    application = Application.builder().token(os.environ['7911885739:AAGrMekWmLgz_ej8JDFqG-CbDA5Nie7vKFc']).build()
     
     # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
@@ -1317,3 +1317,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
