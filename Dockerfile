@@ -19,5 +19,9 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Запуск приложения
-CMD gunicorn bot:flask_app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+# Установка переменных окружения
+ENV FLASK_PORT=5000
+ENV PORT=5000
+
+# Используем gunicorn для запуска Flask приложения
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "bot:flask_app"]
