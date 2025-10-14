@@ -984,9 +984,11 @@
 
         // Отключаем подтверждение закрытия, если не поддерживается
         try {
-            tg.enableClosingConfirmation();
+            if (tg.enableClosingConfirmation) {
+                tg.enableClosingConfirmation();
+            }
         } catch (e) {
-            console.log('Closing confirmation not supported');
+            console.log('Closing confirmation not supported:', e.message);
         }
 
         const API_URL = "https://web-production-4c423.up.railway.app";
@@ -1003,6 +1005,7 @@
                 userData = tg.initDataUnsafe.user;
                 console.log('User data from initDataUnsafe:', userData);
                 return true;
+                return userData;
             }
     
             // Способ 2: Пробуем распарсить initData
@@ -1064,7 +1067,8 @@
         }
 
         // Инициализация пользователя:
-        userData = getUserData();
+        // Удаляем вызов несуществующей функции getUserData()
+        // userData будет установлен в initializeUser()
         console.log('User data после парсинга:', userData);        
 
         // ==== Утилиты ====
@@ -2018,6 +2022,7 @@
     </script>
 </body>
 </html>
+
 
 
 
