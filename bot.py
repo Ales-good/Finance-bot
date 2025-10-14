@@ -676,7 +676,246 @@ def get_user_budget(user_id, space_id):
     finally:
         conn.close()
 
-# ===== API ENDPOINTS =====
+# ===== НОВЫЕ API ДЛЯ ПРИГЛАШЕНИЙ И АНАЛИТИКИ =====
+@flask_app.route('/generate_invite_link', methods=['POST'])
+def api_generate_invite_link():
+    """Генерация ссылки для приглашения"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        # Проверяем права администратора
+        if not is_user_admin_in_space(user_data['id'], space_id):
+            return jsonify({'error': 'Недостаточно прав'}), 403
+        
+        conn = get_db_connection()
+        if isinstance(conn, sqlite3.Connection):
+            c = conn.cursor()
+            c.execute('SELECT invite_code FROM financial_spaces WHERE id = ?', (space_id,))
+        else:
+            c = conn.cursor()
+            c.execute('SELECT invite_code FROM financial_spaces WHERE id = %s', (space_id,))
+        
+        result = c.fetchone()
+        conn.close()
+        
+        if result:
+            invite_code = result[0]
+            invite_link = f"https://t.me/your_bot_username?start=invite_{invite_code}"
+            return jsonify({
+                'success': True,
+                'invite_link': invite_link,
+                'invite_code': invite_code
+            })
+        else:
+            return jsonify({'error': 'Пространство не найдено'}), 404
+            
+    except Exception as e:
+        logger.error(f"❌ API Error in generate_invite_link: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@flask_app.route('/get_detailed_analytics', methods=['POST'])
+def api_get_detailed_analytics():
+    """Расширенная аналитика с данными для графиков"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        period = data.get('period', '30')
+        analytics_type = data.get('type', 'categories')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if space_id and not is_user_in_space(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        conn = get_db_connection()
+        
+        # Получаем базовую аналитику
+        current_month = datetime.now().strftime('%Y-%m')
+        
+        if space_id:
+            if isinstance(conn, sqlite3.Connection):
+                # Статистика по категориям
+                query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                           FROM expenses 
+                           WHERE space_id = ?
+                           GROUP BY category 
+                           ORDER BY total DESC'''
+                df = pd.read_sql_query(query, conn, params=(space_id,))
+                
+                # Общее количество трат
+                count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = ?'''
+                count_df = pd.read_sql_query(count_query, conn, params=(space_id,))
+                
+                # Общая сумма за текущий месяц
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = ? AND strftime('%Y-%m', date) = ?'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id, current_month))
+                
+                # Участники пространства
+                users_query = '''SELECT DISTINCT user_id, user_name FROM space_members WHERE space_id = ?'''
+                users_df = pd.read_sql_query(users_query, conn, params=(space_id,))
+            else:
+                # PostgreSQL версия
+                query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                           FROM expenses 
+                           WHERE space_id = %s
+                           GROUP BY category 
+                           ORDER BY total DESC'''
+                df = pd.read_sql_query(query, conn, params=(space_id,))
+                
+                count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = %s'''
+                count_df = pd.read_sql_query(count_query, conn, params=(space_id,))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = %s AND DATE_TRUNC('month', date) = DATE_TRUNC('month', CURRENT_DATE)'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id,))
+                
+                users_query = '''SELECT DISTINCT user_id, user_name FROM space_members WHERE space_id = %s'''
+                users_df = pd.read_sql_query(users_query, conn, params=(space_id,))
+        else:
+            # Все пространства пользователя
+            if isinstance(conn, sqlite3.Connection):
+                query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                           FROM expenses 
+                           WHERE user_id = ?
+                           GROUP BY category 
+                           ORDER BY total DESC'''
+                df = pd.read_sql_query(query, conn, params=(user_data['id'],))
+                
+                count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE user_id = ?'''
+                count_df = pd.read_sql_query(count_query, conn, params=(user_data['id'],))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE user_id = ? AND strftime('%Y-%m', date) = ?'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(user_data['id'], current_month))
+                
+                users_query = '''SELECT DISTINCT user_id, user_name FROM space_members WHERE user_id = ?'''
+                users_df = pd.read_sql_query(users_query, conn, params=(user_data['id'],))
+            else:
+                query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                           FROM expenses 
+                           WHERE user_id = %s
+                           GROUP BY category 
+                           ORDER BY total DESC'''
+                df = pd.read_sql_query(query, conn, params=(user_data['id'],))
+                
+                count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE user_id = %s'''
+                count_df = pd.read_sql_query(count_query, conn, params=(user_data['id'],))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE user_id = %s AND DATE_TRUNC('month', date) = DATE_TRUNC('month', CURRENT_DATE)'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(user_data['id'],))
+                
+                users_query = '''SELECT DISTINCT user_id, user_name FROM space_members WHERE user_id = %s'''
+                users_df = pd.read_sql_query(users_query, conn, params=(user_data['id'],))
+        
+        # Формируем категории
+        categories = []
+        for _, row in df.iterrows():
+            categories.append({
+                'name': row['category'],
+                'total': float(row['total']),
+                'count': int(row['count'])
+            })
+        
+        total_count = int(count_df.iloc[0]['total_count']) if not count_df.empty else 0
+        total_spent = float(total_spent_df.iloc[0]['total_spent']) if not total_spent_df.empty else 0
+        
+        # Получаем бюджет пользователя
+        budget = get_user_budget(user_data['id'], space_id) if space_id else 0
+        
+        # Формируем список пользователей
+        users = []
+        for _, row in users_df.iterrows():
+            users.append({
+                'id': int(row['user_id']),
+                'name': row['user_name']
+            })
+        
+        # Дополнительные данные для графиков
+        result = {
+            'categories': categories,
+            'total_spent': total_spent,
+            'total_count': total_count,
+            'budget': budget,
+            'users': users,
+            'daily_data': get_daily_expenses(conn, space_id, period, user_data['id'] if not space_id else None),
+            'comparison_data': get_comparison_data(conn, space_id, period, user_data['id'] if not space_id else None)
+        }
+        
+        conn.close()
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_detailed_analytics: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+def get_daily_expenses(conn, space_id, period, user_id=None):
+    """Получение ежедневных трат для графика"""
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            if user_id:
+                query = '''SELECT DATE(date) as day, SUM(amount) as total 
+                           FROM expenses 
+                           WHERE user_id = ? AND date >= DATE('now', ?)
+                           GROUP BY DATE(date) ORDER BY day'''
+                df = pd.read_sql_query(query, conn, params=(user_id, f'-{period} days'))
+            elif space_id:
+                query = '''SELECT DATE(date) as day, SUM(amount) as total 
+                           FROM expenses 
+                           WHERE space_id = ? AND date >= DATE('now', ?)
+                           GROUP BY DATE(date) ORDER BY day'''
+                df = pd.read_sql_query(query, conn, params=(space_id, f'-{period} days'))
+            else:
+                return []
+        else:
+            # PostgreSQL версия
+            if user_id:
+                query = '''SELECT DATE(date) as day, SUM(amount) as total 
+                           FROM expenses 
+                           WHERE user_id = %s AND date >= CURRENT_DATE - INTERVAL %s
+                           GROUP BY DATE(date) ORDER BY day'''
+                df = pd.read_sql_query(query, conn, params=(user_id, f'{period} days'))
+            elif space_id:
+                query = '''SELECT DATE(date) as day, SUM(amount) as total 
+                           FROM expenses 
+                           WHERE space_id = %s AND date >= CURRENT_DATE - INTERVAL %s
+                           GROUP BY DATE(date) ORDER BY day'''
+                df = pd.read_sql_query(query, conn, params=(space_id, f'{period} days'))
+            else:
+                return []
+            
+        return df.to_dict('records')
+    except Exception as e:
+        logger.error(f"❌ Error getting daily expenses: {e}")
+        return []
+
+def get_comparison_data(conn, space_id, period, user_id=None):
+    """Получение данных для сравнения с предыдущим периодом"""
+    try:
+        # Здесь можно реализовать сравнение с предыдущим периодом
+        # Пока возвращаем заглушку
+        return {
+            'current_period': 1000,
+            'previous_period': 800,
+            'change_percent': 25
+        }
+    except Exception as e:
+        logger.error(f"❌ Error getting comparison data: {e}")
+        return {}
+
+# ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS =====
 @flask_app.route('/')
 def health_check():
     """Health check endpoint"""
@@ -1196,18 +1435,17 @@ def api_remove_member():
 
 # ===== TELEGRAM BOT HANDLERS =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # УБЕРИ web_app кнопку временно
-    keyboard = [
-        [KeyboardButton("📊 Открыть финансовый трекер")]  # Без WebAppInfo!
-    ]
+    user = update.effective_user
     
-    await update.message.reply_text(
-        f"Привет! Чтобы открыть финансовый трекер:\n"
-        f"1. Нажми на меню бота (кнопка с 4 квадратами)\n"
-        f"2. Выбери 'Open App'\n"
-        f"3. Или перейди по ссылке: {WEB_APP_URL}",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    )
+    # Проверяем, это приглашение или обычный старт
+    args = context.args
+    if args and args[0].startswith('invite_'):
+        await handle_invite_start(update, context)
+        return
+    
+    keyboard = [
+        [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=WEB_APP_URL))]
+    ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     await update.message.reply_text(
@@ -1222,6 +1460,71 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 🎯 Установка лимитов",
         reply_markup=reply_markup
     )
+
+async def handle_invite_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка пригласительных ссылок"""
+    user = update.effective_user
+    args = context.args
+    
+    if args and args[0].startswith('invite_'):
+        invite_code = args[0].replace('invite_', '')
+        
+        # Проверяем код и добавляем пользователя
+        conn = get_db_connection()
+        try:
+            if isinstance(conn, sqlite3.Connection):
+                space_query = '''SELECT id, name FROM financial_spaces WHERE invite_code = ? AND is_active = TRUE'''
+                space_df = pd.read_sql_query(space_query, conn, params=(invite_code,))
+            else:
+                space_query = '''SELECT id, name FROM financial_spaces WHERE invite_code = %s AND is_active = TRUE'''
+                space_df = pd.read_sql_query(space_query, conn, params=(invite_code,))
+            
+            if not space_df.empty:
+                space_id = space_df.iloc[0]['id']
+                space_name = space_df.iloc[0]['name']
+                
+                # Проверяем, не состоит ли уже пользователь
+                if isinstance(conn, sqlite3.Connection):
+                    member_query = '''SELECT 1 FROM space_members WHERE space_id = ? AND user_id = ?'''
+                    member_df = pd.read_sql_query(member_query, conn, params=(space_id, user.id))
+                else:
+                    member_query = '''SELECT 1 FROM space_members WHERE space_id = %s AND user_id = %s'''
+                    member_df = pd.read_sql_query(member_query, conn, params=(space_id, user.id))
+                
+                if member_df.empty:
+                    # Добавляем пользователя
+                    if isinstance(conn, sqlite3.Connection):
+                        c = conn.cursor()
+                        c.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
+                                     VALUES (?, ?, ?, ?)''', 
+                                 (space_id, user.id, user.first_name, 'member'))
+                    else:
+                        c = conn.cursor()
+                        c.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
+                                     VALUES (%s, %s, %s, %s)''', 
+                                 (space_id, user.id, user.first_name, 'member'))
+                    conn.commit()
+                    
+                    await update.message.reply_text(
+                        f"✅ Вы успешно присоединились к пространству: {space_name}!\n\n"
+                        f"Теперь вы можете отслеживать общие финансы с участниками.\n\n"
+                        f"Нажмите кнопку ниже, чтобы открыть трекер:",
+                        reply_markup=ReplyKeyboardMarkup([
+                            [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=WEB_APP_URL))]
+                        ], resize_keyboard=True)
+                    )
+                else:
+                    await update.message.reply_text(f"ℹ️ Вы уже состоите в пространстве: {space_name}")
+            else:
+                await update.message.reply_text("❌ Неверная ссылка приглашения")
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки приглашения: {e}")
+            await update.message.reply_text("❌ Ошибка при присоединении к пространству")
+        finally:
+            conn.close()
+    else:
+        await start(update, context)
 
 async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка данных из веб-приложения"""
@@ -1450,11 +1753,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
-
-
-
