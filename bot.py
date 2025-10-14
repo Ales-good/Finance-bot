@@ -32,6 +32,16 @@ logger = logging.getLogger(__name__)
 flask_app = Flask(__name__)
 CORS(flask_app)  # Это разрешит все CORS запросы
 
+# ===== КОНФИГУРАЦИЯ =====
+# Получение токена бота из переменных окружения
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '7911885739:AAGrMekWmLgz_ej8JDFqG-CbDA5Nie7vKFc')
+WEB_APP_URL = os.environ.get('WEB_APP_URL', 'https://your-app.railway.app')
+
+if not BOT_TOKEN:
+    logger.error("❌ BOT_TOKEN не найден в переменных окружения!")
+    # Можно использовать дефолтный токен для тестирования, но в продакшене это не безопасно
+    # BOT_TOKEN = "your-default-token-here"
+
 # ===== НАСТРОЙКА БАЗЫ ДАННЫХ =====
 def get_db_connection():
     """Подключение к базе данных"""
@@ -612,6 +622,16 @@ def get_user_budget(user_id, space_id):
         conn.close()
 
 # ===== API ENDPOINTS =====
+@flask_app.route('/')
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'ok', 
+        'message': 'Finance Bot API is running',
+        'timestamp': datetime.now().isoformat(),
+        'version': '1.0'
+    })
+
 @flask_app.route('/get_user_spaces', methods=['POST'])
 def api_get_user_spaces():
     """API для получения пространств пользователя"""
@@ -1077,7 +1097,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Создаем клавиатуру с кнопкой веб-приложения
     keyboard = [
-        [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=f"https://{os.environ.get('RAILWAY_STATIC_URL', 'your-domain.railway.app')}"))]
+        [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=WEB_APP_URL))]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
@@ -1278,18 +1298,23 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Используйте кнопку ниже для открытия полного функционала, "
             "или отправьте мне фото чека для автоматического распознавания.",
             reply_markup=ReplyKeyboardMarkup([
-                [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=f"https://{os.environ.get('RAILWAY_STATIC_URL', 'your-domain.railway.app')}"))]
+                [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=WEB_APP_URL))]
             ], resize_keyboard=True)
         )
 
 # ===== ОСНОВНАЯ ФУНКЦИЯ =====
 def main():
     """Основная функция запуска бота"""
+    # Проверяем наличие токена
+    if not BOT_TOKEN:
+        logger.error("❌ BOT_TOKEN не найден! Убедитесь, что переменная окружения BOT_TOKEN установлена.")
+        return
+    
     # Инициализация базы данных
     init_db()
     
     # Создаем приложение бота
-    application = Application.builder().token(os.environ['7911885739:AAGrMekWmLgz_ej8JDFqG-CbDA5Nie7vKFc']).build()
+    application = Application.builder().token(BOT_TOKEN).build()
     
     # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
@@ -1300,21 +1325,18 @@ def main():
     
     # Запускаем Flask в отдельном потоке
     import threading
-    flask_thread = threading.Thread(
-        target=lambda: flask_app.run(
-            host='0.0.0.0', 
-            port=int(os.environ.get('PORT', 5000)),
-            debug=False,
-            use_reloader=False
-        ),
-        daemon=True
-    )
+    port = int(os.environ.get('PORT', 5000))
+    
+    def run_flask():
+        flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
+    logger.info(f"🌐 Flask API запущен на порту {port}")
     
     # Запускаем бота
-    logger.info("🤖 Бот запущен!")
+    logger.info("🤖 Бот запускается...")
     application.run_polling()
 
 if __name__ == '__main__':
     main()
-
