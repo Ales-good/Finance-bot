@@ -981,28 +981,86 @@
         console.log("Telegram WebApp initialized");
         const tg = window.Telegram.WebApp;
         tg.expand();
-        tg.enableClosingConfirmation();
+
+        // Отключаем подтверждение закрытия, если не поддерживается
+        try {
+            tg.enableClosingConfirmation();
+        } catch (e) {
+            console.log('Closing confirmation not supported');
+        }
 
         const API_URL = "https://web-production-4c423.up.railway.app";
         let currentSpaceId = null;
         let currentSpaceData = null;
         let userData = null;
 
-        function getUserData() {
+        // Функция для получения данных пользователя
+        async function initializeUser() {
+            console.log('Initializing user data...');
+    
+            // Способ 1: Пробуем получить из initDataUnsafe
             if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-                return tg.initDataUnsafe.user;
+                userData = tg.initDataUnsafe.user;
+                console.log('User data from initDataUnsafe:', userData);
+                return true;
             }
-            // Альтернативный способ для новых версий WebApp
-            try {
-                const initData = new URLSearchParams(tg.initData);
-                const userParam = initData.get('user');
-                if (userParam) {
-                    return JSON.parse(decodeURIComponent(userParam));
+    
+            // Способ 2: Пробуем распарсить initData
+            if (tg.initData) {
+                try {
+                    const initData = new URLSearchParams(tg.initData);
+                    const userParam = initData.get('user');
+                    if (userParam) {
+                        userData = JSON.parse(decodeURIComponent(userParam));
+                        console.log('User data from initData:', userData);
+                        return true;
+                    }
+                } catch (e) {
+                    console.error('Error parsing initData:', e);
                 }
-            } catch (e) {
-                console.error('Error parsing user data:', e);
             }
-            return null;
+    
+            // Способ 3: Если данные недоступны, используем тестовые данные для разработки
+            console.warn('User data not available, using test data');
+            userData = {
+                id: 781936910, // Твой ID из логов
+                first_name: 'Alexander',
+                last_name: 'V', 
+                username: 'AGalesgood',
+                language_code: 'ru'
+            };
+    
+            return true;
+        }
+
+        // Функция для отправки запросов с обработкой ошибок
+        async function makeAPIRequest(endpoint, data) {
+            try {
+                // Всегда используем initData от Telegram, даже если он пустой
+                const requestData = {
+                    ...data,
+                    initData: tg.initData || '' // Важно: всегда отправляем initData
+                };
+        
+                console.log(`Making request to ${endpoint}`, requestData);
+        
+                const response = await fetch(`${API_URL}${endpoint}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(requestData)
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`API Error ${response.status}:`, errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+        
+                return await response.json();
+            } catch (error) {
+                console.error('Request failed:', error);
+                throw error;
+            }
         }
 
         // Инициализация пользователя:
@@ -1054,22 +1112,23 @@
         }
 
         // ==== Пространства ====
+        // ==== Пространства ====
         async function loadSpaces() {
             try {
                 showLoading('spacesList');
-                const response = await fetch(`${API_URL}/get_user_spaces`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: tg.initData })
-                });
-
-                if (!response.ok) throw new Error('Ошибка загрузки пространств');
-                
-                const data = await response.json();
+        
+                // Убедимся, что userData инициализирован
+                if (!userData) {
+                    await initializeUser();
+                }
+        
+                const data = await makeAPIRequest('/get_user_spaces', {});
                 displaySpaces(data.spaces);
                 updateSpaceSelectors(data.spaces);
             } catch (error) {
-                document.getElementById('spacesList').innerHTML = `<div class="error">Ошибка загрузки: ${error.message}</div>`;
+                console.error('Load spaces error:', error);
+                document.getElementById('spacesList').innerHTML = 
+                    `<div class="error">Ошибка загрузки: ${error.message}</div>`;
             }
         }
 
@@ -1124,6 +1183,29 @@
                 showError('Введите название пространства');
                 return;
             }
+
+            try {
+                // Убедимся, что userData инициализирован
+                if (!userData) {
+                    await initializeUser();
+                }
+
+                const data = await makeAPIRequest('/create_space', {
+                    name: name,
+                    type: type,
+                    description: description
+                });
+        
+                showMessage(`Пространство "${name}" создано! Код: ${data.invite_code}`);
+                hideCreateSpaceForm();
+                loadSpaces();
+        
+                document.getElementById('spaceName').value = '';
+                document.getElementById('spaceDescription').value = '';
+            } catch (error) {
+                showError(`Ошибка: ${error.message}`);
+            }
+        }
 
             // Проверяем, что userData загружен
             if (!userData) {
@@ -1915,18 +1997,27 @@
         }
 
         // ==== Инициализация ====
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('User data:', userData);
-            loadAppState();
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('DOM loaded, initializing...');
+    
+            // Инициализируем пользователя
+            await initializeUser();
+            console.log('User data after init:', userData);
+    
             setupAutoSave();
             initCalculator();
-            loadSpaces();
-            
+    
+            // Загружаем пространства
+            await loadSpaces();
+    
             if (userData && userData.first_name) {
                 showMessage(`Добро пожаловать, ${userData.first_name}! 👋`);
+            } else {
+                showMessage('Добро пожаловать! 👋');
             }
         });
     </script>
 </body>
 </html>
+
 
