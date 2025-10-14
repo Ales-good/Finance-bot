@@ -37,6 +37,7 @@ CORS(flask_app)
 # ===== КОНФИГУРАЦИЯ =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '7911885739:AAGrMekWmLgz_ej8JDFqG-CbDA5Nie7vKFc')
 WEB_APP_URL = os.environ.get('WEB_APP_URL', 'https://your-app.railway.app')
+DEV_MODE = os.environ.get('DEV_MODE', 'True').lower() == 'true'  # Режим разработки
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не найден в переменных окружения!")
@@ -45,11 +46,15 @@ if not BOT_TOKEN:
 def validate_webapp_data(init_data):
     """Улучшенная валидация данных от Telegram WebApp"""
     try:
-        if not init_data:
+        # Режим разработки - пропускаем валидацию
+        if DEV_MODE:
+            logger.info("🔧 Режим разработки: пропускаем валидацию WebApp данных")
+            return True
+            
+        if not init_data or init_data == '':
             logger.warning("❌ Пустые данные WebApp")
             return False
         
-        # Для разработки - временно пропускаем строгую валидацию
         logger.info(f"🔐 Валидируем WebApp данные: {init_data[:100]}...")
         
         # Простая проверка наличия необходимых полей
@@ -59,8 +64,6 @@ def validate_webapp_data(init_data):
                 logger.warning(f"❌ Отсутствует поле {field} в WebApp данных")
                 return False
         
-        # В продакшене здесь должна быть полная валидация с проверкой хеша
-        # Для разработки возвращаем True
         logger.info("✅ WebApp данные прошли базовую валидацию")
         return True
         
@@ -71,6 +74,17 @@ def validate_webapp_data(init_data):
 def get_user_from_init_data(init_data):
     """Извлечение данных пользователя из initData с улучшенной обработкой"""
     try:
+        # Режим разработки - возвращаем тестового пользователя
+        if DEV_MODE and (not init_data or init_data == ''):
+            logger.info("🔧 Режим разработки: используем тестового пользователя")
+            return {
+                'id': 123456789,
+                'first_name': 'TestUser',
+                'username': 'testuser',
+                'last_name': 'Test',
+                'language_code': 'ru'
+            }
+            
         logger.info(f"🔍 Парсим initData: {init_data[:200]}...")
         
         params = {}
@@ -78,7 +92,10 @@ def get_user_from_init_data(init_data):
             if '=' in item:
                 key, value = item.split('=', 1)
                 # Декодируем URL-encoded значения
-                params[key] = value
+                try:
+                    params[key] = value
+                except:
+                    params[key] = value
         
         logger.info(f"📋 Найдены параметры: {list(params.keys())}")
         
@@ -660,7 +677,8 @@ def health_check():
         'status': 'ok', 
         'message': 'Finance Bot API is running',
         'timestamp': datetime.now().isoformat(),
-        'version': '1.0'
+        'version': '1.0',
+        'dev_mode': DEV_MODE
     })
 
 @flask_app.route('/get_user_spaces', methods=['POST'])
@@ -1412,6 +1430,7 @@ def main():
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     logger.info(f"🌐 Flask API запущен на порту {port}")
+    logger.info(f"🔧 Режим разработки: {DEV_MODE}")
     
     # Запускаем бота
     logger.info("🤖 Бот запускается...")
