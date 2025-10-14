@@ -98,18 +98,18 @@ def get_user_from_init_data(init_data):
         logger.info(f"📋 Найдены параметры: {list(params.keys())}")
         
         if 'user' in params:
-    user_data_str = params['user']
-    # СНАЧАЛА декодируем URL-encoding, ПОТОМ JSON
-    try:
-        user_data_str_decoded = user_data_str.replace('%22', '"').replace('%7B', '{').replace('%7D', '}').replace('%2C', ',').replace('%3A', ':')
-        user_data = json.loads(user_data_str_decoded)
-    except:
-        # Если не получается, пробуем как есть
-        try:
-            user_data = json.loads(user_data_str)
-        except:
-            logger.error(f"❌ Не удалось распарсить user data: {user_data_str}")
-            return None
+            user_data_str = params['user']
+            # СНАЧАЛА декодируем URL-encoding, ПОТОМ JSON
+            try:
+                user_data_str_decoded = user_data_str.replace('%22', '"').replace('%7B', '{').replace('%7D', '}').replace('%2C', ',').replace('%3A', ':')
+                user_data = json.loads(user_data_str_decoded)
+            except:
+                # Если не получается, пробуем как есть
+                try:
+                    user_data = json.loads(user_data_str)
+                except:
+                    logger.error(f"❌ Не удалось распарсить user data: {user_data_str}")
+                    return None
             
             
             return {
@@ -1450,6 +1450,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
