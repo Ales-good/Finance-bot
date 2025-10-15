@@ -570,12 +570,8 @@
             </div>
 
             <div class="card">
-                <h3>Активное пространство</h3>
-                <div id="activeSpaceInfo" class="loading">Загрузка...</div>
-                <div class="quick-actions">
-                    <button class="btn" onclick="showTab('expenses')">💸 Добавить трату</button>
-                    <button class="btn btn-secondary" onclick="showTab('analytics')">📊 Аналитика</button>
-                </div>
+                <h3>Пригласить друзей</h3>
+                <button class="btn btn-success" onclick="shareBotLink()">📱 Пригласить в бота</button>
             </div>
 
             <div class="card">
@@ -640,8 +636,11 @@
                         <input type="text" id="currentInviteCode" readonly>
                         <div class="invite-actions">
                             <button class="btn btn-small" onclick="copyInviteCode()">📋 Копировать код</button>
-                            <button class="btn btn-small btn-secondary" onclick="shareInviteLink()">📤 Поделиться</button>
+                            <button class="btn btn-small btn-success" onclick="shareInviteLink()">🔗 Копировать ссылку</button>
                         </div>
+                        <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+                            Отправьте ссылку друзьям, чтобы они присоединились к пространству
+                        </p>
                     </div>
                 </div>
 
@@ -650,6 +649,7 @@
                 
                 <div class="action-buttons">
                     <button class="btn btn-danger" onclick="leaveSpace()">🚪 Покинуть пространство</button>
+                    <button class="btn btn-danger" onclick="deleteSpace()">🗑️ Удалить пространство</button>
                     <button class="btn btn-secondary" onclick="hideSpaceDetails()">← Назад</button>
                 </div>
             </div>
@@ -734,6 +734,12 @@
                     <div class="filter-btn" data-period="30" onclick="setAnalyticsPeriod(30)">30 дней</div>
                     <div class="filter-btn" data-period="90" onclick="setAnalyticsPeriod(90)">3 месяца</div>
                     <div class="filter-btn" data-period="365" onclick="setAnalyticsPeriod(365)">Год</div>
+                </div>
+
+                <div class="chart-toggle" style="display: flex; gap: 8px; margin-bottom: 16px;">
+                    <button class="btn btn-small" onclick="showChart('line')">📈 Линейный</button>
+                    <button class="btn btn-small" onclick="showChart('doughnut')">🥧 По категориям</button>
+                    <button class="btn btn-small" onclick="showChart('comparison')">⚖️ Сравнение</button>
                 </div>
 
                 <div class="chart-container">
@@ -1281,23 +1287,15 @@
 
         function shareInviteLink() {
             const code = document.getElementById('currentInviteCode').value;
-            // Создаем правильную ссылку для бота
-            const inviteLink = `https://t.me/${tg.initDataUnsafe.bot_username}?start=invite_${code}`;
     
-            // Альтернативный вариант (если bot_username недоступен)
-            // const inviteLink = `https://t.me/your_bot_username?start=invite_${code}`;
+            // Создаем правильную ссылку для приглашения
+            const botUsername = tg.initDataUnsafe.bot_username || 'your_bot_username'; // Замените на реальный
+            const inviteLink = `https://t.me/${botUsername}?start=invite_${code}`;
     
-            if (navigator.share) {
-                navigator.share({
-                    title: 'Присоединяйтесь к моему финансовому пространству',
-                    text: 'Присоединяйтесь к моему финансовому пространству в Finance Tracker',
-                    url: inviteLink
-                });
-            } else {
-                navigator.clipboard.writeText(inviteLink).then(() => {
-                    showMessage('Ссылка скопирована в буфер обмена!');
-                });
-            }
+            // Копируем в буфер обмена
+            navigator.clipboard.writeText(inviteLink).then(() => {
+                showMessage('✅ Ссылка скопирована! Отправьте её друзьям');
+            });
         }
 
         async function joinSpace() {
@@ -1665,6 +1663,66 @@
             });
             loadAnalytics();
         }
+        
+        function renderCategoryChart(categories) {
+            const ctx = document.createElement('canvas');
+            ctx.id = 'categoryChart';
+            ctx.style.maxHeight = '250px';
+    
+            const container = document.getElementById('categoriesAnalytics');
+            container.innerHTML = '<h3>📊 Распределение по категориям</h3>';
+            container.appendChild(ctx);
+    
+            const categoryChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: categories.map(cat => cat.name),
+                    datasets: [{
+                        data: categories.map(cat => cat.total),
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                            '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF',
+                            '#4BC0C0', '#FF6384'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderComparisonChart(currentData, previousData) {
+            const ctx = document.createElement('canvas');
+            ctx.id = 'comparisonChart';
+            ctx.style.maxHeight = '250px';
+    
+            const container = document.getElementById('categoriesAnalytics');
+            const comparisonDiv = document.createElement('div');
+            comparisonDiv.innerHTML = '<h3>📈 Сравнение с предыдущим периодом</h3>';
+            comparisonDiv.appendChild(ctx);
+            container.appendChild(comparisonDiv);
+    
+            const comparisonChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Текущий период', 'Предыдущий период'],
+                    datasets: [{
+                        label: 'Общие расходы',
+                        data: [currentData.overview.total_spent, previousData.overview.total_spent],
+                        backgroundColor: ['#667eea', '#764ba2']
+                    }]
+                },
+                options: {
+                    responsive: true
+                }
+            });
+        }    
 
         async function exportToExcel() {
             if (!state.currentSpaceId) {
@@ -1694,7 +1752,37 @@
                 showMessage(`Ошибка экспорта: ${error.message}`, 'error');
             }
         }
+        // ===== Удаление пространства =====
+        async function deleteSpace() {
+            if (!state.currentSpaceId || !confirm('ВНИМАНИЕ! Вы уверены, что хотите УДАЛИТЬ это пространство? Все данные будут потеряны безвозвратно!')) {
+                return;
+            }
 
+            try {
+                const response = await fetch(`${API_URL}/delete_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка удаления пространства');
+                }
+        
+                showMessage('Пространство успешно удалено!');
+                hideSpaceDetails();
+                loadSpaces();
+                state.currentSpaceId = null;
+                saveState();
+        
+            } catch (error) {
+                showMessage(`Ошибка: ${error.message}`, 'error');
+            }
+        }
         // ===== UTILITY FUNCTIONS =====
         function showLoading(elementId) {
             document.getElementById(elementId).innerHTML = '<div class="loading">Загрузка...</div>';
@@ -1706,6 +1794,33 @@
             messageEl.className = `message ${type}`;
             messageEl.classList.remove('hidden');
             setTimeout(() => messageEl.classList.add('hidden'), 5000);
+        }
+
+        // ===== функция для получения ссылки на бота =====
+        function getBotLink() {
+            // Если username бота доступен через WebApp
+            if (tg.initDataUnsafe.bot_username) {
+                return `https://t.me/${tg.initDataUnsafe.bot_username}`;
+            }
+    
+            // Альтернатива - укажите username вашего бота напрямую
+            return `https://t.me/your_bot_username`; // ЗАМЕНИТЕ на реальный username
+        }
+
+        function shareBotLink() {
+            const botLink = getBotLink();
+    
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Finance Tracker - Учет финансов',
+                    text: 'Присоединяйтесь к Finance Tracker для учета совместных расходов!',
+                    url: botLink
+                });
+            } else {
+                navigator.clipboard.writeText(botLink).then(() => {
+                    showMessage('Ссылка на бота скопирована!');
+                });
+            }
         }
 
         // ===== INITIALIZE APP =====
@@ -1783,30 +1898,39 @@
                 }
 
                 // Обнови функцию displayAnalytics чтобы она вызывала рендер графика
-                function displayAnalytics(data) {
+                async function displayAnalytics(data) {
                     // Общие суммы
                     document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(2) || 0} ₽`;
                     document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(2)} ₽`;
-    
-                    // Рендерим график
+
+                    // Рендерим основной график
                     renderAnalyticsChart(data);
-    
-                    // Категории
-                    const container = document.getElementById('categoriesAnalytics');
-                    if (!data.categories || data.categories.length === 0) {
-                        container.innerHTML = '<div class="empty-state">Нет данных о расходах</div>';
-                        return;
+
+                    // Рендерим круговую диаграмму категорий
+                    if (data.categories && data.categories.length > 0) {
+                        renderCategoryChart(data.categories);
                     }
 
-                    container.innerHTML = data.categories.map(cat => `
-                        <div class="category-item">
-                            <span class="category-name">${cat.name}</span>
-                            <div style="text-align: right;">
-                                <div style="font-weight: 700; color: #dc3545;">${cat.total.toFixed(2)} ₽</div>
-                                <div style="font-size: 12px; color: #666;">${cat.count} трат</div>
-                            </div>
-                        </div>
-                    `).join('');
+                    // Загружаем данные для сравнения
+                    try {
+                        const prevResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                initData: tg.initData,
+                                spaceId: state.currentSpaceId,
+                                period: state.analyticsPeriod,
+                                previousPeriod: true // Добавьте этот параметр в API
+                            })
+                        });
+
+                        if (prevResponse.ok) {
+                            const prevData = await prevResponse.json();
+                            renderComparisonChart(data, prevData);
+                        }
+                    } catch (error) {
+                        console.log('Не удалось загрузить данные для сравнения');
+                    }
                 }
     </script>
 </body>
