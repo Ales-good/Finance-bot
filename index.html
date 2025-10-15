@@ -221,12 +221,17 @@
 
         .space-card {
             background: var(--card-bg);
-            padding: 16px;
+            padding: 12px; /* Уменьшили padding */
             border-radius: 12px;
             text-align: center;
             cursor: pointer;
             transition: all 0.3s;
             border: 2px solid transparent;
+            min-height: 70px; /* Добавили минимальную высоту */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
 
         .space-card:hover {
@@ -240,21 +245,36 @@
         }
 
         .space-icon {
-            font-size: 32px;
-            margin-bottom: 8px;
+            font-size: 20px !important; /* Уменьшили размер иконок */
+            margin-bottom: 6px;
         }
 
         .space-name {
             font-weight: 600;
-            font-size: 14px;
-            margin-bottom: 4px;
+            font-size: 12px !important; /* Уменьшили размер текста */
+            margin-bottom: 2px;
+            line-height: 1.2;
         }
 
         .space-meta {
-            font-size: 12px;
+            font-size: 10px !important; /* Уменьшили размер мета-информации */
             color: var(--text-muted);
+            line-height: 1.1;
         }
 
+        /* Для главной страницы - еще меньше */
+        #quickSpacesGrid .space-card {
+            padding: 8px;
+            min-height: 60px;
+        }
+
+        #quickSpacesGrid .space-icon {
+            font-size: 18px !important;
+        }
+
+        #quickSpacesGrid .space-name {
+            font-size: 11px !important;
+        }    
         /* Currency Selector */
         .currency-selector {
             display: flex;
@@ -1407,7 +1427,15 @@
                 item.classList.remove('active');
             });
             event.target.closest('.category-item').classList.add('active');
+
+            // Добавляем визуальную обратную связь
+            const activeItem = event.target.closest('.category-item');
+            activeItem.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                activeItem.style.transform = 'scale(1)';
+            }, 150);
         }
+        
 
         async function addExpense() {
             const amount = state.currentAmount;
@@ -1418,10 +1446,20 @@
 
             if (!amount || amount <= 0) {
                 showMessage('Введите сумму траты', 'error');
+                // Анимация поля суммы
+                document.getElementById('currentAmount').style.color = '#dc3545';
+                setTimeout(() => {
+                    document.getElementById('currentAmount').style.color = '';
+                }, 1000);
                 return;
             }
             if (!category) {
                 showMessage('Выберите категорию', 'error');
+                // Анимация категорий
+                document.getElementById('categoriesGrid').style.border = '2px solid #dc3545';
+                setTimeout(() => {
+                    document.getElementById('categoriesGrid').style.border = '';
+                }, 1000);
                 return;
             }
             if (!spaceId) {
@@ -1814,7 +1852,7 @@
         // Функция для отображения загруженных трат
         function displayRecentExpensesInAnalytics(expenses) {
             const container = document.getElementById('categoriesAnalytics');
-    
+
             // Находим где вставить (после категорий)
             const recentTitle = document.createElement('h3');
             recentTitle.textContent = '📝 Последние траты';
@@ -1845,6 +1883,9 @@
                 const date = new Date(expense.created_at);
                 const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 
+                // ВАЖНО: Добавляем отображение описания
+                const description = expense.description || 'Без описания';
+        
                 expenseItem.innerHTML = `
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; margin-bottom: 4px;">
@@ -1855,7 +1896,7 @@
                             </div>
                         </div>
                         <div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px;">
-                            ${expense.description || '<span style="color: var(--text-muted); font-style: italic;">Без описания</span>'}
+                            ${description}
                         </div>
                     </div>
                     <div style="text-align: right; min-width: 80px;">
@@ -2161,13 +2202,34 @@
         }
 
         function shareBotLink() {
-            const botLink = getBotLink();
+            // Создаем правильную ссылку для приглашения
+            const botUsername = 'incomeexpensebookBot'; // Замените на реальный username
+            const inviteLink = `https://t.me/${botUsername}`;
     
-            navigator.clipboard.writeText(botLink).then(() => {
-                showMessage('✅ Ссылка на бота скопирована в буфер обмена!');
-            }).catch(err => {
-                console.error('Copy failed:', err);
-                showMessage('❌ Не удалось скопировать ссылку', 'error');
+            // Показываем инструкцию
+            const message = `
+        🤝 <b>Как пригласить друзей:</b>
+
+        1. <b>Отправьте эту ссылку друзьям:</b>
+        ${inviteLink}
+
+        2. <b>Или поделитесь кодом пространства:</b>
+        - Откройте вкладку "👥 Пространства"
+        - Выберите нужное пространство  
+        - Нажмите "📋 Копировать код"
+        - Отправьте код друзьям
+
+        3. <b>Друзья должны:</b>
+        - Перейти по ссылке и начать диалог с ботом
+        - Нажать START
+        - Использовать код приглашения
+        `;
+
+            showMessage(message, 'success');
+    
+            // Копируем ссылку в буфер
+            navigator.clipboard.writeText(inviteLink).then(() => {
+                console.log('Ссылка скопирована');
             });
         }
 
