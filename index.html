@@ -544,6 +544,12 @@
 
         <!-- Dashboard Tab -->
         <div id="dashboard" class="tab-content active">
+            <div class="tabs">
+                <button class="tab active">🏠 Главная</button>
+                <button class="tab" onclick="showTab('spaces')">👥 Пространства</button>
+                <button class="tab" onclick="showTab('expenses')">💸 Траты</button>
+                <button class="tab" onclick="showTab('analytics')">📊 Аналитика</button>
+            </div>
             <div class="dashboard-stats">
                 <div class="stat-card primary">
                     <div class="stat-value" id="todaySpent">0 ₽</div>
@@ -581,6 +587,12 @@
 
         <!-- Spaces Tab -->
         <div id="spaces" class="tab-content">
+            <div class="tabs">
+                <button class="tab" onclick="showTab('dashboard')">🏠 Главная</button>
+                <button class="tab active">👥 Пространства</button>
+                <button class="tab" onclick="showTab('expenses')">💸 Траты</button>
+                <button class="tab" onclick="showTab('analytics')">📊 Аналитика</button>
+            </div>
             <div class="card">
                 <h2>Мои пространства</h2>
                 <div id="spacesList" class="loading">Загрузка...</div>
@@ -638,6 +650,12 @@
 
         <!-- Expenses Tab -->
         <div id="expenses" class="tab-content">
+            <div class="tabs">
+                <button class="tab" onclick="showTab('dashboard')">🏠 Главная</button>
+                <button class="tab" onclick="showTab('spaces')">👥 Пространства</button>
+                <button class="tab active">💸 Траты</button>
+                <button class="tab" onclick="showTab('analytics')">📊 Аналитика</button>
+            </div>
             <div class="card">
                 <h2>💸 Добавить трату</h2>
                 
@@ -686,6 +704,12 @@
 
         <!-- Analytics Tab -->
         <div id="analytics" class="tab-content">
+            <div class="tabs">
+                <button class="tab" onclick="showTab('dashboard')">🏠 Главная</button>
+                <button class="tab" onclick="showTab('spaces')">👥 Пространства</button>
+                <button class="tab" onclick="showTab('expenses')">💸 Траты</button>
+                <button class="tab active">📊 Аналитика</button>
+            </div>
             <div class="card">
                 <h2>📊 Аналитика</h2>
                 
@@ -743,13 +767,7 @@
             </div>
         </div>
 
-        <!-- Navigation Tabs -->
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('dashboard')">🏠</button>
-            <button class="tab" onclick="showTab('spaces')">👥</button>
-            <button class="tab" onclick="showTab('expenses')">💸</button>
-            <button class="tab" onclick="showTab('analytics')">📊</button>
-        </div>
+        
 
         <div id="message" class="hidden"></div>
     </div>
@@ -812,16 +830,36 @@
 
         // ===== NAVIGATION =====
         function showTab(tabName) {
+            // Скрываем все вкладки
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-
+    
+            // Убираем активный класс со всех табов во всех вкладках
+            document.querySelectorAll('.tabs .tab').forEach(tab => tab.classList.remove('active'));
+    
+            // Показываем нужную вкладку
             document.getElementById(tabName).classList.add('active');
-            document.querySelector(`.tab[onclick="showTab('${tabName}')"]`).classList.add('active');
+    
+            // Активируем соответствующий таб в текущей вкладке
+            const currentTabs = document.querySelector(`#${tabName} .tabs`);
+            if (currentTabs) {
+                const targetTab = Array.from(currentTabs.querySelectorAll('.tab')).find(tab => 
+                    tab.textContent.includes(getTabLabel(tabName))
+                );
+                if (targetTab) {
+                    targetTab.classList.add('active');
+                }
+            }
+        }
 
-            if (tabName === 'dashboard') loadDashboard();
-            if (tabName === 'spaces') loadSpaces();
-            if (tabName === 'expenses') loadExpensesTab();
-            if (tabName === 'analytics') loadAnalytics();
+        // Вспомогательная функция для определения метки таба
+        function getTabLabel(tabName) {
+            const labels = {
+                'dashboard': 'Главная',
+                'spaces': 'Пространства', 
+                'expenses': 'Траты',
+                'analytics': 'Аналитика'
+            };
+            return labels[tabName] || tabName;
         }
 
         function setupSwipeNavigation() {
