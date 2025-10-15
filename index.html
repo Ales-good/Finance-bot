@@ -851,7 +851,15 @@
                     targetTab.classList.add('active');
                 }
             }
+
+            // ДОБАВЬТЕ ЭТОТ КОД - загрузка контента для конкретных вкладок
+            if (tabName === 'expenses') {
+                loadExpensesTab();
+            } else if (tabName === 'analytics') {
+                loadAnalytics();
+            }
         }
+        
 
         // Вспомогательная функция для определения метки таба
         function getTabLabel(tabName) {
