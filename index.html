@@ -1023,23 +1023,459 @@
         }
 
         // Placeholder functions for existing functionality
+        // ==== Пространства ====
+        async function loadSpaces() {
+            try {
+                showLoading('spacesList');
+                const response = await fetch(`${API_URL}/get_user_spaces`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+
+                if (!response.ok) throw new Error('Ошибка загрузки пространств');
+                
+                const data = await response.json();
+                displaySpaces(data.spaces);
+                updateSpaceSelectors(data.spaces);
+            } catch (error) {
+                document.getElementById('spacesList').innerHTML = `<div class="error">Ошибка загрузки: ${error.message}</div>`;
+            }
+        }
+
+        function displaySpaces(spaces) {
+            const container = document.getElementById('spacesList');
+            
+            if (!spaces || spaces.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div>🏠</div>
+                        <div>У вас пока нет пространств</div>
+                        <div style="font-size: 14px; margin-top: 8px;">Создайте первое пространство чтобы начать</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = spaces.map(space => `
+                <div class="space-item" onclick="showSpaceDetails(${space.id})">
+                    <div class="space-name">${space.name}</div>
+                    <div class="space-meta">
+                        ${getSpaceTypeLabel(space.space_type)} • ${space.member_count} участников
+                        ${space.invite_code ? `<br><small>Код: ${space.invite_code}</small>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getSpaceTypeLabel(type) {
+            const types = {
+                'personal': 'Личное',
+                'private': 'Приватное', 
+                'public': 'Публичное'
+            };
+            return types[type] || type;
+        }
+
+        function showCreateSpaceForm() {
+            document.getElementById('createSpaceForm').classList.remove('hidden');
+        }
+
+        function hideCreateSpaceForm() {
+            document.getElementById('createSpaceForm').classList.add('hidden');
+        }
+
         async function createSpace() {
-            // Implementation from original code
-            showMessage('Функция в разработке');
+            const name = document.getElementById('spaceName').value.trim();
+            const type = document.getElementById('spaceType').value;
+            const description = document.getElementById('spaceDescription').value.trim();
+
+            if (!name) {
+                showError('Введите название пространства');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/create_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        name: name,
+                        type: type,
+                        description: description
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка создания пространства');
+                }
+                
+                const data = await response.json();
+                showMessage(`Пространство "${name}" создано! Код: ${data.invite_code}`);
+                hideCreateSpaceForm();
+                loadSpaces();
+                
+                document.getElementById('spaceName').value = '';
+                document.getElementById('spaceDescription').value = '';
+            } catch (error) {
+                showError(`Ошибка: ${error.message}`);
+            }
+        }
+
+        async function showSpaceDetails(spaceId) {
+            currentSpaceId = spaceId;
+            try {
+                // Загружаем информацию о пространстве
+                const [spacesResponse, membersResponse] = await Promise.all([
+                    fetch(`${API_URL}/get_user_spaces`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ initData: tg.initData })
+                    }),
+                    fetch(`${API_URL}/get_space_members`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: spaceId
+                        })
+                    })
+                ]);
+
+                if (!spacesResponse.ok || !membersResponse.ok) {
+                    throw new Error('Ошибка загрузки данных пространства');
+                }
+
+                const spacesData = await spacesResponse.json();
+                const membersData = await membersResponse.json();
+
+                currentSpaceData = spacesData.spaces.find(s => s.id === spaceId);
+                if (!currentSpaceData) throw new Error('Пространство не найдено');
+
+                displaySpaceDetails(currentSpaceData, membersData.members);
+                document.getElementById('spaceDetails').classList.remove('hidden');
+            } catch (error) {
+                showError(`Ошибка: ${error.message}`);
+            }
+        }
+
+        function displaySpaceDetails(space, members) {
+            document.getElementById('currentSpaceName').textContent = space.name;
+            document.getElementById('currentInviteCode').value = space.invite_code;
+            
+            // Информация о пространстве
+            document.getElementById('spaceInfo').innerHTML = `
+                <div class="space-meta">
+                    <strong>Тип:</strong> ${getSpaceTypeLabel(space.space_type)}<br>
+                    <strong>Участников:</strong> ${members.length}<br>
+                    ${space.description ? `<strong>Описание:</strong> ${space.description}` : ''}
+                </div>
+            `;
+
+            // Участники
+            const membersHtml = members.map(member => `
+                <div class="member-item">
+                    <div>
+                        <strong>${member.user_name}</strong>
+                        ${member.user_id === userData.id ? ' (Вы)' : ''}
+                    </div>
+                    <div class="member-role">${member.role}</div>
+                </div>
+            `).join('');
+
+            document.getElementById('spaceMembersList').innerHTML = `
+                <h4>Участники (${members.length}):</h4>
+                ${membersHtml}
+            `;
+        }
+
+        function hideSpaceDetails() {
+            document.getElementById('spaceDetails').classList.add('hidden');
+            currentSpaceId = null;
+            currentSpaceData = null;
+        }
+
+        async function joinSpace() {
+            const code = document.getElementById('inviteCodeInput').value.trim();
+            if (!code) {
+                showError('Введите код приглашения');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/join_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        inviteCode: code
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка присоединения');
+                }
+                
+                const data = await response.json();
+                showMessage(`Присоединились к пространству: ${data.space_name}`);
+                document.getElementById('inviteCodeInput').value = '';
+                loadSpaces();
+                hideSpaceDetails();
+            } catch (error) {
+                showError(`Ошибка: ${error.message}`);
+            }
+        }
+
+        function copyInviteCode() {
+            const codeInput = document.getElementById('currentInviteCode');
+            codeInput.select();
+            document.execCommand('copy');
+            showMessage('Код скопирован в буфер обмена!');
+        }
+
+        async function leaveSpace() {
+            if (!currentSpaceId || !confirm('Вы уверены, что хотите покинуть это пространство?')) {
+                return;
+            }
+
+            try {
+                // Здесь должна быть API функция для выхода из пространства
+                showMessage('Функция выхода из пространства в разработке');
+            } catch (error) {
+                showError(`Ошибка: ${error.message}`);
+            }
+        }
+
+        // ==== Траты ====
+        function updateSpaceSelectors(spaces) {
+            const spaceSelectors = [
+                document.getElementById('analyticsSpace'),
+                document.getElementById('expenseSpace'),
+                document.getElementById('historySpace')
+            ];
+
+            spaceSelectors.forEach(selector => {
+                const currentValue = selector.value;
+                while (selector.options.length > 1) selector.remove(1);
+
+                if (spaces && spaces.length > 0) {
+                    spaces.forEach(space => {
+                        const option = document.createElement('option');
+                        option.value = space.id;
+                        option.textContent = space.name;
+                        selector.appendChild(option);
+                    });
+                }
+
+                if (currentValue && selector.querySelector(`option[value="${currentValue}"]`)) {
+                    selector.value = currentValue;
+                }
+            });
+        }
+
+        function loadSpacesForSelectors() {
+            // Просто обновляем селекторы без полной перезагрузки
+            fetch(`${API_URL}/get_user_spaces`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(response => response.json())
+            .then(data => updateSpaceSelectors(data.spaces))
+            .catch(error => console.error('Ошибка загрузки пространств:', error));
         }
 
         async function addExpense() {
-            // Implementation from original code
-            showMessage('Трата добавлена!');
-            clearAmount();
+            const amount = parseFloat(document.getElementById('expenseAmount').value);
+            const category = document.getElementById('expenseCategory').value;
+            const description = document.getElementById('expenseDescription').value.trim();
+            const spaceId = document.getElementById('expenseSpace').value;
+
+            if (!amount || amount <= 0 || !category || !spaceId) {
+                showError('Заполните все обязательные поля');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/add_expense`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        amount: amount,
+                        category: category,
+                        description: description,
+                        spaceId: parseInt(spaceId)
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка добавления траты');
+                }
+                
+                showMessage('Трата успешно добавлена!');
+                
+                document.getElementById('expenseAmount').value = '';
+                document.getElementById('expenseDescription').value = '';
+                
+                loadExpensesHistory();
+            } catch (error) {
+                showError(`Ошибка: ${error.message}`);
+            }
         }
 
-        function shareInviteLink() {
-            // Implementation
-            showMessage('Ссылка скопирована!');
+        function quickExpense(amount, category) {
+            document.getElementById('expenseAmount').value = amount;
+            document.getElementById('expenseCategory').value = category;
+            document.getElementById('expenseDescription').value = 'Быстрая трата';
+            showTab('expenses');
         }
 
-        // ... other existing functions from original code
+        // ==== Аналитика ====
+        async function loadAnalytics() {
+            const spaceId = document.getElementById('analyticsSpace').value || null;
+            const period = document.getElementById('analyticsPeriod').value;
+
+            try {
+                showLoading('categoriesList');
+                const response = await fetch(`${API_URL}/get_analytics`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        userId: null // Все пользователи
+                    })
+                });
+
+                if (!response.ok) throw new Error('Ошибка загрузки аналитики');
+                
+                const data = await response.json();
+                displayAnalytics(data);
+            } catch (error) {
+                document.getElementById('categoriesList').innerHTML = `<div class="error">Ошибка: ${error.message}</div>`;
+            }
+        }
+
+        function displayAnalytics(data) {
+            // Общие суммы
+            document.getElementById('totalSpent').textContent = formatCurrency(data.total_spent);
+            
+            const budget = data.budget || 0;
+            const budgetLeft = Math.max(0, budget - data.total_spent);
+            document.getElementById('budgetLeft').textContent = formatCurrency(budgetLeft);
+
+            // Прогресс бюджета
+            const budgetSection = document.getElementById('budgetSection');
+            const progressBar = document.getElementById('budgetProgressBar');
+            
+            if (budget > 0) {
+                budgetSection.classList.remove('hidden');
+                document.getElementById('budgetAmountText').textContent = formatCurrency(budget);
+                document.getElementById('spentAmount').textContent = formatCurrency(data.total_spent);
+                document.getElementById('remainingAmount').textContent = formatCurrency(budgetLeft);
+                
+                const progressPercent = Math.min(100, (data.total_spent / budget) * 100);
+                progressBar.style.width = `${progressPercent}%`;
+                
+                if (progressPercent > 80) {
+                    progressBar.style.background = 'linear-gradient(135deg, #dc3545, #e83e8c)';
+                } else if (progressPercent > 50) {
+                    progressBar.style.background = 'linear-gradient(135deg, #ffc107, #fd7e14)';
+                }
+            } else {
+                budgetSection.classList.add('hidden');
+            }
+
+            // Категории
+            const container = document.getElementById('categoriesList');
+            if (!data.categories || data.categories.length === 0) {
+                container.innerHTML = '<div class="empty-state">Нет данных о расходах</div>';
+                return;
+            }
+
+            const total = data.categories.reduce((sum, cat) => sum + cat.total, 0);
+            
+            container.innerHTML = data.categories.map(cat => {
+                const percent = total > 0 ? ((cat.total / total) * 100).toFixed(1) : 0;
+                return `
+                    <div class="category-item">
+                        <span class="category-name">${cat.name}</span>
+                        <div style="text-align: right;">
+                            <div class="category-amount">${formatCurrency(cat.total)}</div>
+                            <div style="font-size: 12px; color: #666;">${percent}%</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function setBudget() {
+            const amount = parseFloat(document.getElementById('budgetAmount').value);
+            const spaceId = document.getElementById('analyticsSpace').value;
+
+            if (!amount || amount <= 0 || !spaceId) {
+                showError('Введите корректную сумму и выберите пространство');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/set_budget`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        amount: amount
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка установки бюджета');
+                }
+                
+                showMessage('Бюджет успешно установлен!');
+                document.getElementById('budgetAmount').value = '';
+                loadAnalytics();
+            } catch (error) {
+                showError(`Ошибка: ${error.message}`);
+            }
+        }
+
+        // ==== История трат ====
+        async function loadExpensesHistory() {
+            // Здесь должна быть реализация загрузки истории трат
+            // Покажем заглушку с последними тратами
+            const container = document.getElementById('expensesHistory');
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div>📊</div>
+                    <div>История трат в разработке</div>
+                    <div style="font-size: 14px; margin-top: 8px;">Скоро здесь появится полная история ваших расходов</div>
+                </div>
+            `;
+        }
+
+        // ==== Вспомогательные функции ====
+        function showLoading(elementId) {
+            document.getElementById(elementId).innerHTML = '<div class="loading">Загрузка...</div>';
+        }
+
+        // ==== Инициализация ====
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('User data:', userData);
+            loadSpaces();
+            
+            // Показываем приветствие
+            if (userData && userData.first_name) {
+                showMessage(`Добро пожаловать, ${userData.first_name}! 👋`);
+            }
+        });
     </script>
 </body>
 </html>
