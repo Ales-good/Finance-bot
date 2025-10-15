@@ -721,6 +721,24 @@
                 <h3>По категориям</h3>
                 <div id="categoriesAnalytics"></div>
 
+                <!-- Добавь этот блок перед кнопкой экспорта в аналитике -->
+                <div class="card" style="margin-top: 16px;">
+                    <h3>🎯 Установить бюджет</h3>
+                    <div class="form-group">
+                        <label>Сумма бюджета:</label>
+                        <input type="number" id="budgetAmount" placeholder="Введите сумму бюджета" step="0.01" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Валюта:</label>
+                        <div class="currency-selector">
+                            <div class="currency-flag active" data-currency="RUB" onclick="selectBudgetCurrency('RUB')">🇷🇺 RUB</div>
+                            <div class="currency-flag" data-currency="BYN" onclick="selectBudgetCurrency('BYN')">🇧🇾 BYN</div>
+                            <div class="currency-flag" data-currency="KZT" onclick="selectBudgetCurrency('KZT')">🇰🇿 KZT</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-success" onclick="setBudget()">💎 Установить бюджет</button>
+                </div>    
+            <div class="card">            
                 <button class="btn btn-outline" onclick="exportToExcel()">📊 Экспорт в Excel</button>
             </div>
         </div>
@@ -1297,6 +1315,54 @@
             }
         }
 
+        // ===== BUDGET MANAGEMENT =====
+        let budgetCurrency = 'RUB';
+
+        function selectBudgetCurrency(currency) {
+            budgetCurrency = currency;
+            document.querySelectorAll('#analytics .currency-flag').forEach(flag => {
+                flag.classList.toggle('active', flag.dataset.currency === currency);
+            });
+        }
+
+        async function setBudget() {
+            const amount = parseFloat(document.getElementById('budgetAmount').value);
+            const spaceId = state.currentSpaceId;
+
+            if (!amount || amount <= 0) {
+                showMessage('Введите корректную сумму бюджета', 'error');
+                return;
+            }
+            if (!spaceId) {
+                showMessage('Выберите пространство', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/set_budget`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        amount: amount,
+                        currency: budgetCurrency
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка установки бюджета');
+                }
+        
+                showMessage(`Бюджет ${amount} ${CURRENCIES[budgetCurrency].symbol} установлен!`);
+                document.getElementById('budgetAmount').value = '';
+                loadDashboard(); // Обновляем статистику
+        
+            } catch (error) {
+                showMessage(`Ошибка: ${error.message}`, 'error');
+            }
+        }            
         // ===== DASHBOARD =====
         async function loadDashboard() {
             await loadSpacesForSelector('dashboardSpaces');
