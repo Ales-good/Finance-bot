@@ -598,7 +598,14 @@
                 <div id="spacesList" class="loading">Загрузка...</div>
                 <button class="btn" onclick="showCreateSpaceForm()">➕ Создать пространство</button>
             </div>
-
+            <div class="card">
+                <h3>Присоединиться к пространству</h3>
+                <div class="form-group">
+                    <label>Код приглашения:</label>
+                    <input type="text" id="inviteCodeInput" placeholder="Введите код приглашения">
+                </div>
+                <button class="btn" onclick="joinSpace()">Присоединиться</button>
+            </div>    
             <div id="createSpaceForm" class="card hidden">
                 <h3>Создать пространство</h3>
                 <div class="form-group">
@@ -801,6 +808,76 @@
         };
 
         // ===== INITIALIZATION =====
+        function handleStartParameters() {
+            if (tg.initDataUnsafe.start_param) {
+                const startParam = tg.initDataUnsafe.start_param;
+                if (startParam.startsWith('invite_')) {
+                    const inviteCode = startParam.replace('invite_', '');
+                    showJoinSpaceModal(inviteCode);
+                }
+            }
+        }
+
+        // Функция для показа модального окна присоединения
+        function showJoinSpaceModal(inviteCode) {
+            const modalHtml = `
+                <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+                    <div class="card" style="max-width: 300px; margin: 20px;">
+                        <h3>🤝 Присоединиться к пространству</h3>
+                        <p>Вы были приглашены в финансовое пространство!</p>
+                        <div class="form-group">
+                            <label>Код приглашения:</label>
+                            <input type="text" id="autoInviteCode" value="${inviteCode}" readonly>
+                        </div>
+                        <button class="btn" onclick="joinSpaceFromLink()">Присоединиться</button>
+                        <button class="btn btn-secondary" onclick="closeJoinModal()">Отмена</button>
+                    </div>
+                </div>
+            `;
+    
+            const modal = document.createElement('div');
+            modal.id = 'joinModal';
+            modal.innerHTML = modalHtml;
+            document.body.appendChild(modal);
+        }
+
+        function closeJoinModal() {
+            const modal = document.getElementById('joinModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        async function joinSpaceFromLink() {
+            const code = document.getElementById('autoInviteCode').value.trim();
+            await joinSpaceWithCode(code);
+        }
+
+        async function joinSpaceWithCode(code) {
+            try {
+                const response = await fetch(`${API_URL}/join_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        inviteCode: code
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка присоединения');
+                }
+        
+                const data = await response.json();
+                showMessage(`Вы присоединились к пространству: ${data.space_name}`);
+                closeJoinModal();
+                loadSpaces();
+        
+            } catch (error) {
+                showMessage(`Ошибка: ${error.message}`, 'error');
+            }
+        }
         document.addEventListener('DOMContentLoaded', function() {
             loadState();
             initializeApp();
@@ -853,7 +930,9 @@
             }
 
             // ДОБАВЬТЕ ЭТОТ КОД - загрузка контента для конкретных вкладок
+            console.log('Switching to tab:', tabName);
             if (tabName === 'expenses') {
+                console.log('Loading expenses tab content...');
                 loadExpensesTab();
             } else if (tabName === 'analytics') {
                 loadAnalytics();
@@ -1202,8 +1281,12 @@
 
         function shareInviteLink() {
             const code = document.getElementById('currentInviteCode').value;
-            const inviteLink = `https://t.me/${tg.initDataUnsafe.user.username}?start=invite_${code}`;
-            
+            // Создаем правильную ссылку для бота
+            const inviteLink = `https://t.me/${tg.initDataUnsafe.bot_username}?start=invite_${code}`;
+    
+            // Альтернативный вариант (если bot_username недоступен)
+            // const inviteLink = `https://t.me/your_bot_username?start=invite_${code}`;
+    
             if (navigator.share) {
                 navigator.share({
                     title: 'Присоединяйтесь к моему финансовому пространству',
@@ -1223,30 +1306,7 @@
                 showMessage('Введите код приглашения', 'error');
                 return;
             }
-
-            try {
-                const response = await fetch(`${API_URL}/join_space`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        inviteCode: code
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка присоединения');
-                }
-                
-                const data = await response.json();
-                showMessage(`Присоединились к пространству: ${data.space_name}`);
-                document.getElementById('inviteCodeInput').value = '';
-                loadSpaces();
-                hideSpaceDetails();
-            } catch (error) {
-                showMessage(`Ошибка: ${error.message}`, 'error');
-            }
+            await joinSpaceWithCode(code);
         }
 
         async function leaveSpace() {
@@ -1263,10 +1323,10 @@
 
         // ===== EXPENSES TAB =====
         function loadExpensesTab() {
-            console.log('Loading expenses tab...');
+            console.log('=== loadExpensesTab() called ===');
             loadSpacesForSelector('expenseSpacesGrid');
             generateKeypad();
-            loadCategories();
+            loadCategories(); // Эта функция должна работать корректно
         }
 
         function loadSpacesForSelector(containerId) {
@@ -1281,8 +1341,22 @@
         }
 
         function loadCategories() {
-            console.log('Loading categories...'); // Добавь для отладки
-    
+            console.log('=== loadCategories() called ===');
+            
+            const container = document.getElementById('categoriesGrid');
+            console.log('Categories container:', container);
+
+            if (!container) {
+                console.error('❌ categoriesGrid container NOT FOUND!');
+                console.log('Available elements with "categories" in id:');
+                document.querySelectorAll('[id*="categor"]').forEach(el => {
+                    console.log(' - ', el.id);
+                });
+                return;
+            }
+
+            console.log('✅ categoriesGrid container found');
+
             const categories = [
                 { name: 'Продукты', icon: '🛒' },
                 { name: 'Кафе', icon: '☕' },
@@ -1296,20 +1370,18 @@
                 { name: 'Другое', icon: '❓' }
             ];
 
-            const container = document.getElementById('categoriesGrid');
-            if (!container) {
-                console.error('Categories grid container not found!');
-                return;
-            }
-    
+            console.log('Categories to load:', categories);
+
             container.innerHTML = categories.map(cat => `
                 <div class="category-item" onclick="selectCategory('${cat.name}')">
                     <div class="category-icon">${cat.icon}</div>
                     <div class="category-name">${cat.name}</div>
                 </div>
             `).join('');
-    
-            console.log('Categories loaded:', categories.length);
+
+            console.log('✅ Categories HTML generated');
+            console.log('Container innerHTML length:', container.innerHTML.length);
+            console.log('Category items found:', container.querySelectorAll('.category-item').length);
         }
 
         function selectCategory(category) {
@@ -1640,6 +1712,7 @@
         function initializeApp() {
             loadSpaces();
             generateKeypad();
+            handleStartParameters(); // Добавьте эту строку
         }
 
         // ===== CHARTS =====
