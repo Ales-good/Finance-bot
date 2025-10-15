@@ -550,34 +550,64 @@
                 <button class="tab" onclick="showTab('expenses')">💸</button>
                 <button class="tab" onclick="showTab('analytics')">📊</button>
             </div>
-            <div class="dashboard-stats">
-                <div class="stat-card primary">
-                    <div class="stat-value" id="todaySpent">0 ₽</div>
-                    <div class="stat-label">Сегодня</div>
+
+            <!-- Быстрый выбор пространства -->
+            <div class="card">
+                <h3>🏠 Мои пространства</h3>
+                <div id="quickSpacesGrid" class="spaces-grid" style="grid-template-columns: repeat(4, 1fr);">
+                    <!-- Будут загружены скриптом -->
                 </div>
-                <div class="stat-card success">
-                    <div class="stat-value" id="budgetProgress">0%</div>
-                    <div class="stat-label">Бюджет</div>
-                </div>
-                <div class="stat-card warning">
-                    <div class="stat-value" id="weekSpent">0 ₽</div>
-                    <div class="stat-label">За неделю</div>
-                </div>
-                <div class="stat-card danger">
-                    <div class="stat-value" id="monthSpent">0 ₽</div>
-                    <div class="stat-label">За месяц</div>
+                <div style="margin-top: 12px; text-align: center;">
+                    <button class="btn btn-outline" onclick="showTab('spaces')">👥 Управление пространствами</button>
                 </div>
             </div>
 
-            <div class="card">
-                <h3>Пригласить друзей</h3>
-                <button class="btn btn-success" onclick="shareBotLink()">📱 Пригласить в бота</button>
+            <!-- KPI дашборда -->
+            <div id="dashboardKPI" class="hidden">
+                <div class="dashboard-stats">
+                    <div class="stat-card primary">
+                        <div class="stat-value" id="todaySpent">0 ₽</div>
+                        <div class="stat-label">Сегодня</div>
+                    </div>
+                    <div class="stat-card success">
+                        <div class="stat-value" id="budgetProgress">0%</div>
+                        <div class="stat-label">Бюджет</div>
+                    </div>
+                    <div class="stat-card warning">
+                        <div class="stat-value" id="weekSpent">0 ₽</div>
+                        <div class="stat-label">За неделю</div>
+                    </div>
+                    <div class="stat-card danger">
+                        <div class="stat-value" id="monthSpent">0 ₽</div>
+                        <div class="stat-label">За месяц</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>📊 Быстрые действия</h3>
+                    <div class="quick-actions">
+                        <button class="btn" onclick="showTab('expenses')">💸 Добавить трату</button>
+                        <button class="btn btn-secondary" onclick="showTab('analytics')">📊 Детальная аналитика</button>
+                        <button class="btn btn-success" onclick="shareBotLink()">📱 Пригласить друзей</button>
+                    </div>
+                </div>
+
+                <!-- Последние траты -->
+                <div class="card">
+                    <h3>🕐 Последние траты</h3>
+                    <div id="recentExpenses">
+                        <!-- Будут загружены скриптом -->
+                    </div>
+                </div>
             </div>
 
-            <div class="card">
-                <h3>Мои пространства</h3>
-                <div id="dashboardSpaces" class="loading">Загрузка...</div>
-                <button class="btn btn-outline" onclick="showTab('spaces')">👥 Все пространства</button>
+            <!-- Состояние когда нет выбранного пространства -->
+            <div id="noSpaceSelected" class="card">
+                <div class="empty-state">
+                    <div class="empty-state-icon">🏠</div>
+                    <h3>Выберите пространство</h3>
+                    <p>Выберите пространство из списка выше чтобы увидеть статистику</p>
+                </div>
             </div>
         </div>
 
@@ -736,11 +766,7 @@
                     <div class="filter-btn" data-period="365" onclick="setAnalyticsPeriod(365)">Год</div>
                 </div>
 
-                <div class="chart-toggle" style="display: flex; gap: 8px; margin-bottom: 16px;">
-                    <button class="btn btn-small" onclick="showChart('line')">📈 Линейный</button>
-                    <button class="btn btn-small" onclick="showChart('doughnut')">🥧 По категориям</button>
-                    <button class="btn btn-small" onclick="showChart('comparison')">⚖️ Сравнение</button>
-                </div>
+                
 
                 <div class="chart-container">
                     <canvas id="analyticsChart"></canvas>
@@ -1427,19 +1453,22 @@
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Ошибка добавления траты');
                 }
-                
-                showMessage('Трата успешно добавлена!');
-                
+        
+                // ПОКАЗЫВАЕМ ПОДТВЕРЖДЕНИЕ
+                showMessage('✅ Трата успешно добавлена!');
+        
+                // Сбрасываем форму
                 clearAmount();
                 document.getElementById('expenseDescription').value = '';
                 document.querySelectorAll('.category-item').forEach(item => {
                     item.classList.remove('active');
                 });
-                
-                loadDashboard();
-                
+        
+                // Обновляем дашборд
+                loadDashboardKPI();
+        
             } catch (error) {
-                showMessage(`Ошибка: ${error.message}`, 'error');
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
 
@@ -1638,6 +1667,9 @@
             document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(2) || 0} ₽`;
             document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(2)} ₽`;
 
+            // Рендерим график
+            renderAnalyticsChart(data);
+
             // Категории
             const container = document.getElementById('categoriesAnalytics');
             if (!data.categories || data.categories.length === 0) {
@@ -1645,15 +1677,199 @@
                 return;
             }
 
-            container.innerHTML = data.categories.map(cat => `
-                <div class="category-item">
-                    <span class="category-name">${cat.name}</span>
-                    <div style="text-align: right;">
-                        <div style="font-weight: 700; color: #dc3545;">${cat.total.toFixed(2)} ₽</div>
-                        <div style="font-size: 12px; color: #666;">${cat.count} трат</div>
+            // Очищаем контейнер
+            container.innerHTML = '';
+
+            // Добавляем заголовок для категорий
+            const categoriesTitle = document.createElement('h3');
+            categoriesTitle.textContent = '📊 По категориям';
+            categoriesTitle.style.marginBottom = '16px';
+            container.appendChild(categoriesTitle);
+
+            // Отображаем категории
+            data.categories.forEach(cat => {
+                const categoryItem = document.createElement('div');
+                categoryItem.className = 'category-item';
+                categoryItem.style.display = 'flex';
+                categoryItem.style.justifyContent = 'space-between';
+                categoryItem.style.alignItems = 'center';
+                categoryItem.style.padding = '12px';
+                categoryItem.style.marginBottom = '8px';
+                categoryItem.style.background = 'var(--card-bg)';
+                categoryItem.style.borderRadius = '8px';
+                categoryItem.style.border = '1px solid var(--border-color)';
+
+                categoryItem.innerHTML = `
+                    <div>
+                        <div style="font-weight: 700; font-size: 14px;">${cat.name}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${cat.count} трат</div>
                     </div>
-                </div>
-            `).join('');
+                    <div style="text-align: right;">
+                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${cat.total.toFixed(2)} ₽</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${((cat.total / data.overview.total_spent) * 100).toFixed(1)}%</div>
+                    </div>
+                `;
+                container.appendChild(categoryItem);
+            });
+
+            // Добавляем разделитель
+            const divider = document.createElement('div');
+            divider.style.height = '1px';
+            divider.style.background = 'var(--border-color)';
+            divider.style.margin = '20px 0';
+            container.appendChild(divider);
+
+            // Добавляем последние траты с описаниями
+            const recentTitle = document.createElement('h3');
+            recentTitle.textContent = '📝 Последние траты';
+            recentTitle.style.marginBottom = '16px';
+            container.appendChild(recentTitle);
+
+            // Проверяем есть ли данные о последних тратах
+            if (data.recent_expenses && data.recent_expenses.length > 0) {
+                data.recent_expenses.forEach(expense => {
+                    const expenseItem = document.createElement('div');
+                    expenseItem.className = 'expense-item';
+                    expenseItem.style.display = 'flex';
+                    expenseItem.style.justifyContent = 'space-between';
+                    expenseItem.style.alignItems = 'flex-start';
+                    expenseItem.style.padding = '12px';
+                    expenseItem.style.marginBottom = '8px';
+                    expenseItem.style.background = 'var(--card-bg)';
+                    expenseItem.style.borderRadius = '8px';
+                    expenseItem.style.border = '1px solid var(--border-color)';
+
+                    const date = new Date(expense.created_at);
+                    const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+
+                    expenseItem.innerHTML = `
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                                <div style="font-size: 18px; margin-right: 8px;">${getCategoryIcon(expense.category)}</div>
+                                <div>
+                                    <div style="font-weight: 700; font-size: 14px;">${expense.category}</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">${formattedDate}</div>
+                                </div>
+                            </div>
+                            <div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px;">
+                                ${expense.description || '<span style="color: var(--text-muted); font-style: italic;">Без описания</span>'}
+                            </div>
+                        </div>
+                        <div style="text-align: right; min-width: 80px;">
+                            <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount} ${expense.currency_symbol || '₽'}</div>
+                        </div>
+                    `;
+                    container.appendChild(expenseItem);
+                });
+            } else {
+                // Если нет данных о последних тратах, пробуем загрузить их отдельно
+                loadRecentExpensesForAnalytics();
+            }
+        }
+
+        // Добавьте эту вспомогательную функцию для иконок категорий
+        function getCategoryIcon(categoryName) {
+            const icons = {
+                'Продукты': '🛒',
+                'Кафе': '☕',
+                'Транспорт': '🚗',
+                'Дом': '🏠',
+                'Одежда': '👕',
+                'Здоровье': '🏥',
+                'Развлечения': '🎬',
+                'Подписки': '📱',
+                'Образование': '📚',
+                'Другое': '❓'
+            };
+            return icons[categoryName] || '💰';
+        }
+
+        // Функция для загрузки последних трат если их нет в data
+        async function loadRecentExpensesForAnalytics() {
+            if (!state.currentSpaceId) return;
+
+            try {
+                const response = await fetch(`${API_URL}/get_recent_expenses`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        limit: 10
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayRecentExpensesInAnalytics(data.expenses);
+                }
+            } catch (error) {
+                console.error('Error loading recent expenses for analytics:', error);
+                // Показываем сообщение что нет трат
+                const container = document.getElementById('categoriesAnalytics');
+                const noExpenses = document.createElement('div');
+                noExpenses.className = 'empty-state';
+                noExpenses.innerHTML = `
+                    <div class="empty-state-icon">📝</div>
+                    <div>Нет данных о тратах</div>
+                `;
+                container.appendChild(noExpenses);
+            }
+        }
+
+        // Функция для отображения загруженных трат
+        function displayRecentExpensesInAnalytics(expenses) {
+            const container = document.getElementById('categoriesAnalytics');
+    
+            // Находим где вставить (после категорий)
+            const recentTitle = document.createElement('h3');
+            recentTitle.textContent = '📝 Последние траты';
+            recentTitle.style.marginBottom = '16px';
+            recentTitle.style.marginTop = '20px';
+            container.appendChild(recentTitle);
+
+            if (!expenses || expenses.length === 0) {
+                const noExpenses = document.createElement('div');
+                noExpenses.className = 'empty-state';
+                noExpenses.innerHTML = '<div>Нет recent трат</div>';
+                container.appendChild(noExpenses);
+                return;
+            }
+
+            expenses.forEach(expense => {
+                const expenseItem = document.createElement('div');
+                expenseItem.className = 'expense-item';
+                expenseItem.style.display = 'flex';
+                expenseItem.style.justifyContent = 'space-between';
+                expenseItem.style.alignItems = 'flex-start';
+                expenseItem.style.padding = '12px';
+                expenseItem.style.marginBottom = '8px';
+                expenseItem.style.background = 'var(--card-bg)';
+                expenseItem.style.borderRadius = '8px';
+                expenseItem.style.border = '1px solid var(--border-color)';
+
+                const date = new Date(expense.created_at);
+                const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+
+                expenseItem.innerHTML = `
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                            <div style="font-size: 18px; margin-right: 8px;">${getCategoryIcon(expense.category)}</div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 14px;">${expense.category}</div>
+                                <div style="font-size: 11px; color: var(--text-muted);">${formattedDate}</div>
+                            </div>
+                        </div>
+                        <div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px;">
+                            ${expense.description || '<span style="color: var(--text-muted); font-style: italic;">Без описания</span>'}
+                        </div>
+                    </div>
+                    <div style="text-align: right; min-width: 80px;">
+                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount} ${expense.currency_symbol || '₽'}</div>
+                    </div>
+                `;
+                container.appendChild(expenseItem);
+            });
         }
 
         function setAnalyticsPeriod(period) {
@@ -1745,13 +1961,139 @@
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Ошибка экспорта');
                 }
-                
-                const data = await response.json();
-                showMessage(data.message || 'Экспорт завершен');
+
+                // Получаем blob с файлом
+                const blob = await response.blob();
+        
+                // Создаем ссылку для скачивания
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `expenses_${state.currentSpaceId}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+        
+                // Очищаем
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+        
+                showMessage('✅ Файл успешно скачан!');
+        
             } catch (error) {
                 showMessage(`Ошибка экспорта: ${error.message}`, 'error');
             }
         }
+        
+        // Функция для загрузки быстрых пространств
+        function loadQuickSpaces() {
+            fetch(`${API_URL}/get_user_spaces`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('quickSpacesGrid');
+                if (!data.spaces || data.spaces.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Нет пространств</div>';
+                    return;
+                }
+
+                container.innerHTML = data.spaces.map(space => `
+                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                        onclick="selectQuickSpace(${space.id})"
+                        style="padding: 12px; min-height: 60px;">
+                        <div class="space-icon" style="font-size: 20px;">${getSpaceIcon(space.space_type)}</div>
+                        <div class="space-name" style="font-size: 12px;">${space.name}</div>
+                    </div>
+                `).join('');
+
+                // Показываем/скрываем KPI в зависимости от выбора
+                toggleKPIVisibility();
+            })
+            .catch(error => {
+                console.error('Error loading quick spaces:', error);
+            });
+        }
+
+        function selectQuickSpace(spaceId) {
+            state.currentSpaceId = spaceId;
+            saveState();
+            loadQuickSpaces(); // Перерисовываем иконки
+            loadDashboardKPI(); // Загружаем KPI
+        }
+
+        function toggleKPIVisibility() {
+            const kpiSection = document.getElementById('dashboardKPI');
+            const noSpaceSection = document.getElementById('noSpaceSelected');
+    
+            if (state.currentSpaceId) {
+                kpiSection.classList.remove('hidden');
+                noSpaceSection.classList.add('hidden');
+            } else {
+                kpiSection.classList.add('hidden');
+                noSpaceSection.classList.remove('hidden');
+            }
+        }
+
+        // Функция для загрузки последних трат
+        async function loadRecentExpenses() {
+            if (!state.currentSpaceId) return;
+
+            try {
+                const response = await fetch(`${API_URL}/get_recent_expenses`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        limit: 5
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayRecentExpenses(data.expenses);
+                }
+            } catch (error) {
+                console.error('Error loading recent expenses:', error);
+            }
+        }
+
+        function displayRecentExpenses(expenses) {
+            const container = document.getElementById('recentExpenses');
+    
+            if (!expenses || expenses.length === 0) {
+                container.innerHTML = '<div class="empty-state">Нет recent трат</div>';
+                return;
+            }
+
+            container.innerHTML = expenses.map(expense => `
+                <div class="expense-item" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                    <div>
+                        <strong>${expense.category}</strong>
+                        <div style="font-size: 12px; color: var(--text-muted);">${expense.description || 'Без описания'}</div>
+                    </div>
+                    <div style="font-weight: 700; color: #dc3545;">
+                        ${expense.amount} ${expense.currency_symbol}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Обновите loadDashboard
+        async function loadDashboard() {
+            await loadQuickSpaces();
+            await loadDashboardKPI();
+        }
+
+        async function loadDashboardKPI() {
+            if (!state.currentSpaceId) return;
+    
+            await loadDashboardStats();
+            await loadRecentExpenses();
+        }
+        
         // ===== Удаление пространства =====
         async function deleteSpace() {
             if (!state.currentSpaceId || !confirm('ВНИМАНИЕ! Вы уверены, что хотите УДАЛИТЬ это пространство? Все данные будут потеряны безвозвратно!')) {
@@ -1759,6 +2101,8 @@
             }
 
             try {
+                console.log('Deleting space:', state.currentSpaceId);
+        
                 const response = await fetch(`${API_URL}/delete_space`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1768,19 +2112,26 @@
                     })
                 });
 
+                console.log('Delete response status:', response.status);
+        
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка удаления пространства');
+                    const errorText = await response.text();
+                    console.error('Delete error:', errorText);
+                    throw new Error(errorText || 'Ошибка удаления пространства');
                 }
         
-                showMessage('Пространство успешно удалено!');
+                const result = await response.json();
+                console.log('Delete success:', result);
+        
+                showMessage('✅ Пространство успешно удалено!');
                 hideSpaceDetails();
                 loadSpaces();
                 state.currentSpaceId = null;
                 saveState();
         
             } catch (error) {
-                showMessage(`Ошибка: ${error.message}`, 'error');
+                console.error('Delete space error:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
         // ===== UTILITY FUNCTIONS =====
