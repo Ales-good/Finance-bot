@@ -537,7 +537,7 @@ def generate_daily_report(user_id):
             
             week_query = '''SELECT COALESCE(SUM(amount), 0) as week_spent 
                           FROM expenses 
-                          WHERE user_id = %s AND date >= CURRENT_DATE - INTERVAL '7 days''''
+                          WHERE user_id = %s AND date >= CURRENT_DATE - INTERVAL '7 days'''
             week_df = pd.read_sql_query(week_query, conn, params=(user_id,))
             
             spaces_query = '''SELECT COUNT(DISTINCT space_id) as active_spaces 
@@ -2223,3 +2223,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
