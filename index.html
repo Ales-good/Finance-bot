@@ -592,13 +592,7 @@
                     </div>
                 </div>
 
-                <!-- Последние траты -->
-                <div class="card">
-                    <h3>🕐 Последние траты</h3>
-                    <div id="recentExpenses">
-                        <!-- Будут загружены скриптом -->
-                    </div>
-                </div>
+                
             </div>
 
             <!-- Состояние когда нет выбранного пространства -->
@@ -1315,7 +1309,7 @@
             const code = document.getElementById('currentInviteCode').value;
     
             // Создаем правильную ссылку для приглашения
-            const botUsername = tg.initDataUnsafe.bot_username || 'your_bot_username'; // Замените на реальный
+            const botUsername = tg.initDataUnsafe.incomeexpensebookBot || 'your_bot_username'; // Замените на реальный
             const inviteLink = `https://t.me/${botUsername}?start=invite_${code}`;
     
             // Копируем в буфер обмена
@@ -1947,6 +1941,8 @@
             }
 
             try {
+                showMessage('⏳ Формируем файл...');
+        
                 const response = await fetch(`${API_URL}/export_to_excel`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1965,6 +1961,11 @@
                 // Получаем blob с файлом
                 const blob = await response.blob();
         
+                // Проверяем что blob не пустой
+                if (blob.size === 0) {
+                    throw new Error('Файл пустой');
+                }
+
                 // Создаем ссылку для скачивания
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -1977,10 +1978,11 @@
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
         
-                showMessage('✅ Файл успешно скачан!');
+                showMessage('✅ Файл успешно скачан! Проверьте папку "Загрузки"');
         
             } catch (error) {
-                showMessage(`Ошибка экспорта: ${error.message}`, 'error');
+                console.error('Export error:', error);
+                showMessage(`❌ Ошибка экспорта: ${error.message}`, 'error');
             }
         }
         
@@ -2102,7 +2104,7 @@
 
             try {
                 console.log('Deleting space:', state.currentSpaceId);
-        
+
                 const response = await fetch(`${API_URL}/delete_space`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -2113,22 +2115,22 @@
                 });
 
                 console.log('Delete response status:', response.status);
-        
+
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('Delete error:', errorText);
-                    throw new Error(errorText || 'Ошибка удаления пространства');
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка удаления пространства');
                 }
         
                 const result = await response.json();
                 console.log('Delete success:', result);
-        
+
                 showMessage('✅ Пространство успешно удалено!');
                 hideSpaceDetails();
                 loadSpaces();
+                loadQuickSpaces(); // Обновляем быстрые пространства
                 state.currentSpaceId = null;
                 saveState();
-        
+
             } catch (error) {
                 console.error('Delete space error:', error);
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
@@ -2151,32 +2153,33 @@
         function getBotLink() {
             // Если username бота доступен через WebApp
             if (tg.initDataUnsafe.bot_username) {
-                return `https://t.me/${tg.initDataUnsafe.bot_username}`;
+                return `https://t.me/${tg.initDataUnsafe.incomeexpensebookBot}`;
             }
     
             // Альтернатива - укажите username вашего бота напрямую
-            return `https://t.me/your_bot_username`; // ЗАМЕНИТЕ на реальный username
+            return `https://t.me/incomeexpensebookBot`; // ЗАМЕНИТЕ на реальный username
         }
 
         function shareBotLink() {
             const botLink = getBotLink();
     
-            if (navigator.share) {
-                navigator.share({
-                    title: 'Finance Tracker - Учет финансов',
-                    text: 'Присоединяйтесь к Finance Tracker для учета совместных расходов!',
-                    url: botLink
-                });
-            } else {
-                navigator.clipboard.writeText(botLink).then(() => {
-                    showMessage('Ссылка на бота скопирована!');
-                });
-            }
+            navigator.clipboard.writeText(botLink).then(() => {
+                showMessage('✅ Ссылка на бота скопирована в буфер обмена!');
+            }).catch(err => {
+                console.error('Copy failed:', err);
+                showMessage('❌ Не удалось скопировать ссылку', 'error');
+            });
+        }
+
+        function getBotLink() {
+            // Замените на реальный username вашего бота
+            return `https://t.me/incomeexpensebookBot`; // ИЗМЕНИТЕ НА ВАШ БОТ
         }
 
         // ===== INITIALIZE APP =====
         function initializeApp() {
             loadSpaces();
+            loadQuickSpaces(); // ДОБАВЬТЕ ЭТУ СТРОКУ
             generateKeypad();
             handleStartParameters(); // Добавьте эту строку
         }
