@@ -1347,6 +1347,7 @@ def api_export_to_excel():
         # Создаем Excel файл в памяти
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Основной лист с тратами
             df.to_excel(writer, sheet_name='Траты', index=False)
             
             # Добавляем сводку
@@ -1364,13 +1365,16 @@ def api_export_to_excel():
         
         excel_data = output.getvalue()
         
-        # В реальном приложении здесь был бы код для сохранения файла и возврата ссылки
-        # Для демонстрации возвращаем успех
-        return jsonify({
-            'success': True,
-            'message': f'Экспортировано {len(df)} записей',
-            'filename': f'finance_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-        })
+        # Возвращаем файл как ответ
+        from flask import Response
+        response = Response(
+            excel_data,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={
+                'Content-Disposition': f'attachment; filename=finance_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+            }
+        )
+        return response
         
     except Exception as e:
         logger.error(f"❌ API Error in export_to_excel: {e}")
@@ -1573,6 +1577,60 @@ def api_create_space():
         import traceback
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+
+@flask_app.route('/delete_space', methods=['POST'])
+def api_delete_space():
+    """API для удаления пространства"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+            
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        
+        logger.info(f"🗑️ Удаление пространства: {space_id}")
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if not space_id:
+            return jsonify({'error': 'Missing space ID'}), 400
+        
+        # Проверяем права владельца
+        conn = get_db_connection()
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT role FROM space_members WHERE space_id = ? AND user_id = ?'''
+            df = pd.read_sql_query(query, conn, params=(space_id, user_data['id']))
+        else:
+            query = '''SELECT role FROM space_members WHERE space_id = %s AND user_id = %s'''
+            df = pd.read_sql_query(query, conn, params=(space_id, user_data['id']))
+        
+        if df.empty or df.iloc[0]['role'] != 'owner':
+            return jsonify({'error': 'Только владелец может удалить пространство'}), 403
+        
+        # Мягкое удаление - помечаем как неактивное
+        if isinstance(conn, sqlite3.Connection):
+            c = conn.cursor()
+            c.execute('UPDATE financial_spaces SET is_active = FALSE WHERE id = ?', (space_id,))
+        else:
+            c = conn.cursor()
+            c.execute('UPDATE financial_spaces SET is_active = FALSE WHERE id = %s', (space_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Пространство удалено'})
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in delete_space: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
 
 @flask_app.route('/add_expense', methods=['POST'])
 def api_add_expense():
