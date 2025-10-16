@@ -2037,40 +2037,7 @@
 
 
 
-        // Функция для загрузки быстрых пространств
-        function loadQuickSpaces() {
-            fetch(`${API_URL}/get_user_spaces`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ initData: tg.initData })
-            })
-            .then(response => response.json())
-            .then(data => {
-                displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
-                toggleKPIVisibility();
-            })
-            .catch(error => {
-                console.error('Error loading quick spaces:', error);
-                // Просто показываем ошибку без скелетонов
-                document.getElementById('quickSpacesGrid').innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">❌</div>
-                        <div>Ошибка загрузки</div>
-                    </div>
-                `;
-            });
-        }
-
-        function loadSpacesForSelector(containerId) {
-            fetch(`${API_URL}/get_user_spaces`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ initData: tg.initData })
-            })
-            .then(response => response.json())
-            .then(data => displaySpacesGrid(data.spaces, containerId))
-            .catch(error => console.error('Ошибка загрузки пространств:', error));
-        }
+       
 
         function toggleKPIVisibility() {
             const kpiSection = document.getElementById('dashboardKPI');
