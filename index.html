@@ -217,6 +217,26 @@
             grid-template-columns: repeat(2, 1fr);
             gap: 12px;
             margin-bottom: 16px;
+        }   
+
+        /* Стили для быстрого просмотра пространств */
+        .space-card.quick-view {
+            padding: 8px;
+            min-height: 60px;
+        }
+
+        .space-card.quick-view .space-icon {
+            font-size: 18px !important;
+            margin-bottom: 4px;
+        }
+
+        .space-card.quick-view .space-name {
+            font-size: 11px !important;
+            margin-bottom: 2px;
+        }
+
+        .space-card.quick-view .space-meta {
+            font-size: 9px !important;
         }
 
         .space-card {
@@ -1118,6 +1138,12 @@
                 return;
             }
 
+            // Определяем классы в зависимости от типа отображения
+            const cardClass = isQuickView ? 'space-card quick-view' : 'space-card';
+            const iconStyle = isQuickView ? 'font-size: 20px;' : 'font-size: 24px;';
+            const nameStyle = isQuickView ? 'font-size: 12px;' : 'font-size: 14px;';
+            const metaStyle = isQuickView ? 'font-size: 10px;' : 'font-size: 12px;';
+
             container.innerHTML = spaces.map(space => `
                 <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
                      onclick="showSpaceDetails(${space.id})">
@@ -1374,10 +1400,9 @@
                 body: JSON.stringify({ initData: tg.initData })
             })
             .then(response => response.json())
-            .then(data => displaySpacesGrid(data.spaces, containerId))
+            .then(data => displaySpacesGrid(data.spaces, containerId, false))
             .catch(error => console.error('Ошибка загрузки пространств:', error));
         }
-
         function loadCategories() {
             console.log('=== loadCategories() called ===');
             
@@ -1563,6 +1588,9 @@
             if (!state.currentSpaceId) return;
 
             try {
+                // Получаем символ валюты
+                const currencySymbol = CURRENCIES[state.currentCurrency].symbol;
+
                 const response = await fetch(`${API_URL}/get_advanced_analytics`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1575,11 +1603,11 @@
 
                 if (response.ok) {
                     const data = await response.json();
-                    
-                    // Сегодня
+            
+                    // Сегодня - с правильной валютой
                     const todaySpent = data.overview?.total_spent || 0;
-                    document.getElementById('todaySpent').textContent = `${todaySpent.toFixed(2)} ₽`;
-                    
+                    document.getElementById('todaySpent').textContent = `${todaySpent.toFixed(2)} ${currencySymbol}`;
+            
                     // Бюджет
                     const budgetResponse = await fetch(`${API_URL}/get_analytics`, {
                         method: 'POST',
@@ -1589,7 +1617,7 @@
                             spaceId: state.currentSpaceId
                         })
                     });
-                    
+            
                     if (budgetResponse.ok) {
                         const budgetData = await budgetResponse.json();
                         const budget = budgetData.budget || 0;
@@ -1597,7 +1625,7 @@
                         const progress = budget > 0 ? (spent / budget) * 100 : 0;
                         document.getElementById('budgetProgress').textContent = `${progress.toFixed(0)}%`;
                     }
-                    
+            
                     // За неделю
                     const weekResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
                         method: 'POST',
@@ -1608,12 +1636,12 @@
                             period: 7
                         })
                     });
-                    
+            
                     if (weekResponse.ok) {
                         const weekData = await weekResponse.json();
-                        document.getElementById('weekSpent').textContent = `${(weekData.overview?.total_spent || 0).toFixed(2)} ₽`;
+                        document.getElementById('weekSpent').textContent = `${(weekData.overview?.total_spent || 0).toFixed(2)} ${currencySymbol}`;
                     }
-                    
+            
                     // За месяц
                     const monthResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
                         method: 'POST',
@@ -1624,10 +1652,10 @@
                             period: 30
                         })
                     });
-                    
+            
                     if (monthResponse.ok) {
                         const monthData = await monthResponse.json();
-                        document.getElementById('monthSpent').textContent = `${(monthData.overview?.total_spent || 0).toFixed(2)} ₽`;
+                        document.getElementById('monthSpent').textContent = `${(monthData.overview?.total_spent || 0).toFixed(2)} ${currencySymbol}`;
                     }
                 }
             } catch (error) {
@@ -2042,14 +2070,7 @@
                     return;
                 }
 
-                container.innerHTML = data.spaces.map(space => `
-                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                        onclick="selectQuickSpace(${space.id})"
-                        style="padding: 12px; min-height: 60px;">
-                        <div class="space-icon" style="font-size: 20px;">${getSpaceIcon(space.space_type)}</div>
-                        <div class="space-name" style="font-size: 12px;">${space.name}</div>
-                    </div>
-                `).join('');
+                displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
 
                 // Показываем/скрываем KPI в зависимости от выбора
                 toggleKPIVisibility();
@@ -2206,35 +2227,68 @@
         }
 
         function shareBotLink() {
-            // Создаем правильную ссылку для приглашения
-            const botUsername = 'incomeexpensebookBot'; // Замените на реальный username
-            const inviteLink = `https://t.me/${botUsername}`;
+            if (!state.currentSpaceId) {
+                showMessage('❌ Сначала выберите пространство', 'error');
+                return;
+            }
+
+            // Показываем модальное окно с инструкциями
+            const modalHtml = `
+                <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+                    <div class="card" style="max-width: 320px; margin: 20px;">
+                        <h3>🤝 Пригласить друзей</h3>
+                        <p><strong>Способы приглашения:</strong></p>
+                
+                        <div style="margin: 16px 0;">
+                            <p>1. <strong>Отправьте ссылку на бота:</strong></p>
+                            <input type="text" id="botLink" value="https://t.me/incomeexpensebookBot" readonly 
+                                   style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg);">
+                            <button class="btn" onclick="copyBotLink()" style="margin-top: 8px; width: 100%;">📋 Копировать ссылку</button>
+                        </div>
+                
+                        <div style="margin: 16px 0;">
+                            <p>2. <strong>Или поделитесь кодом пространства:</strong></p>
+                            <button class="btn btn-success" onclick="showInviteCode()" style="width: 100%;">
+                                🔗 Показать код приглашения
+                            </button>
+                        </div>
+                
+                        <button class="btn btn-secondary" onclick="closeInviteModal()" style="width: 100%; margin-top: 12px;">
+                            Закрыть
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            const modal = document.createElement('div');
+            modal.id = 'inviteModal';
+            modal.innerHTML = modalHtml;
+            document.body.appendChild(modal);
+        }
+
+        function copyBotLink() {
+            const linkInput = document.getElementById('botLink');
+            linkInput.select();
+            document.execCommand('copy');
+            showMessage('✅ Ссылка скопирована! Отправьте её друзьям');
+        }
+
+        function showInviteCode() {
+            // Переходим на вкладку пространств и показываем код
+            showTab('spaces');
+            closeInviteModal();
     
-            // Показываем инструкцию
-            const message = `
-        🤝 <b>Как пригласить друзей:</b>
+            // Показываем сообщение с инструкцией
+            setTimeout(() => {
+                showMessage('📋 Откройте нужное пространство и нажмите "📋 Копировать код"');
+            }, 500);
+        }
 
-        1. <b>Отправьте эту ссылку друзьям:</b>
-        ${inviteLink}
-
-        2. <b>Или поделитесь кодом пространства:</b>
-        - Откройте вкладку "👥 Пространства"
-        - Выберите нужное пространство  
-        - Нажмите "📋 Копировать код"
-        - Отправьте код друзьям
-
-        3. <b>Друзья должны:</b>
-        - Перейти по ссылке и начать диалог с ботом
-        - Нажать START
-        - Использовать код приглашения
-        `;
-
-            showMessage(message, 'success');
-    
-            // Копируем ссылку в буфер
-            navigator.clipboard.writeText(inviteLink).then(() => {
-                console.log('Ссылка скопирована');
-            });
+        function closeInviteModal() {
+            const modal = document.getElementById('inviteModal');
+            if (modal) {
+                modal.remove();
+            }
         }
 
         function getBotLink() {
