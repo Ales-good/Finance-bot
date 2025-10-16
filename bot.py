@@ -25,6 +25,8 @@ import hmac
 import asyncio
 from threading import Thread
 import time
+import psutil
+import os
 
 # Настройка логирования
 logging.basicConfig(
@@ -1954,6 +1956,18 @@ def api_remove_member():
     except Exception as e:
         logger.error(f"❌ API Error in remove_member: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+# ===== мониторинг =====
+@flask_app.route('/metrics')
+def metrics():
+    """Метрики для мониторинга"""
+    return {
+        'memory_usage': psutil.virtual_memory().percent,
+        'cpu_usage': psutil.cpu_percent(),
+        'disk_usage': psutil.disk_usage('/').percent,
+        'active_users': get_active_users_count()
+    }
 
 # ===== TELEGRAM BOT HANDLERS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
