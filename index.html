@@ -805,6 +805,13 @@
     </div>
 
         <script>
+        
+        // В начале скрипта
+        if (!tg.initData) {
+            console.error('Telegram WebApp not properly initialized');
+            // Показываем сообщение пользователю
+            showMessage('Перезагрузите приложение', 'error');
+        }
         // ===== CONFIGURATION =====
         const API_URL = "https://web-production-4c423.up.railway.app";
         const tg = window.Telegram.WebApp;
@@ -2010,29 +2017,28 @@
             }
         }
         
-                // ===== SPACES DISPLAY FUNCTION =====
-                function displaySpacesGrid(spaces, containerId, isQuickView = false) {
-                    const container = document.getElementById(containerId);
+        // ===== SPACES DISPLAY FUNCTION =====
+        function displaySpacesGrid(spaces, containerId, isQuickView = false) {
+            const container = document.getElementById(containerId);
 
-                    if (!spaces || spaces.length === 0) {
-                        container.innerHTML = `
-                            <div class="empty-state">
-                                <div class="empty-state-icon">🏠</div>
-                                <div>У вас пока нет пространств</div>
-                            </div>
-                        `;
-                        return;
-                    }
+            if (!spaces || spaces.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🏠</div>
+                        <div>У вас пока нет пространств</div>
+                    </div>
+                `;
+                return;
+            }
 
-                    container.innerHTML = spaces.map(space => `
-                        <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                             onclick="${isQuickView ? `selectQuickSpace(${space.id})` : `showSpaceDetails(${space.id})`}">
-                            <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
-                            <div class="space-name">${space.name}</div>
-                            <div class="space-meta">${space.member_count} участ.</div>
-                        </div>
-                    `).join('');
-                }
+            container.innerHTML = spaces.map(space => `
+                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                     onclick="${isQuickView ? `selectQuickSpace(${space.id})` : `showSpaceDetails(${space.id})`}">
+                    <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                    <div class="space-name">${space.name}</div>                        <div class="space-meta">${space.member_count} участ.</div>
+                </div>
+            `).join('');
+        }
 
 
 
