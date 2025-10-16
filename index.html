@@ -1073,9 +1073,10 @@
                     `app.selectSpace(${space.id})` : 
                     `app.showSpaceDetails(${space.id})`;
 
+                // ИСПРАВЛЕННАЯ ЧАСТЬ - убрал this из map функции
                 container.innerHTML = spaces.map(space => `
                     <div class="space-card ${space.id === this.state.currentSpaceId ? 'active' : ''}" 
-                         onclick="${onClickHandler}">
+                         onclick="${isQuickView ? `app.selectSpace(${space.id})` : `app.showSpaceDetails(${space.id})`}">
                         <div class="space-icon">${this.getSpaceIcon(space.space_type)}</div>
                         <div class="space-name">${space.name}</div>
                         <div class="space-meta">${space.member_count} участ.</div>
