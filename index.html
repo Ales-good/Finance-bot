@@ -1125,35 +1125,7 @@
             }
         }
 
-        function displaySpacesGrid(spaces, containerId) {
-            const container = document.getElementById(containerId);
-            
-            if (!spaces || spaces.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🏠</div>
-                        <div>У вас пока нет пространств</div>
-                    </div>
-                `;
-                return;
-            }
-
-            // Определяем классы в зависимости от типа отображения
-            const cardClass = isQuickView ? 'space-card quick-view' : 'space-card';
-            const iconStyle = isQuickView ? 'font-size: 20px;' : 'font-size: 24px;';
-            const nameStyle = isQuickView ? 'font-size: 12px;' : 'font-size: 14px;';
-            const metaStyle = isQuickView ? 'font-size: 10px;' : 'font-size: 12px;';
-
-            container.innerHTML = spaces.map(space => `
-                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                     onclick="showSpaceDetails(${space.id})">
-                    <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
-                    <div class="space-name">${space.name}</div>
-                    <div class="space-meta">${space.member_count} участ.</div>
-                </div>
-            `).join('');
-        }
-
+        
         function updateSpaceSelectors(spaces) {
             const spaceSelectors = [
                 document.getElementById('analyticsSpacesGrid'),
