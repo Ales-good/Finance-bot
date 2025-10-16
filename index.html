@@ -1135,6 +1135,20 @@
                 loadAnalytics();
             }
         }
+           
+        // ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ДЛЯ ГЛАВНОЙ ВКЛАДКИ
+        function selectQuickSpace(spaceId) {
+            state.currentSpaceId = spaceId;
+            saveState();
+    
+            // Быстрое обновление интерфейса только на главной
+            document.querySelectorAll('#quickSpacesGrid .space-card').forEach(card => {
+                const cardSpaceId = parseInt(card.onclick.toString().match(/\d+/)[0]);
+                card.classList.toggle('active', cardSpaceId === spaceId);
+            });
+    
+            loadDashboardKPI();
+        }
 
         function showCreateSpaceForm() {
             document.getElementById('createSpaceForm').classList.remove('hidden');
@@ -1308,9 +1322,29 @@
             }
 
             try {
-                showMessage('Функция выхода из пространства в разработке');
+                const response = await fetch(`${API_URL}/leave_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка выхода из пространства');
+                }
+
+                showMessage('✅ Вы вышли из пространства');
+                hideSpaceDetails();
+                loadSpaces();
+                loadQuickSpaces();
+                state.currentSpaceId = null;
+                saveState();
+
             } catch (error) {
-                showMessage(`Ошибка: ${error.message}`, 'error');
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
 
@@ -1977,7 +2011,7 @@
         }
         
                 // ===== SPACES DISPLAY FUNCTION =====
-                function displaySpacesGrid(spaces, containerId) {
+                function displaySpacesGrid(spaces, containerId, isQuickView = false) {
                     const container = document.getElementById(containerId);
 
                     if (!spaces || spaces.length === 0) {
@@ -1992,7 +2026,7 @@
 
                     container.innerHTML = spaces.map(space => `
                         <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                             onclick="selectSpace(${space.id})">
+                             onclick="${isQuickView ? `selectQuickSpace(${space.id})` : `showSpaceDetails(${space.id})`}">
                             <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
                             <div class="space-name">${space.name}</div>
                             <div class="space-meta">${space.member_count} участ.</div>
@@ -2005,6 +2039,16 @@
 
         // Функция для загрузки быстрых пространств
         function loadQuickSpaces() {
+            const container = document.getElementById('quickSpacesGrid');
+    
+            // Показываем скелетон загрузки
+            container.innerHTML = `
+                <div class="space-card" style="min-height: 50px;"></div>
+                <div class="space-card" style="min-height: 50px;"></div>
+                <div class="space-card" style="min-height: 50px;"></div>
+                <div class="space-card" style="min-height: 50px;"></div>
+            `;
+
             fetch(`${API_URL}/get_user_spaces`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -2012,11 +2056,12 @@
             })
             .then(response => response.json())
             .then(data => {
-                displaySpacesGrid(data.spaces, 'quickSpacesGrid');
+                displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
                 toggleKPIVisibility();
             })
             .catch(error => {
                 console.error('Error loading quick spaces:', error);
+                container.innerHTML = '<div class="empty-state">Ошибка загрузки</div>';
             });
         }
 
@@ -2258,7 +2303,7 @@
         // ===== INITIALIZE APP =====
         function initializeApp() {
             loadSpaces();
-            loadQuickSpaces(); // ДОБАВЬТЕ ЭТУ СТРОКУ
+            loadQuickSpaces(); // Теперь будет загружаться быстро
             generateKeypad();
             handleStartParameters(); // Добавьте эту строку
         }
