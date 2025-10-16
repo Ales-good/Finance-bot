@@ -211,65 +211,23 @@
             color: var(--text-muted);
         }
            
-        /* МАЛЕНЬКИЕ иконки пространств ВЕЗДЕ */
-        .spaces-grid .space-card {
-            padding: 8px !important;
-            min-height: 60px !important;
-        }
-
-        .spaces-grid .space-icon {
-            font-size: 18px !important;
-            margin-bottom: 4px !important;
-        }
-
-        .spaces-grid .space-name {
-            font-size: 11px !important;
-            margin-bottom: 2px !important;
-            line-height: 1.2 !important;
-        }
-
-        .spaces-grid .space-meta {
-            font-size: 9px !important;
-            line-height: 1.1 !important;
-        }
-
-        /* Spaces Grid */
+        /* Spaces Grid - ВЕЗДЕ 4 в ряд */
         .spaces-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
             margin-bottom: 16px;
-        }   
-
-        /* Стили для быстрого просмотра пространств */
-        .space-card.quick-view {
-            padding: 8px;
-            min-height: 60px;
-        }
-
-        .space-card.quick-view .space-icon {
-            font-size: 18px !important;
-            margin-bottom: 4px;
-        }
-
-        .space-card.quick-view .space-name {
-            font-size: 11px !important;
-            margin-bottom: 2px;
-        }
-
-        .space-card.quick-view .space-meta {
-            font-size: 9px !important;
         }
 
         .space-card {
             background: var(--card-bg);
-            padding: 12px; /* Уменьшили padding */
-            border-radius: 12px;
+            padding: 6px;
+            border-radius: 8px;
             text-align: center;
             cursor: pointer;
             transition: all 0.3s;
             border: 2px solid transparent;
-            min-height: 70px; /* Добавили минимальную высоту */
+            min-height: 50px;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -287,36 +245,24 @@
         }
 
         .space-icon {
-            font-size: 20px !important; /* Уменьшили размер иконок */
-            margin-bottom: 6px;
+            font-size: 16px !important;
+            margin-bottom: 2px;
         }
 
         .space-name {
             font-weight: 600;
-            font-size: 12px !important; /* Уменьшили размер текста */
-            margin-bottom: 2px;
-            line-height: 1.2;
-        }
-
-        .space-meta {
-            font-size: 10px !important; /* Уменьшили размер мета-информации */
-            color: var(--text-muted);
+            font-size: 10px !important;
+            margin-bottom: 1px;
             line-height: 1.1;
         }
 
-        /* Для главной страницы - еще меньше */
-        #quickSpacesGrid .space-card {
-            padding: 8px;
-            min-height: 60px;
+        .space-meta {
+            font-size: 8px !important;
+            color: var(--text-muted);
+            line-height: 1;
         }
 
-        #quickSpacesGrid .space-icon {
-            font-size: 18px !important;
-        }
-
-        #quickSpacesGrid .space-name {
-            font-size: 11px !important;
-        }    
+        
         /* Currency Selector */
         .currency-selector {
             display: flex;
@@ -2044,29 +1990,29 @@
             }
         }
         
-        // ===== SPACES DISPLAY FUNCTION =====
-        function displaySpacesGrid(spaces, containerId, isQuickView = false) {
-            const container = document.getElementById(containerId);
-    
-            if (!spaces || spaces.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🏠</div>
-                        <div>У вас пока нет пространств</div>
-                    </div>
-                `;
-                return;
-            }
+                // ===== SPACES DISPLAY FUNCTION =====
+                function displaySpacesGrid(spaces, containerId) {
+                    const container = document.getElementById(containerId);
 
-            container.innerHTML = spaces.map(space => `
-                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                     onclick="${isQuickView ? `selectQuickSpace(${space.id})` : `selectSpace(${space.id})`}">
-                    <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
-                    <div class="space-name">${space.name}</div>
-                    <div class="space-meta">${space.member_count} участ.</div>
-                </div>
-            `).join('');
-        }
+                    if (!spaces || spaces.length === 0) {
+                        container.innerHTML = `
+                            <div class="empty-state">
+                                <div class="empty-state-icon">🏠</div>
+                                <div>У вас пока нет пространств</div>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    container.innerHTML = spaces.map(space => `
+                        <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                             onclick="selectSpace(${space.id})">
+                            <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                            <div class="space-name">${space.name}</div>
+                            <div class="space-meta">${space.member_count} участ.</div>
+                        </div>
+                    `).join('');
+                }
 
 
 
@@ -2080,7 +2026,7 @@
             })
             .then(response => response.json())
             .then(data => {
-                displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
+                displaySpacesGrid(data.spaces, 'quickSpacesGrid');
                 toggleKPIVisibility();
             })
             .catch(error => {
@@ -2088,11 +2034,15 @@
             });
         }
 
-        function selectQuickSpace(spaceId) {
-            state.currentSpaceId = spaceId;
-            saveState();
-            loadQuickSpaces(); // Перерисовываем иконки
-            loadDashboardKPI(); // Загружаем KPI
+        function loadSpacesForSelector(containerId) {
+            fetch(`${API_URL}/get_user_spaces`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(response => response.json())
+            .then(data => displaySpacesGrid(data.spaces, containerId))
+            .catch(error => console.error('Ошибка загрузки пространств:', error));
         }
 
         function toggleKPIVisibility() {
