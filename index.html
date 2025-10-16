@@ -1403,6 +1403,7 @@
             .then(data => displaySpacesGrid(data.spaces, containerId, false))
             .catch(error => console.error('Ошибка загрузки пространств:', error));
         }
+        
         function loadCategories() {
             console.log('=== loadCategories() called ===');
             
@@ -2064,15 +2065,7 @@
             })
             .then(response => response.json())
             .then(data => {
-                const container = document.getElementById('quickSpacesGrid');
-                if (!data.spaces || data.spaces.length === 0) {
-                    container.innerHTML = '<div class="empty-state">Нет пространств</div>';
-                    return;
-                }
-
                 displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
-
-                // Показываем/скрываем KPI в зависимости от выбора
                 toggleKPIVisibility();
             })
             .catch(error => {
@@ -2205,6 +2198,30 @@
 
         function showError(elementId, message) {
             document.getElementById(elementId).innerHTML = `<div class="message error">${message}</div>`;
+        }
+
+        // ===== SPACES DISPLAY FUNCTION =====
+        function displaySpacesGrid(spaces, containerId, isQuickView = false) {
+            const container = document.getElementById(containerId);
+    
+            if (!spaces || spaces.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🏠</div>
+                        <div>У вас пока нет пространств</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = spaces.map(space => `
+                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                     onclick="${isQuickView ? `selectQuickSpace(${space.id})` : `selectSpace(${space.id})`}">
+                    <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                    <div class="space-name">${space.name}</div>
+                    <div class="space-meta">${space.member_count} участ.</div>
+                </div>
+            `).join('');
         }
 
         function showMessage(message, type = 'success') {
