@@ -1198,7 +1198,7 @@
                 showMessage(`Пространство "${name}" создано! Код: ${data.invite_code}`);
                 hideCreateSpaceForm();
                 loadSpaces();
-                
+                loadQuickSpaces()
                 document.getElementById('spaceName').value = '';
                 document.getElementById('spaceDescription').value = '';
             } catch (error) {
@@ -2020,6 +2020,11 @@
         // ===== SPACES DISPLAY FUNCTION =====
         function displaySpacesGrid(spaces, containerId, isQuickView = false) {
             const container = document.getElementById(containerId);
+    
+            if (!container) {
+                console.error('Container not found:', containerId);
+                return;
+            }
 
             if (!spaces || spaces.length === 0) {
                 container.innerHTML = `
@@ -2031,11 +2036,17 @@
                 return;
             }
 
+            // Для разных вкладок разное поведение
+            const onClickHandler = isQuickView ? 
+                `selectSpace(${space.id})` : 
+                `showSpaceDetails(${space.id})`;
+
             container.innerHTML = spaces.map(space => `
                 <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                     onclick="${isQuickView ? `selectQuickSpace(${space.id})` : `showSpaceDetails(${space.id})`}">
+                     onclick="${onClickHandler}">
                     <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
-                    <div class="space-name">${space.name}</div>                        <div class="space-meta">${space.member_count} участ.</div>
+                    <div class="space-name">${space.name}</div>
+                    <div class="space-meta">${space.member_count} участ.</div>
                 </div>
             `).join('');
         }
@@ -2078,7 +2089,7 @@
                 body: JSON.stringify({ initData: tg.initData })
             })
             .then(response => response.json())
-            .then(data => displaySpacesGrid(data.spaces, containerId))
+            .then(data => displaySpacesGrid(data.spaces, containerId, false))
             .catch(error => console.error('Ошибка загрузки пространств:', error));
         }
 
