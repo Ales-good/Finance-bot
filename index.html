@@ -1122,33 +1122,22 @@
         function selectSpace(spaceId) {
             state.currentSpaceId = spaceId;
             saveState();
-            
+    
+            // Обновляем все grid'ы
             document.querySelectorAll('.spaces-grid').forEach(grid => {
                 grid.querySelectorAll('.space-card').forEach(card => {
-                    const cardSpaceId = parseInt(card.onclick.toString().match(/\d+/)[0]);
-                    card.classList.toggle('active', cardSpaceId === spaceId);
+                    card.classList.toggle('active', card.dataset.spaceId == spaceId);
                 });
             });
-            
+    
             loadDashboard();
             if (document.getElementById('analytics').classList.contains('active')) {
                 loadAnalytics();
             }
         }
            
-        // ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ДЛЯ ГЛАВНОЙ ВКЛАДКИ
-        function selectQuickSpace(spaceId) {
-            state.currentSpaceId = spaceId;
-            saveState();
-    
-            // Быстрое обновление интерфейса только на главной
-            document.querySelectorAll('#quickSpacesGrid .space-card').forEach(card => {
-                const cardSpaceId = parseInt(card.onclick.toString().match(/\d+/)[0]);
-                card.classList.toggle('active', cardSpaceId === spaceId);
-            });
-    
-            loadDashboardKPI();
-        }
+        // В displaySpacesGrid для главной вкладки используем selectSpace
+        onclick="${isQuickView ? `selectSpace(${space.id})` : `showSpaceDetails(${space.id})`}"
 
         function showCreateSpaceForm() {
             document.getElementById('createSpaceForm').classList.remove('hidden');
@@ -2026,7 +2015,8 @@
 
                     container.innerHTML = spaces.map(space => `
                         <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                             onclick="${isQuickView ? `selectQuickSpace(${space.id})` : `showSpaceDetails(${space.id})`}">
+                             data-space-id="${space.id}"
+                             onclick="${isQuickView ? `selectSpace(${space.id})` : `showSpaceDetails(${space.id})`}">
                             <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
                             <div class="space-name">${space.name}</div>
                             <div class="space-meta">${space.member_count} участ.</div>
@@ -2037,7 +2027,40 @@
 
 
 
-       
+        // Функция для загрузки быстрых пространств
+        function loadQuickSpaces() {
+            fetch(`${API_URL}/get_user_spaces`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
+                toggleKPIVisibility();
+            })
+            .catch(error => {
+                console.error('Error loading quick spaces:', error);
+                // Просто показываем ошибку без скелетонов
+                document.getElementById('quickSpacesGrid').innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">❌</div>
+                        <div>Ошибка загрузки</div>
+                    </div>
+                `;
+            });
+        }
+
+        function loadSpacesForSelector(containerId) {
+            fetch(`${API_URL}/get_user_spaces`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(response => response.json())
+            .then(data => displaySpacesGrid(data.spaces, containerId))
+            .catch(error => console.error('Ошибка загрузки пространств:', error));
+        }
 
         function toggleKPIVisibility() {
             const kpiSection = document.getElementById('dashboardKPI');
