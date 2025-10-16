@@ -1101,7 +1101,7 @@
                     selectSpace(data.spaces[0].id);
                 }
             } catch (error) {
-                showError('spacesList', `Ошибка загрузки: ${error.message}`);
+                document.getElementById('spacesList').innerHTML = `<div class="message error">Ошибка загрузки: ${error.message}</div>`;
             }
         }
 
@@ -2180,6 +2180,10 @@
         // ===== UTILITY FUNCTIONS =====
         function showLoading(elementId) {
             document.getElementById(elementId).innerHTML = '<div class="loading">Загрузка...</div>';
+        }
+
+        function showError(elementId, message) {
+            document.getElementById(elementId).innerHTML = `<div class="message error">${message}</div>`;
         }
 
         function showMessage(message, type = 'success') {
