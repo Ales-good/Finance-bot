@@ -211,23 +211,23 @@
             color: var(--text-muted);
         }
 
-        /* Spaces Grid - ВЕЗДЕ 4 в ряд */
+        /* Spaces Grid */
         .spaces-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
             margin-bottom: 16px;
         }
 
         .space-card {
             background: var(--card-bg);
-            padding: 6px;
-            border-radius: 8px;
+            padding: 12px; /* Уменьшили padding */
+            border-radius: 12px;
             text-align: center;
             cursor: pointer;
             transition: all 0.3s;
             border: 2px solid transparent;
-            min-height: 50px;
+            min-height: 70px; /* Добавили минимальную высоту */
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -245,22 +245,36 @@
         }
 
         .space-icon {
-            font-size: 16px !important;
-            margin-bottom: 2px;
+            font-size: 20px !important; /* Уменьшили размер иконок */
+            margin-bottom: 6px;
         }
 
         .space-name {
             font-weight: 600;
-            font-size: 10px !important;
-            margin-bottom: 1px;
-            line-height: 1.1;
+            font-size: 12px !important; /* Уменьшили размер текста */
+            margin-bottom: 2px;
+            line-height: 1.2;
         }
 
         .space-meta {
-            font-size: 8px !important;
+            font-size: 10px !important; /* Уменьшили размер мета-информации */
             color: var(--text-muted);
-            line-height: 1;
+            line-height: 1.1;
         }
+
+        /* Для главной страницы - еще меньше */
+        #quickSpacesGrid .space-card {
+            padding: 8px;
+            min-height: 60px;
+        }
+
+        #quickSpacesGrid .space-icon {
+            font-size: 18px !important;
+        }
+
+        #quickSpacesGrid .space-name {
+            font-size: 11px !important;
+        }    
         /* Currency Selector */
         .currency-selector {
             display: flex;
@@ -621,7 +635,7 @@
             </div>
             <div class="card">
                 <h2>Мои пространства</h2>
-                <div id="spacesList" class="spaces-grid loading">Загрузка...</div>
+                <div id="spacesList" class="loading">Загрузка...</div>
                 <button class="btn" onclick="showCreateSpaceForm()">➕ Создать пространство</button>
             </div>
             <div class="card">
@@ -686,7 +700,7 @@
         </div>
 
         <!-- Expenses Tab -->
-        <div id="expenses" class="spaces-grid">
+        <div id="expenses" class="tab-content">
             <div class="tabs">
                 <button class="tab" onclick="showTab('dashboard')">🏠</button>
                 <button class="tab" onclick="showTab('spaces')">👥</button>
@@ -742,7 +756,7 @@
         </div>
 
         <!-- Analytics Tab -->
-        <div id="analytics" class="spaces-grid">
+        <div id="analytics" class="tab-content">
             <div class="tabs">
                 <button class="tab" onclick="showTab('dashboard')">🏠</button>
                 <button class="tab" onclick="showTab('spaces')">👥</button>
