@@ -813,7 +813,7 @@
                     </div>
                 </div>
 
-                <!-- ЭТОТ БЛОК ДОЛЖЕН БЫТЬ - КАТЕГОРИИ -->
+                <!-- КАТЕГОРИИ - ВОССТАНОВЛЕНЫ -->
                 <div class="form-group">
                     <label>Категория:</label>
                     <div id="categoriesGrid" class="categories-grid">
@@ -876,7 +876,7 @@
                 <h3>По категориям</h3>
                 <div id="categoriesAnalytics"></div>
 
-                <!-- Добавь этот блок перед кнопкой экспорта в аналитике -->
+                <!-- Бюджет -->
                 <div class="card" style="margin-top: 16px;">
                     <h3>🎯 Установить бюджет</h3>
                     <div class="form-group">
@@ -929,6 +929,12 @@
         };
 
         // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', function() {
+            loadState();
+            initializeApp();
+            setupSwipeNavigation();
+        });
+
         function handleStartParameters() {
             if (tg.initDataUnsafe.start_param) {
                 const startParam = tg.initDataUnsafe.start_param;
@@ -999,12 +1005,6 @@
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
-        
-        document.addEventListener('DOMContentLoaded', function() {
-            loadState();
-            initializeApp();
-            setupSwipeNavigation();
-        });
 
         // ===== STATE MANAGEMENT =====
         function loadState() {
@@ -1040,66 +1040,62 @@
             // Показываем нужную вкладку
             document.getElementById(tabName).classList.add('active');
     
-            // Находим таб в текущей вкладке и делаем его активным
+            // Активируем соответствующий таб в текущей вкладке
             const currentTabs = document.querySelector(`#${tabName} .tabs`);
             if (currentTabs) {
-                const targetTab = Array.from(currentTabs.querySelectorAll('.tab')).find(tab => {
-                    return tab.textContent.includes(getTabIcon(tabName));
-                });
-                if (targetTab) targetTab.classList.add('active');
+                const targetTab = Array.from(currentTabs.querySelectorAll('.tab')).find(tab => 
+                    tab.textContent.includes(getTabLabel(tabName))
+                );
+                if (targetTab) {
+                    targetTab.classList.add('active');
+                }
             }
-    
-            // Загружаем данные для вкладки
-            switch(tabName) {
-                case 'dashboard':
-                    loadDashboard();
-                    break;
-                case 'spaces':
-                    loadSpaces();
-                    break;
-                case 'expenses':
-                    loadExpensesTab();
-                    break;
-                case 'analytics':
-                    loadAnalytics();
-                    break;
+
+            // Загружаем контент для конкретных вкладок
+            if (tabName === 'expenses') {
+                loadExpensesTab();
+            } else if (tabName === 'analytics') {
+                loadAnalytics();
+            } else if (tabName === 'dashboard') {
+                loadDashboard();
             }
         }
 
-        function getTabIcon(tabName) {
-            const icons = {
-                dashboard: '🏠',
-                spaces: '👥',
-                expenses: '💸',
-                analytics: '📊'
+        // Вспомогательная функция для определения метки таба
+        function getTabLabel(tabName) {
+            const labels = {
+                'dashboard': '🏠',
+                'spaces': '👥', 
+                'expenses': '💸',
+                'analytics': '📊'
             };
-            return icons[tabName] || '📄';
+            return labels[tabName] || tabName;
         }
 
         function setupSwipeNavigation() {
             let startX = 0;
             let currentTab = 'dashboard';
             const tabs = ['dashboard', 'spaces', 'expenses', 'analytics'];
-            
+
             document.addEventListener('touchstart', e => {
                 startX = e.touches[0].clientX;
             });
-            
+
             document.addEventListener('touchend', e => {
                 const endX = e.changedTouches[0].clientX;
                 const diff = startX - endX;
-                
+
                 if (Math.abs(diff) > 50) {
                     const currentIndex = tabs.indexOf(currentTab);
                     let newIndex;
-                    
-                    if (diff > 0 && currentIndex < tabs.length - 1) {
-                        newIndex = currentIndex + 1;
-                    } else if (diff < 0 && currentIndex > 0) {
-                        newIndex = currentIndex - 1;
+
+                    if (diff > 0) {
+                        newIndex = Math.min(currentIndex + 1, tabs.length - 1);
+                    } else {
+                        newIndex = Math.max(currentIndex - 1, 0);
                     }
-                    
-                    if (newIndex !== undefined) {
+
+                    if (newIndex !== currentIndex) {
                         currentTab = tabs[newIndex];
                         showTab(currentTab);
                     }
@@ -1107,493 +1103,46 @@
             });
         }
 
-        // ===== SPACE MANAGEMENT =====
-        async function loadSpaces() {
-            try {
-                const response = await fetch(`${API_URL}/get_spaces`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: tg.initData })
-                });
-        
-                if (!response.ok) throw new Error('Ошибка загрузки пространств');
-                const data = await response.json();
-        
-                renderSpacesGrid(data.spaces);
-                renderQuickSpacesGrid(data.spaces);
-                renderExpenseSpacesGrid(data.spaces);
-                renderAnalyticsSpacesGrid(data.spaces);
-        
-                if (data.spaces.length > 0 && !state.currentSpaceId) {
-                    selectSpace(data.spaces[0].id);
-                }
-        
-            } catch (error) {
-                showMessage('Ошибка загрузки пространств', 'error');
-            }
-        }
-
-        function renderSpacesGrid(spaces) {
-            const container = document.getElementById('spacesList');
-            if (!container) return;
-    
-            container.innerHTML = spaces.map(space => `
-                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                     onclick="selectSpace('${space.id}', true)">
-                    <div class="space-icon">${getSpaceIcon(space.type)}</div>
-                    <div class="space-name">${space.name}</div>
-                    <div class="space-meta">${space.member_count || 1} участников</div>
-                </div>
-            `).join('');
-        }
-
-        function renderQuickSpacesGrid(spaces) {
-            const container = document.getElementById('quickSpacesGrid');
-            if (!container) return;
-    
-            container.innerHTML = spaces.map(space => `
-                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                     onclick="selectSpace('${space.id}')">
-                    <div class="space-icon">${getSpaceIcon(space.type)}</div>
-                    <div class="space-name">${space.name}</div>
-                </div>
-            `).join('');
-        }
-
-        function renderExpenseSpacesGrid(spaces) {
-            const container = document.getElementById('expenseSpacesGrid');
-            if (!container) return;
-    
-            container.innerHTML = spaces.map(space => `
-                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                     onclick="selectSpace('${space.id}')">
-                    <div class="space-icon">${getSpaceIcon(space.type)}</div>
-                    <div class="space-name">${space.name}</div>
-                </div>
-            `).join('');
-        }
-
-        function renderAnalyticsSpacesGrid(spaces) {
-            const container = document.getElementById('analyticsSpacesGrid');
-            if (!container) return;
-    
-            container.innerHTML = spaces.map(space => `
-                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                     onclick="selectSpace('${space.id}')">
-                    <div class="space-icon">${getSpaceIcon(space.type)}</div>
-                    <div class="space-name">${space.name}</div>
-                </div>
-            `).join('');
-        }
-
-        function getSpaceIcon(type) {
-            const icons = {
-                personal: '👤',
-                family: '👨‍👩‍👧‍👦',
-                friends: '👥',
-                work: '💼'
-            };
-            return icons[type] || '🏠';
-        }
-
-        async function selectSpace(spaceId, showDetails = false) {
-            if (state.currentSpaceId === spaceId) return;
-    
-            state.currentSpaceId = spaceId;
-            saveState();
-    
-            // Обновляем UI во всех вкладках
-            document.querySelectorAll('.space-card').forEach(card => {
-                card.classList.remove('active');
-                if (card.onclick && card.onclick.toString().includes(spaceId)) {
-                    card.classList.add('active');
-                }
-            });
-    
-            // Загружаем данные пространства
-            await loadSpaceData(spaceId);
-    
-            // Обновляем все вкладки с быстрой анимацией
-            updateAllTabsWithRefresh();
-    
-            if (showDetails) {
-                showSpaceDetails(spaceId);
-            }
-        }
-
-        function updateAllTabsWithRefresh() {
-            // Добавляем анимацию обновления
-            const containers = [
-                document.getElementById('dashboardKPI'),
-                document.getElementById('recentExpenses'),
-                document.getElementById('categoriesAnalytics')
-            ];
-            
-            containers.forEach(container => {
-                if (container) {
-                    container.classList.add('quick-refresh');
-                    setTimeout(() => container.classList.remove('quick-refresh'), 500);
-                }
-            });
-    
-            // Обновляем данные в активной вкладке
-            const activeTab = document.querySelector('.tab-content.active').id;
-            switch(activeTab) {
-                case 'dashboard':
-                    loadDashboardData();
-                    break;
-                case 'analytics':
-                    loadAnalyticsData();
-                    break;
-            }
-        }
-
-        async function loadSpaceData(spaceId) {
-            try {
-                const response = await fetch(`${API_URL}/get_space_data`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: spaceId
-                    })
-                });
-        
-                if (!response.ok) throw new Error('Ошибка загрузки данных пространства');
-                currentSpaceData = await response.json();
-        
-            } catch (error) {
-                console.error('Error loading space data:', error);
-            }
-        }
-
-        function showSpaceDetails(spaceId) {
-            const space = currentSpaceData;
-            if (!space) return;
-    
-            document.getElementById('currentSpaceName').textContent = space.name;
-            document.getElementById('currentInviteCode').value = space.invite_code;
-            document.getElementById('spaceInfo').innerHTML = `
-                <p><strong>Тип:</strong> ${getSpaceTypeName(space.type)}</p>
-                <p><strong>Участников:</strong> ${space.members ? space.members.length : 1}</p>
-                <p><strong>Создано:</strong> ${new Date(space.created_at).toLocaleDateString()}</p>
-            `;
-    
-            // Загружаем участников
-            renderSpaceMembers(space.members || []);
-    
-            document.getElementById('spaceDetails').classList.remove('hidden');
-            document.getElementById('spacesList').classList.add('hidden');
-            document.getElementById('createSpaceForm').classList.add('hidden');
-        }
-
-        function getSpaceTypeName(type) {
-            const types = {
-                personal: 'Личное',
-                family: 'Семья',
-                friends: 'Друзья',
-                work: 'Работа'
-            };
-            return types[type] || type;
-        }
-
-        function renderSpaceMembers(members) {
-            const container = document.getElementById('spaceMembersList');
-            if (!container) return;
-    
-            container.innerHTML = members.map(member => `
-                <div class="member-item">
-                    <div>
-                        <strong>${member.first_name || 'Пользователь'}</strong>
-                        ${member.id === userData.id ? ' (Вы)' : ''}
-                    </div>
-                    <div class="member-role">${member.is_owner ? 'Владелец' : 'Участник'}</div>
-                </div>
-            `).join('');
-        }
-
-        function hideSpaceDetails() {
-            document.getElementById('spaceDetails').classList.add('hidden');
-            document.getElementById('spacesList').classList.remove('hidden');
-        }
-
-        function showCreateSpaceForm() {
-            document.getElementById('createSpaceForm').classList.remove('hidden');
-            document.getElementById('spacesList').classList.add('hidden');
-            document.getElementById('spaceDetails').classList.add('hidden');
-        }
-
-        function hideCreateSpaceForm() {
-            document.getElementById('createSpaceForm').classList.add('hidden');
-            document.getElementById('spacesList').classList.remove('hidden');
-        }
-
-        async function createSpace() {
-            const name = document.getElementById('spaceName').value.trim();
-            const type = document.getElementById('spaceType').value;
-            const description = document.getElementById('spaceDescription').value.trim();
-    
-            if (!name) {
-                showMessage('Введите название пространства', 'error');
-                return;
-            }
-    
-            try {
-                const response = await fetch(`${API_URL}/create_space`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        name: name,
-                        type: type,
-                        description: description
-                    })
-                });
-        
-                if (!response.ok) throw new Error('Ошибка создания пространства');
-        
-                showMessage('Пространство создано!');
-                hideCreateSpaceForm();
-                loadSpaces();
-        
-            } catch (error) {
-                showMessage('Ошибка создания пространства', 'error');
-            }
-        }
-
-        async function leaveSpace() {
-            if (!confirm('Вы уверены, что хотите покинуть пространство?')) return;
-    
-            try {
-                const response = await fetch(`${API_URL}/leave_space`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId
-                    })
-                });
-        
-                if (!response.ok) throw new Error('Ошибка выхода из пространства');
-        
-                showMessage('Вы вышли из пространства');
-                state.currentSpaceId = null;
-                saveState();
-                hideSpaceDetails();
-                loadSpaces();
-        
-            } catch (error) {
-                showMessage('Ошибка выхода из пространства', 'error');
-            }
-        }
-
-        async function deleteSpace() {
-            if (!confirm('Вы уверены, что хотите удалить пространство? Это действие нельзя отменить.')) return;
-    
-            try {
-                const response = await fetch(`${API_URL}/delete_space`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId
-                    })
-                });
-        
-                if (!response.ok) throw new Error('Ошибка удаления пространства');
-        
-                showMessage('Пространство удалено');
-                state.currentSpaceId = null;
-                saveState();
-                hideSpaceDetails();
-                loadSpaces();
-        
-            } catch (error) {
-                showMessage('Ошибка удаления пространства', 'error');
-            }
-        }
-
-        async function joinSpace() {
-            const code = document.getElementById('inviteCodeInput').value.trim();
-            await joinSpaceWithCode(code);
-        }
-
-        function copyInviteCode() {
-            const codeInput = document.getElementById('currentInviteCode');
-            codeInput.select();
-            document.execCommand('copy');
-            showToast('Код скопирован в буфер обмена!');
-        }
-
-        function shareInviteLink() {
-            const code = document.getElementById('currentInviteCode').value;
-            const inviteLink = `https://t.me/your_bot?start=invite_${code}`;
-            
-            navigator.clipboard.writeText(inviteLink).then(() => {
-                showToast('Ссылка скопирована в буфер обмена!');
-            }).catch(() => {
-                // Fallback для старых браузеров
-                const tempInput = document.createElement('input');
-                tempInput.value = inviteLink;
-                document.body.appendChild(tempInput);
-                tempInput.select();
-                document.execCommand('copy');
-                document.body.removeChild(tempInput);
-                showToast('Ссылка скопирована в буфер обмена!');
-            });
-        }
-
-        function shareBotLink() {
-            const botLink = 'https://t.me/your_bot';
-            navigator.clipboard.writeText(botLink).then(() => {
-                showToast('Ссылка на бота скопирована!');
-            }).catch(() => {
-                const tempInput = document.createElement('input');
-                tempInput.value = botLink;
-                document.body.appendChild(tempInput);
-                tempInput.select();
-                document.execCommand('copy');
-                document.body.removeChild(tempInput);
-                showToast('Ссылка на бота скопирована!');
-            });
-        }
-
-        // ===== DASHBOARD =====
-        async function loadDashboard() {
-            if (!state.currentSpaceId) {
-                document.getElementById('dashboardKPI').classList.add('hidden');
-                document.getElementById('noSpaceSelected').classList.remove('hidden');
-                return;
-            }
-    
-            document.getElementById('dashboardKPI').classList.remove('hidden');
-            document.getElementById('noSpaceSelected').classList.add('hidden');
-            await loadDashboardData();
-        }
-
-        async function loadDashboardData() {
-            if (!state.currentSpaceId) return;
-    
-            try {
-                const response = await fetch(`${API_URL}/get_dashboard_data`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId
-                    })
-                });
-        
-                if (!response.ok) throw new Error('Ошибка загрузки дашборда');
-                const data = await response.json();
-        
-                updateDashboardKPIs(data);
-                updateRecentExpenses(data.recent_expenses || []);
-        
-            } catch (error) {
-                console.error('Error loading dashboard:', error);
-            }
-        }
-
-        function updateDashboardKPIs(data) {
-            document.getElementById('todaySpent').textContent = formatCurrency(data.today_spent || 0);
-            document.getElementById('weekSpent').textContent = formatCurrency(data.week_spent || 0);
-            document.getElementById('monthSpent').textContent = formatCurrency(data.month_spent || 0);
-            
-            const budgetProgress = data.budget_progress || 0;
-            document.getElementById('budgetProgress').textContent = `${Math.min(budgetProgress, 100)}%`;
-        }
-
-        function updateRecentExpenses(expenses) {
-            const container = document.getElementById('recentExpenses');
-            if (!container) return;
-    
-            if (expenses.length === 0) {
-                container.innerHTML = '<div class="empty-state"><p>Нет трат за выбранный период</p></div>';
-                return;
-            }
-    
-            container.innerHTML = expenses.map(expense => `
-                <div class="member-item">
-                    <div>
-                        <strong>${expense.category}</strong>
-                        ${expense.description ? `<br><small>${expense.description}</small>` : ''}
-                    </div>
-                    <div style="color: var(--text-danger); font-weight: 600;">
-                        -${formatCurrency(expense.amount)}
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // ===== EXPENSES =====
-        function loadExpensesTab() {
-            initializeKeypad();
-            loadCategories();
-        }
-
-        function initializeKeypad() {
-            const keypad = document.getElementById('numericKeypad');
-            if (!keypad) return;
-    
-            const currency = CURRENCIES[state.currentCurrency];
-            const buttons = currency.keypad.map(value => 
-                `<div class="keypad-btn" onclick="addToAmount(${value})">+${value}</div>`
-            ).join('');
-    
-            keypad.innerHTML = buttons + `<div class="keypad-btn clear" onclick="clearAmount()">Очистить</div>`;
-        }
-
-        function loadCategories() {
-            const categories = [
-                { id: 'food', name: 'Еда', icon: '🍔' },
-                { id: 'transport', name: 'Транспорт', icon: '🚗' },
-                { id: 'entertainment', name: 'Развлечения', icon: '🎬' },
-                { id: 'utilities', name: 'Коммуналка', icon: '🏠' },
-                { id: 'health', name: 'Здоровье', icon: '🏥' },
-                { id: 'shopping', name: 'Шопинг', icon: '🛍️' },
-                { id: 'other', name: 'Другое', icon: '📦' }
-            ];
-    
-            const container = document.getElementById('categoriesGrid');
-            if (!container) return;
-    
-            container.innerHTML = categories.map(cat => `
-                <div class="category-item" data-category="${cat.id}" onclick="selectCategory('${cat.id}')">
-                    <div class="category-icon">${cat.icon}</div>
-                    <div>${cat.name}</div>
-                </div>
-            `).join('');
-        }
-
-        let selectedCategory = null;
-
-        function selectCategory(categoryId) {
-            selectedCategory = categoryId;
-            document.querySelectorAll('.category-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            document.querySelector(`[data-category="${categoryId}"]`).classList.add('active');
-        }
-
+        // ===== CURRENCY MANAGEMENT =====
         function selectCurrency(currency, updateKeypad = true) {
             state.currentCurrency = currency;
-            saveState();
-    
+            
             document.querySelectorAll('.currency-flag').forEach(flag => {
-                flag.classList.remove('active');
+                flag.classList.toggle('active', flag.dataset.currency === currency);
             });
-            document.querySelector(`[data-currency="${currency}"]`).classList.add('active');
-    
+            
             document.getElementById('amountCurrency').textContent = CURRENCIES[currency].symbol;
-    
+            
             if (updateKeypad) {
-                initializeKeypad();
+                generateKeypad();
             }
+            
+            saveState();
         }
 
-        function addToAmount(value) {
-            state.currentAmount += value;
+        function generateKeypad() {
+            const keypad = document.getElementById('numericKeypad');
+            const amounts = CURRENCIES[state.currentCurrency].keypad;
+            
+            keypad.innerHTML = '';
+            
+            amounts.forEach(amount => {
+                const button = document.createElement('div');
+                button.className = 'keypad-btn';
+                button.textContent = amount;
+                button.onclick = () => addToAmount(amount);
+                keypad.appendChild(button);
+            });
+            
+            const clearBtn = document.createElement('div');
+            clearBtn.className = 'keypad-btn clear';
+            clearBtn.textContent = 'C';
+            clearBtn.onclick = clearAmount;
+            keypad.appendChild(clearBtn);
+        }
+
+        function addToAmount(amount) {
+            state.currentAmount += amount;
             updateAmountDisplay();
         }
 
@@ -1606,42 +1155,394 @@
             document.getElementById('currentAmount').textContent = state.currentAmount;
         }
 
-        async function addExpense() {
-            if (!state.currentSpaceId) {
-                showMessage('Выберите пространство', 'error');
+        // ===== SPACES MANAGEMENT =====
+        function displaySpacesGrid(spaces, containerId, isQuick = false) {
+            const container = document.getElementById(containerId);
+            
+            if (!spaces || spaces.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🏠</div>
+                        <div>У вас пока нет пространств</div>
+                    </div>
+                `;
                 return;
             }
+
+            const gridClass = isQuick ? 'spaces-grid quick-grid' : 'spaces-grid';
+            container.className = gridClass;
+            
+            container.innerHTML = spaces.map(space => `
+                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                     onclick="${isQuick ? `selectQuickSpace(${space.id})` : `showSpaceDetails(${space.id})`}">
+                    <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                    <div class="space-name">${space.name}</div>
+                    ${!isQuick ? `<div class="space-meta">${space.member_count} участ.</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function loadSpacesForSelector(containerId, isQuick = false) {
+            fetch(`${API_URL}/get_user_spaces`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(response => response.json())
+            .then(data => displaySpacesGrid(data.spaces, containerId, isQuick))
+            .catch(error => console.error('Ошибка загрузки пространств:', error));
+        }
+
+        function loadQuickSpaces() {
+            loadSpacesForSelector('quickSpacesGrid', true);
+        }
+
+        async function loadSpaces() {
+            try {
+                const response = await fetch(`${API_URL}/get_user_spaces`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+
+                if (!response.ok) throw new Error('Ошибка загрузки пространств');
+                
+                const data = await response.json();
+                displaySpacesGrid(data.spaces, 'spacesList', true);
+                
+                // Автовыбор первого пространства если нет выбранного
+                if (!state.currentSpaceId && data.spaces.length > 0) {
+                    selectSpace(data.spaces[0].id);
+                }
+            } catch (error) {
+                showMessage(`Ошибка загрузки: ${error.message}`, 'error');
+            }
+        }
+
+        function getSpaceIcon(type) {
+            const icons = {
+                'personal': '👤',
+                'family': '👨‍👩‍👧‍👦', 
+                'friends': '👥',
+                'work': '💼'
+            };
+            return icons[type] || '🏠';
+        }
+
+        function selectSpace(spaceId) {
+            state.currentSpaceId = spaceId;
+            saveState();
+            
+            // Мгновенное обновление всех вкладок
+            refreshAllData();
+        }
+
+        function selectQuickSpace(spaceId) {
+            selectSpace(spaceId);
+            showTab('dashboard');
+        }
+
+        // НОВАЯ ФУНКЦИЯ: Мгновенное обновление всех данных
+        function refreshAllData() {
+            console.log('🔄 Мгновенное обновление данных для space:', state.currentSpaceId);
+            
+            // Обновляем отображение пространств
+            document.querySelectorAll('.spaces-grid').forEach(grid => {
+                grid.querySelectorAll('.space-card').forEach(card => {
+                    const cardSpaceId = parseInt(card.onclick.toString().match(/\d+/)[0]);
+                    card.classList.toggle('active', cardSpaceId === state.currentSpaceId);
+                });
+            });
+            
+            // Мгновенно обновляем дашборд
+            loadDashboardKPI();
+            
+            // Если активна аналитика - обновляем её
+            if (document.getElementById('analytics').classList.contains('active')) {
+                loadAnalytics();
+            }
+            
+            // Показываем уведомление о смене пространства
+            showQuickToast('✅ Пространство изменено');
+        }
+
+        function showCreateSpaceForm() {
+            document.getElementById('createSpaceForm').classList.remove('hidden');
+            document.getElementById('spacesList').classList.add('hidden');
+        }
+
+        function hideCreateSpaceForm() {
+            document.getElementById('createSpaceForm').classList.add('hidden');
+            document.getElementById('spacesList').classList.remove('hidden');
+        }
+
+        async function createSpace() {
+            const name = document.getElementById('spaceName').value.trim();
+            const type = document.getElementById('spaceType').value;
+            const description = document.getElementById('spaceDescription').value.trim();
+
+            if (!name) {
+                showMessage('Введите название пространства', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/create_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        name: name,
+                        type: type,
+                        description: description
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка создания пространства');
+                }
+                
+                const data = await response.json();
+                showMessage(`Пространство "${name}" создано! Код: ${data.invite_code}`);
+                hideCreateSpaceForm();
+                loadSpaces();
+                
+                document.getElementById('spaceName').value = '';
+                document.getElementById('spaceDescription').value = '';
+            } catch (error) {
+                showMessage(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function showSpaceDetails(spaceId) {
+            state.currentSpaceId = spaceId;
+            try {
+                const [spacesResponse, membersResponse] = await Promise.all([
+                    fetch(`${API_URL}/get_user_spaces`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ initData: tg.initData })
+                    }),
+                    fetch(`${API_URL}/get_space_members`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: spaceId
+                        })
+                    })
+                ]);
+
+                if (!spacesResponse.ok || !membersResponse.ok) {
+                    throw new Error('Ошибка загрузки данных пространства');
+                }
+
+                const spacesData = await spacesResponse.json();
+                const membersData = await membersResponse.json();
+
+                currentSpaceData = spacesData.spaces.find(s => s.id === spaceId);
+                if (!currentSpaceData) throw new Error('Пространство не найдено');
+
+                displaySpaceDetails(currentSpaceData, membersData.members);
+                document.getElementById('spaceDetails').classList.remove('hidden');
+            } catch (error) {
+                showMessage(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        function displaySpaceDetails(space, members) {
+            document.getElementById('currentSpaceName').textContent = space.name;
+            document.getElementById('currentInviteCode').value = space.invite_code;
+            
+            document.getElementById('spaceInfo').innerHTML = `
+                <div class="space-meta">
+                    <strong>Тип:</strong> ${getSpaceTypeLabel(space.space_type)}<br>
+                    <strong>Участников:</strong> ${members.length}<br>
+                    ${space.description ? `<strong>Описание:</strong> ${space.description}` : ''}
+                </div>
+            `;
+
+            const membersHtml = members.map(member => `
+                <div class="member-item">
+                    <div>
+                        <strong>${member.user_name}</strong>
+                        ${member.user_id === userData.id ? ' (Вы)' : ''}
+                    </div>
+                    <div class="member-role">${getRoleLabel(member.role)}</div>
+                </div>
+            `).join('');
+
+            document.getElementById('spaceMembersList').innerHTML = `
+                <h4>Участники (${members.length}):</h4>
+                ${membersHtml || '<div class="empty-state">Нет участников</div>'}
+            `;
+        }
+
+        function getSpaceTypeLabel(type) {
+            const types = {
+                'personal': 'Личное',
+                'family': 'Семья', 
+                'friends': 'Друзья',
+                'work': 'Работа'
+            };
+            return types[type] || type;
+        }
+
+        function getRoleLabel(role) {
+            const roles = {
+                'owner': 'Владелец',
+                'admin': 'Админ',
+                'member': 'Участник'
+            };
+            return roles[role] || role;
+        }
+
+        function hideSpaceDetails() {
+            document.getElementById('spaceDetails').classList.add('hidden');
+            currentSpaceData = null;
+        }
+
+        function copyInviteCode() {
+            const codeInput = document.getElementById('currentInviteCode');
+            codeInput.select();
+            document.execCommand('copy');
+            showQuickToast('Код скопирован в буфер обмена!');
+        }
+
+        function shareInviteLink() {
+            const code = document.getElementById('currentInviteCode').value;
     
-            if (state.currentAmount <= 0) {
+            // Правильная ссылка на бота
+            const botUsername = 'incomeexpensebookBot';
+            const inviteLink = `https://t.me/${botUsername}?start=invite_${code}`;
+    
+            // Копируем в буфер обмена
+            navigator.clipboard.writeText(inviteLink).then(() => {
+                showQuickToast('✅ Ссылка скопирована! Отправьте её друзьям');
+            }).catch(err => {
+                showMessage('❌ Не удалось скопировать ссылку', 'error');
+            });
+        }
+
+        async function joinSpace() {
+            const code = document.getElementById('inviteCodeInput').value.trim();
+            if (!code) {
+                showMessage('Введите код приглашения', 'error');
+                return;
+            }
+            await joinSpaceWithCode(code);
+        }
+
+        async function leaveSpace() {
+            if (!state.currentSpaceId || !confirm('Вы уверены, что хотите покинуть это пространство?')) {
+                return;
+            }
+
+            try {
+                showMessage('Функция выхода из пространства в разработке');
+            } catch (error) {
+                showMessage(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        // ===== EXPENSES TAB =====
+        function loadExpensesTab() {
+            console.log('=== loadExpensesTab() called ===');
+            loadSpacesForSelector('expenseSpacesGrid', true);
+            generateKeypad();
+            loadCategories();
+        }
+
+        function loadCategories() {
+            console.log('=== loadCategories() called ===');
+            
+            const container = document.getElementById('categoriesGrid');
+            console.log('Categories container:', container);
+
+            if (!container) {
+                console.error('❌ categoriesGrid container NOT FOUND!');
+                return;
+            }
+
+            console.log('✅ categoriesGrid container found');
+
+            // ВОССТАНОВЛЕНЫ ВСЕ КАТЕГОРИИ
+            const categories = [
+                { name: 'Продукты', icon: '🛒' },
+                { name: 'Кафе', icon: '☕' },
+                { name: 'Транспорт', icon: '🚗' },
+                { name: 'Дом', icon: '🏠' },
+                { name: 'Одежда', icon: '👕' },
+                { name: 'Здоровье', icon: '🏥' },
+                { name: 'Развлечения', icon: '🎬' },
+                { name: 'Подписки', icon: '📱' },
+                { name: 'Образование', icon: '📚' },
+                { name: 'Другое', icon: '❓' }
+            ];
+
+            console.log('Categories to load:', categories);
+
+            container.innerHTML = categories.map(cat => `
+                <div class="category-item" onclick="selectCategory('${cat.name}')">
+                    <div class="category-icon">${cat.icon}</div>
+                    <div class="category-name">${cat.name}</div>
+                </div>
+            `).join('');
+
+            console.log('✅ Categories HTML generated');
+        }
+
+        let selectedCategory = null;
+
+        function selectCategory(categoryName) {
+            selectedCategory = categoryName;
+            document.querySelectorAll('.category-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.category-item').classList.add('active');
+        }
+
+        async function addExpense() {
+            const amount = state.currentAmount;
+            const category = selectedCategory;
+            const description = document.getElementById('expenseDescription').value.trim();
+            const spaceId = state.currentSpaceId;
+
+            if (!amount || amount <= 0) {
                 showMessage('Введите сумму траты', 'error');
                 return;
             }
-    
-            if (!selectedCategory) {
+            if (!category) {
                 showMessage('Выберите категорию', 'error');
                 return;
             }
-    
-            const description = document.getElementById('expenseDescription').value.trim();
-    
+            if (!spaceId) {
+                showMessage('Выберите пространство', 'error');
+                return;
+            }
+
             try {
                 const response = await fetch(`${API_URL}/add_expense`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        spaceId: state.currentSpaceId,
-                        amount: state.currentAmount,
-                        currency: state.currentCurrency,
-                        category: selectedCategory,
-                        description: description
+                        amount: amount,
+                        category: category,
+                        description: description,
+                        spaceId: parseInt(spaceId),
+                        currency: state.currentCurrency
                     })
                 });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка добавления траты');
+                }
         
-                if (!response.ok) throw new Error('Ошибка добавления траты');
-        
-                // Показываем подтверждение
-                showToast('✅ Трата успешно сохранена!');
+                // УЛУЧШЕННОЕ ПОДТВЕРЖДЕНИЕ С TOAST
+                showQuickToast(`✅ Трата сохранена! ${amount} ${CURRENCIES[state.currentCurrency].symbol}`);
         
                 // Сбрасываем форму
                 clearAmount();
@@ -1651,23 +1552,213 @@
                 });
                 selectedCategory = null;
         
-                // Обновляем данные во всех вкладках
-                updateAllTabsWithRefresh();
+                // Мгновенно обновляем дашборд
+                loadDashboardKPI();
         
             } catch (error) {
-                showMessage('Ошибка добавления траты', 'error');
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
+        }
+
+        // ===== BUDGET MANAGEMENT =====
+        let budgetCurrency = 'RUB';
+
+        function selectBudgetCurrency(currency) {
+            budgetCurrency = currency;
+            document.querySelectorAll('#analytics .currency-flag').forEach(flag => {
+                flag.classList.toggle('active', flag.dataset.currency === currency);
+            });
+        }
+
+        async function setBudget() {
+            const amount = parseFloat(document.getElementById('budgetAmount').value);
+            const spaceId = state.currentSpaceId;
+
+            if (!amount || amount <= 0) {
+                showMessage('Введите корректную сумму бюджета', 'error');
+                return;
+            }
+            if (!spaceId) {
+                showMessage('Выберите пространство', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/set_budget`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        amount: amount,
+                        currency: budgetCurrency
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка установки бюджета');
+                }
+        
+                showMessage(`Бюджет ${amount} ${CURRENCIES[budgetCurrency].symbol} установлен!`);
+                document.getElementById('budgetAmount').value = '';
+                loadDashboardKPI();
+        
+            } catch (error) {
+                showMessage(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        // ===== DASHBOARD =====
+        async function loadDashboard() {
+            await loadQuickSpaces();
+            await loadDashboardKPI();
+        }
+
+        async function loadDashboardKPI() {
+            if (!state.currentSpaceId) {
+                document.getElementById('dashboardKPI').classList.add('hidden');
+                document.getElementById('noSpaceSelected').classList.remove('hidden');
+                return;
+            }
+
+            document.getElementById('dashboardKPI').classList.remove('hidden');
+            document.getElementById('noSpaceSelected').classList.add('hidden');
+            
+            await loadDashboardStats();
+            await loadRecentExpenses();
+        }
+
+        async function loadDashboardStats() {
+            if (!state.currentSpaceId) return;
+
+            try {
+                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        period: 1 // Сегодня
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Сегодня
+                    const todaySpent = data.overview?.total_spent || 0;
+                    document.getElementById('todaySpent').textContent = `${todaySpent.toFixed(0)}`;
+                    
+                    // Бюджет
+                    const budgetResponse = await fetch(`${API_URL}/get_analytics`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId
+                        })
+                    });
+                    
+                    if (budgetResponse.ok) {
+                        const budgetData = await budgetResponse.json();
+                        const budget = budgetData.budget || 0;
+                        const spent = budgetData.total_spent || 0;
+                        const progress = budget > 0 ? (spent / budget) * 100 : 0;
+                        document.getElementById('budgetProgress').textContent = `${progress.toFixed(0)}%`;
+                    }
+                    
+                    // За неделю
+                    const weekResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId,
+                            period: 7
+                        })
+                    });
+                    
+                    if (weekResponse.ok) {
+                        const weekData = await weekResponse.json();
+                        document.getElementById('weekSpent').textContent = `${(weekData.overview?.total_spent || 0).toFixed(0)}`;
+                    }
+                    
+                    // За месяц
+                    const monthResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId,
+                            period: 30
+                        })
+                    });
+                    
+                    if (monthResponse.ok) {
+                        const monthData = await monthResponse.json();
+                        document.getElementById('monthSpent').textContent = `${(monthData.overview?.total_spent || 0).toFixed(0)}`;
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки статистики:', error);
+            }
+        }
+
+        // Функция для загрузки последних трат
+        async function loadRecentExpenses() {
+            if (!state.currentSpaceId) return;
+
+            try {
+                const response = await fetch(`${API_URL}/get_recent_expenses`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        limit: 5
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayRecentExpenses(data.expenses);
+                }
+            } catch (error) {
+                console.error('Error loading recent expenses:', error);
+            }
+        }
+
+        function displayRecentExpenses(expenses) {
+            const container = document.getElementById('recentExpenses');
+    
+            if (!expenses || expenses.length === 0) {
+                container.innerHTML = '<div class="empty-state">Нет recent трат</div>';
+                return;
+            }
+
+            container.innerHTML = expenses.map(expense => `
+                <div class="expense-item" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                    <div>
+                        <strong>${expense.category}</strong>
+                        <div style="font-size: 12px; color: var(--text-muted);">${expense.description || 'Без описания'}</div>
+                    </div>
+                    <div style="font-weight: 700; color: #dc3545;">
+                        ${expense.amount} ${expense.currency_symbol}
+                    </div>
+                </div>
+            `).join('');
         }
 
         // ===== ANALYTICS =====
         async function loadAnalytics() {
-            if (!state.currentSpaceId) return;
-            await loadAnalyticsData();
-        }
+            if (!state.currentSpaceId) {
+                document.getElementById('categoriesAnalytics').innerHTML = '<div class="empty-state">Выберите пространство</div>';
+                return;
+            }
 
-        async function loadAnalyticsData() {
             try {
-                const response = await fetch(`${API_URL}/get_analytics`, {
+                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -1676,48 +1767,274 @@
                         period: state.analyticsPeriod
                     })
                 });
-        
+
                 if (!response.ok) throw new Error('Ошибка загрузки аналитики');
-                const data = await response.json();
         
-                updateAnalyticsChart(data);
-                updateAnalyticsStats(data);
-                updateCategoriesAnalytics(data.categories || []);
+                const data = await response.json();
+                displayAnalytics(data);
+            } catch (error) {
+                document.getElementById('categoriesAnalytics').innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
+            }
+        }
+
+        function displayAnalytics(data) {
+            // Общие суммы
+            document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
+            document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
+
+            // Рендерим график
+            renderAnalyticsChart(data);
+
+            // Категории
+            const container = document.getElementById('categoriesAnalytics');
+            if (!data.categories || data.categories.length === 0) {
+                container.innerHTML = '<div class="empty-state">Нет данных о расходах</div>';
+                return;
+            }
+
+            container.innerHTML = data.categories.map(cat => `
+                <div class="category-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; margin-bottom: 8px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border-color);">
+                    <div>
+                        <div style="font-weight: 700; font-size: 14px;">${cat.name}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${cat.count} трат</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${cat.total.toFixed(0)}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${((cat.total / data.overview.total_spent) * 100).toFixed(1)}%</div>
+                    </div>
+                </div>
+            `).join('');
+
+            // Загружаем последние траты с описаниями
+            loadRecentExpensesForAnalytics();
+        }
+
+        function setAnalyticsPeriod(period) {
+            state.analyticsPeriod = period;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.period == period);
+            });
+            loadAnalytics();
+        }
+
+        // Функция для загрузки последних трат если их нет в data
+        async function loadRecentExpensesForAnalytics() {
+            if (!state.currentSpaceId) return;
+
+            try {
+                const response = await fetch(`${API_URL}/get_recent_expenses`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        limit: 10
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayRecentExpensesInAnalytics(data.expenses);
+                }
+            } catch (error) {
+                console.error('Error loading recent expenses for analytics:', error);
+            }
+        }
+
+        // Функция для отображения загруженных трат
+        function displayRecentExpensesInAnalytics(expenses) {
+            const container = document.getElementById('categoriesAnalytics');
+
+            const recentTitle = document.createElement('h3');
+            recentTitle.textContent = '📝 Последние траты';
+            recentTitle.style.marginBottom = '16px';
+            recentTitle.style.marginTop = '20px';
+            container.appendChild(recentTitle);
+
+            if (!expenses || expenses.length === 0) {
+                const noExpenses = document.createElement('div');
+                noExpenses.className = 'empty-state';
+                noExpenses.innerHTML = '<div>Нет recent трат</div>';
+                container.appendChild(noExpenses);
+                return;
+            }
+
+            expenses.forEach(expense => {
+                const expenseItem = document.createElement('div');
+                expenseItem.className = 'expense-item';
+                expenseItem.style.display = 'flex';
+                expenseItem.style.justifyContent = 'space-between';
+                expenseItem.style.alignItems = 'flex-start';
+                expenseItem.style.padding = '12px';
+                expenseItem.style.marginBottom = '8px';
+                expenseItem.style.background = 'var(--card-bg)';
+                expenseItem.style.borderRadius = '8px';
+                expenseItem.style.border = '1px solid var(--border-color)';
+
+                const date = new Date(expense.created_at);
+                const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+
+                // ВАЖНО: Добавляем отображение описания
+                const description = expense.description || 'Без описания';
+        
+                expenseItem.innerHTML = `
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                            <div style="font-size: 18px; margin-right: 8px;">${getCategoryIcon(expense.category)}</div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 14px;">${expense.category}</div>
+                                <div style="font-size: 11px; color: var(--text-muted);">${formattedDate}</div>
+                            </div>
+                        </div>
+                        <div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px;">
+                            ${description}
+                        </div>
+                    </div>
+                    <div style="text-align: right; min-width: 80px;">
+                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount} ${expense.currency_symbol || ''}</div>
+                    </div>
+                `;
+                container.appendChild(expenseItem);
+            });
+        }
+
+        // Добавьте эту вспомогательную функцию для иконок категорий
+        function getCategoryIcon(categoryName) {
+            const icons = {
+                'Продукты': '🛒',
+                'Кафе': '☕',
+                'Транспорт': '🚗',
+                'Дом': '🏠',
+                'Одежда': '👕',
+                'Здоровье': '🏥',
+                'Развлечения': '🎬',
+                'Подписки': '📱',
+                'Образование': '📚',
+                'Другое': '❓'
+            };
+            return icons[categoryName] || '💰';
+        }
+
+        // ===== EXPORT FUNCTIONALITY =====
+        async function exportToExcel() {
+            if (!state.currentSpaceId) {
+                showMessage('Выберите пространство', 'error');
+                return;
+            }
+
+            try {
+                showQuickToast('⏳ Формируем файл...');
+        
+                const response = await fetch(`${API_URL}/export_to_excel`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        period: state.analyticsPeriod
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка экспорта');
+                }
+
+                // Получаем blob с файлом
+                const blob = await response.blob();
+        
+                // Проверяем что blob не пустой
+                if (blob.size === 0) {
+                    throw new Error('Файл пустой');
+                }
+
+                // Создаем ссылку для скачивания
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `expenses_${state.currentSpaceId}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+        
+                // Очищаем
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+        
+                showQuickToast('✅ Файл успешно скачан!');
         
             } catch (error) {
-                console.error('Error loading analytics:', error);
+                console.error('Export error:', error);
+                showMessage(`❌ Ошибка экспорта: ${error.message}`, 'error');
             }
         }
 
-        function setAnalyticsPeriod(days) {
-            state.analyticsPeriod = days;
-            saveState();
-    
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            document.querySelector(`[data-period="${days}"]`).classList.add('active');
-    
-            loadAnalyticsData();
+        // ===== Удаление пространства =====
+        async function deleteSpace() {
+            if (!state.currentSpaceId || !confirm('ВНИМАНИЕ! Вы уверены, что хотите УДАЛИТЬ это пространство? Все данные будут потеряны безвозвратно!')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/delete_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка удаления пространства');
+                }
+        
+                showMessage('✅ Пространство успешно удалено!');
+                hideSpaceDetails();
+                loadSpaces();
+                loadQuickSpaces();
+                state.currentSpaceId = null;
+                saveState();
+
+            } catch (error) {
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
         }
 
-        function updateAnalyticsChart(data) {
+        // ===== CHARTS =====
+        let analyticsChart = null;
+
+        function renderAnalyticsChart(data) {
             const ctx = document.getElementById('analyticsChart').getContext('2d');
-            
-            // Удаляем предыдущий график если существует
-            if (window.analyticsChart) {
-                window.analyticsChart.destroy();
+    
+            // Удаляем старый график если есть
+            if (analyticsChart) {
+                analyticsChart.destroy();
             }
     
-            const dates = data.daily_data ? Object.keys(data.daily_data) : [];
-            const amounts = data.daily_data ? Object.values(data.daily_data) : [];
+            if (!data.daily_data || data.daily_data.length === 0) {
+                // Показываем заглушку если нет данных
+                ctx.font = '16px Arial';
+                ctx.fillStyle = '#666';
+                ctx.textAlign = 'center';
+                ctx.fillText('Нет данных для графика', 150, 100);
+                return;
+            }
     
-            window.analyticsChart = new Chart(ctx, {
+            // Подготавливаем данные для графика
+            const labels = data.daily_data.map(item => {
+                const date = new Date(item.day);
+                return `${date.getDate()}.${date.getMonth() + 1}`;
+            });
+    
+            const amounts = data.daily_data.map(item => item.total);
+    
+            analyticsChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: dates,
+                    labels: labels,
                     datasets: [{
-                        label: 'Траты по дням',
+                        label: 'Расходы по дням',
                         data: amounts,
                         borderColor: '#667eea',
                         backgroundColor: 'rgba(102, 126, 234, 0.1)',
@@ -1751,168 +2068,48 @@
             });
         }
 
-        function updateAnalyticsStats(data) {
-            document.getElementById('totalSpent').textContent = formatCurrency(data.total_spent || 0);
-            
-            const avgDaily = data.avg_daily || 0;
-            document.getElementById('avgDaily').textContent = formatCurrency(avgDaily);
-        }
-
-        function updateCategoriesAnalytics(categories) {
-            const container = document.getElementById('categoriesAnalytics');
-            if (!container) return;
-    
-            if (categories.length === 0) {
-                container.innerHTML = '<div class="empty-state"><p>Нет данных по категориям</p></div>';
-                return;
-            }
-    
-            container.innerHTML = categories.map(cat => `
-                <div class="member-item">
-                    <div>
-                        <strong>${getCategoryName(cat.category)}</strong>
-                        ${cat.description ? `<br><small>${cat.description}</small>` : ''}
-                    </div>
-                    <div style="font-weight: 600;">
-                        ${formatCurrency(cat.amount)} (${cat.percentage || 0}%)
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function getCategoryName(categoryId) {
-            const categories = {
-                food: '🍔 Еда',
-                transport: '🚗 Транспорт',
-                entertainment: '🎬 Развлечения',
-                utilities: '🏠 Коммуналка',
-                health: '🏥 Здоровье',
-                shopping: '🛍️ Шопинг',
-                other: '📦 Другое'
-            };
-            return categories[categoryId] || categoryId;
-        }
-
-        // ===== BUDGET MANAGEMENT =====
-        async function setBudget() {
-            if (!state.currentSpaceId) {
-                showMessage('Выберите пространство', 'error');
-                return;
-            }
-    
-            const amount = parseFloat(document.getElementById('budgetAmount').value);
-            if (!amount || amount <= 0) {
-                showMessage('Введите корректную сумму бюджета', 'error');
-                return;
-            }
-    
-            // Получаем выбранную валюту бюджета
-            const budgetCurrency = document.querySelector('.currency-selector .currency-flag.active').dataset.currency;
-    
-            try {
-                const response = await fetch(`${API_URL}/set_budget`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId,
-                        amount: amount,
-                        currency: budgetCurrency
-                    })
-                });
-        
-                if (!response.ok) throw new Error('Ошибка установки бюджета');
-        
-                showMessage('Бюджет установлен!');
-                document.getElementById('budgetAmount').value = '';
-        
-                // Обновляем дашборд
-                if (document.getElementById('dashboard').classList.contains('active')) {
-                    loadDashboardData();
-                }
-        
-            } catch (error) {
-                showMessage('Ошибка установки бюджета', 'error');
-            }
-        }
-
-        function selectBudgetCurrency(currency) {
-            document.querySelectorAll('.currency-selector .currency-flag').forEach(flag => {
-                flag.classList.remove('active');
-            });
-            document.querySelector(`[data-currency="${currency}"]`).classList.add('active');
-        }
-
-        // ===== EXPORT FUNCTIONALITY =====
-        async function exportToExcel() {
-            if (!state.currentSpaceId) {
-                showMessage('Выберите пространство', 'error');
-                return;
-            }
-    
-            try {
-                showToast('📊 Генерируем Excel файл...');
-                
-                const response = await fetch(`${API_URL}/export_to_excel`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId
-                    })
-                });
-        
-                if (!response.ok) throw new Error('Ошибка экспорта');
-        
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `expenses_${state.currentSpaceId}_${new Date().toISOString().split('T')[0]}.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-                
-                showToast('✅ Файл успешно скачан!');
-        
-            } catch (error) {
-                showMessage('Ошибка экспорта в Excel', 'error');
-            }
-        }
-
         // ===== UTILITY FUNCTIONS =====
-        function formatCurrency(amount) {
-            return new Intl.NumberFormat('ru-RU', {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 0
-            }).format(amount) + ' ' + CURRENCIES[state.currentCurrency]?.symbol || '';
-        }
-
-        function showMessage(text, type = 'success') {
+        function showMessage(message, type = 'success') {
             const messageEl = document.getElementById('message');
-            messageEl.textContent = text;
+            messageEl.textContent = message;
             messageEl.className = `message ${type}`;
             messageEl.classList.remove('hidden');
-    
+            
             setTimeout(() => {
                 messageEl.classList.add('hidden');
-            }, 3000);
+            }, 4000);
         }
 
-        function showToast(message) {
+        function showQuickToast(message) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.classList.remove('hidden');
-    
+            
             setTimeout(() => {
                 toast.classList.add('hidden');
             }, 3000);
         }
 
+        function shareBotLink() {
+            const botLink = 'https://t.me/incomeexpensebookBot';
+            
+            navigator.clipboard.writeText(botLink).then(() => {
+                showQuickToast('✅ Ссылка на бота скопирована!');
+            }).catch(err => {
+                showMessage('❌ Не удалось скопировать ссылку', 'error');
+            });
+        }
+
+        // ===== INITIALIZE APP =====
         function initializeApp() {
-            handleStartParameters();
             loadSpaces();
+            loadQuickSpaces();
+            generateKeypad();
+            handleStartParameters();
+            
+            // Загружаем пространства для всех вкладок
+            loadSpacesForSelector('expenseSpacesGrid', true);
+            loadSpacesForSelector('analyticsSpacesGrid', true);
         }
     </script>
 </body>
