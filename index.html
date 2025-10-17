@@ -1574,7 +1574,6 @@
         
                 // УЛУЧШЕННОЕ ПОДТВЕРЖДЕНИЕ
                 showMessage(`✅ Трата добавлена! ${amount} ${CURRENCIES[state.currentCurrency].symbol} - ${category}${description ? ' - ' + description : ''}`);
-        
                 // Сбрасываем форму
                 clearAmount();
                 document.getElementById('expenseDescription').value = '';
@@ -2069,7 +2068,7 @@
 
             try {
                 showMessage('⏳ Формируем файл...');
-        
+
                 const response = await fetch(`${API_URL}/export_to_excel`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -2150,6 +2149,12 @@
             saveState();
             loadQuickSpaces(); // Перерисовываем иконки
             loadDashboardKPI(); // Загружаем KPI
+        
+            if (document.getElementById('analytics').classList.contains('active')) {
+                loadAnalytics();
+            }
+    
+            showMessage('✅ Пространство изменено');
         }
 
         function toggleKPIVisibility() {
@@ -2230,8 +2235,6 @@
             }
 
             try {
-                console.log('Deleting space:', state.currentSpaceId);
-
                 const response = await fetch(`${API_URL}/delete_space`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -2241,25 +2244,32 @@
                     })
                 });
 
-                console.log('Delete response status:', response.status);
-
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Ошибка удаления пространства');
                 }
-        
-                const result = await response.json();
-                console.log('Delete success:', result);
 
                 showMessage('✅ Пространство успешно удалено!');
                 hideSpaceDetails();
                 loadSpaces();
-                loadQuickSpaces(); // Обновляем быстрые пространства
+                loadQuickSpaces();
                 state.currentSpaceId = null;
                 saveState();
 
             } catch (error) {
-                console.error('Delete space error:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function leaveSpace() {
+            if (!state.currentSpaceId || !confirm('Вы уверены, что хотите покинуть это пространство?')) {
+                return;
+            }
+
+            try {
+                // Здесь должен быть API выхода из пространства
+                showMessage('Функция выхода из пространства в разработке');
+            } catch (error) {
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
@@ -2286,15 +2296,20 @@
         }
 
         function shareBotLink() {
-            // Создаем правильную ссылку для приглашения
             const botUsername = 'incomeexpensebookBot';
             const inviteLink = `https://t.me/${botUsername}`;
-    
-            // Копируем ссылку в буфер обмена
+
             navigator.clipboard.writeText(inviteLink).then(() => {
                 showMessage('✅ Ссылка на бота скопирована! Отправьте друзьям');
             }).catch(err => {
-                showMessage('❌ Не удалось скопировать ссылку', 'error');
+                // Fallback для старых браузеров
+                const textArea = document.createElement('textarea');
+                textArea.value = inviteLink;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showMessage('✅ Ссылка на бота скопирована!');
             });
         }
 
