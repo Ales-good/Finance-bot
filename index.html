@@ -7,7 +7,6 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        /* ВСЕ СТИЛИ СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ */
         * {
             margin: 0;
             padding: 0;
@@ -1021,33 +1020,8 @@
             } else if (tabName === 'analytics') {
                 loadAnalytics();
             }
-            
-            // ИСПРАВЛЕНИЕ 1: Мгновенное обновление данных при переключении вкладок
-            refreshCurrentTabData();
         }
         
-        // ИСПРАВЛЕНИЕ 1: Мгновенное обновление данных текущей вкладки
-        function refreshCurrentTabData() {
-            const activeTab = document.querySelector('.tab-content.active').id;
-            console.log('Refreshing data for tab:', activeTab);
-            
-            if (state.currentSpaceId) {
-                switch(activeTab) {
-                    case 'dashboard':
-                        loadDashboardKPI();
-                        break;
-                    case 'spaces':
-                        // Данные уже загружены
-                        break;
-                    case 'expenses':
-                        // Данные уже загружены
-                        break;
-                    case 'analytics':
-                        loadAnalytics();
-                        break;
-                }
-            }
-        }
 
         // Вспомогательная функция для определения метки таба
         function getTabLabel(tabName) {
@@ -1197,9 +1171,9 @@
                 if (!response.ok) throw new Error('Ошибка загрузки пространств');
                 
                 const data = await response.json();
-                displaySpacesGrid(data.spaces, 'spacesList', true);
+                displaySpacesGrid(data.spaces, 'spacesList', true); // Исправлено: добавлен true для маленьких иконок
                 
-                // ИСПРАВЛЕНИЕ 1: Автовыбор первого пространства если нет выбранного
+                // Автовыбор первого пространства если нет выбранного
                 if (!state.currentSpaceId && data.spaces.length > 0) {
                     selectSpace(data.spaces[0].id);
                 }
@@ -1244,7 +1218,6 @@
             return icons[type] || '🏠';
         }
 
-        // ИСПРАВЛЕНИЕ 1: Улучшенная функция выбора пространства
         function selectSpace(spaceId) {
             state.currentSpaceId = spaceId;
             saveState();
@@ -1253,14 +1226,7 @@
             refreshAllData();
         }
 
-        function selectQuickSpace(spaceId) {
-            state.currentSpaceId = spaceId;
-            saveState();
-            loadQuickSpaces();
-            loadDashboardKPI();
-        }
-
-        // ИСПРАВЛЕНИЕ 1: Мгновенное обновление всех данных
+        // НОВАЯ ФУНКЦИЯ: Мгновенное обновление всех данных
         function refreshAllData() {
             console.log('🔄 Мгновенное обновление данных для space:', state.currentSpaceId);
             
@@ -1421,34 +1387,23 @@
             currentSpaceData = null;
         }
 
-        // ИСПРАВЛЕНИЕ 2: Улучшенное уведомление при копировании
         function copyInviteCode() {
             const codeInput = document.getElementById('currentInviteCode');
             codeInput.select();
             document.execCommand('copy');
-            showMessage('✅ Код приглашения скопирован в буфер обмена!');
+            showMessage('Код скопирован в буфер обмена!');
         }
 
-        // ИСПРАВЛЕНИЕ 2: Улучшенное уведомление при копировании ссылки
         function shareInviteLink() {
             const code = document.getElementById('currentInviteCode').value;
-            const botUsername = 'incomeexpensebookBot';
+    
+            // ИСПРАВЛЕНО: Правильная ссылка на вашего бота
+            const botUsername = 'incomeexpensebookBot'; // ЗАМЕНИТЕ на реальный username вашего бота
             const inviteLink = `https://t.me/${botUsername}?start=invite_${code}`;
     
+            // Копируем в буфер обмена
             navigator.clipboard.writeText(inviteLink).then(() => {
-                showMessage('✅ Ссылка приглашения скопирована! Отправьте её друзьям');
-            }).catch(err => {
-                showMessage('❌ Не удалось скопировать ссылку', 'error');
-            });
-        }
-
-        // ИСПРАВЛЕНИЕ 2: Улучшенное уведомление при приглашении друзей
-        function shareBotLink() {
-            const botUsername = 'incomeexpensebookBot';
-            const inviteLink = `https://t.me/${botUsername}`;
-    
-            navigator.clipboard.writeText(inviteLink).then(() => {
-                showMessage('✅ Ссылка на бота скопирована! Отправьте друзьям');
+                showMessage('✅ Ссылка скопирована! Отправьте её друзьям');
             }).catch(err => {
                 showMessage('❌ Не удалось скопировать ссылку', 'error');
             });
@@ -1463,68 +1418,15 @@
             await joinSpaceWithCode(code);
         }
 
-        // ИСПРАВЛЕНИЕ 2: Функции управления пространствами
         async function leaveSpace() {
             if (!state.currentSpaceId || !confirm('Вы уверены, что хотите покинуть это пространство?')) {
                 return;
             }
 
             try {
-                const response = await fetch(`${API_URL}/leave_space`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка выхода из пространства');
-                }
-
-                showMessage('✅ Вы вышли из пространства');
-                hideSpaceDetails();
-                loadSpaces();
-                loadQuickSpaces();
-                state.currentSpaceId = null;
-                saveState();
-
+                showMessage('Функция выхода из пространства в разработке');
             } catch (error) {
-                showMessage(`❌ Ошибка: ${error.message}`, 'error');
-            }
-        }
-
-        async function deleteSpace() {
-            if (!state.currentSpaceId || !confirm('ВНИМАНИЕ! Вы уверены, что хотите УДАЛИТЬ это пространство? Все данные будут потеряны безвозвратно!')) {
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_URL}/delete_space`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка удаления пространства');
-                }
-        
-                showMessage('✅ Пространство успешно удалено!');
-                hideSpaceDetails();
-                loadSpaces();
-                loadQuickSpaces();
-                state.currentSpaceId = null;
-                saveState();
-
-            } catch (error) {
-                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+                showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
 
@@ -1588,7 +1490,7 @@
             }, 150);
         }
         
-        // ИСПРАВЛЕНИЕ 3: Улучшенное подтверждение сохранения траты
+
         async function addExpense() {
             const amount = state.currentAmount;
             const categoryElement = document.querySelector('.category-item.active');
@@ -1598,6 +1500,7 @@
 
             if (!amount || amount <= 0) {
                 showMessage('Введите сумму траты', 'error');
+                // Анимация поля суммы
                 document.getElementById('currentAmount').style.color = '#dc3545';
                 setTimeout(() => {
                     document.getElementById('currentAmount').style.color = '';
@@ -1606,6 +1509,7 @@
             }
             if (!category) {
                 showMessage('Выберите категорию', 'error');
+                // Анимация категорий
                 document.getElementById('categoriesGrid').style.border = '2px solid #dc3545';
                 setTimeout(() => {
                     document.getElementById('categoriesGrid').style.border = '';
@@ -1636,8 +1540,8 @@
                     throw new Error(errorData.error || 'Ошибка добавления траты');
                 }
         
-                // ИСПРАВЛЕНИЕ 3: Улучшенное подтверждение
-                showMessage(`✅ Трата сохранена! ${amount} ${CURRENCIES[state.currentCurrency].symbol} - ${category}${description ? ' - ' + description : ''}`);
+                // УЛУЧШЕННОЕ ПОДТВЕРЖДЕНИЕ
+                showMessage(`✅ Трата добавлена! ${amount} ${CURRENCIES[state.currentCurrency].symbol} - ${category}${description ? ' - ' + description : ''}`);
         
                 // Сбрасываем форму
                 clearAmount();
@@ -1696,7 +1600,7 @@
         
                 showMessage(`Бюджет ${amount} ${CURRENCIES[budgetCurrency].symbol} установлен!`);
                 document.getElementById('budgetAmount').value = '';
-                loadDashboard();
+                loadDashboard(); // Обновляем статистику
         
             } catch (error) {
                 showMessage(`Ошибка: ${error.message}`, 'error');
@@ -1907,7 +1811,7 @@
             recentTitle.style.marginBottom = '16px';
             container.appendChild(recentTitle);
 
-            // ИСПРАВЛЕНИЕ 3: Отображаем комментарии в аналитике
+            // Проверяем есть ли данные о последних тратах
             if (data.recent_expenses && data.recent_expenses.length > 0) {
                 data.recent_expenses.forEach(expense => {
                     const expenseItem = document.createElement('div');
@@ -1924,9 +1828,6 @@
                     const date = new Date(expense.created_at);
                     const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 
-                    // ИСПРАВЛЕНИЕ 3: Показываем комментарий
-                    const description = expense.description || '<span style="color: var(--text-muted); font-style: italic;">Без описания</span>';
-
                     expenseItem.innerHTML = `
                         <div style="flex: 1;">
                             <div style="display: flex; align-items: center; margin-bottom: 4px;">
@@ -1937,7 +1838,7 @@
                                 </div>
                             </div>
                             <div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px;">
-                                ${description}
+                                ${expense.description || '<span style="color: var(--text-muted); font-style: italic;">Без описания</span>'}
                             </div>
                         </div>
                         <div style="text-align: right; min-width: 80px;">
@@ -2036,8 +1937,8 @@
                 const date = new Date(expense.created_at);
                 const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 
-                // ИСПРАВЛЕНИЕ 3: ВАЖНО - Добавляем отображение описания
-                const description = expense.description || '<span style="color: var(--text-muted); font-style: italic;">Без описания</span>';
+                // ВАЖНО: Добавляем отображение описания
+                const description = expense.description || 'Без описания';
         
                 expenseItem.innerHTML = `
                     <div style="flex: 1;">
@@ -2128,7 +2029,6 @@
             });
         }    
 
-        // ИСПРАВЛЕНИЕ 4: Исправленный экспорт в Excel
         async function exportToExcel() {
             if (!state.currentSpaceId) {
                 showMessage('Выберите пространство для экспорта', 'error');
@@ -2136,7 +2036,7 @@
             }
 
             try {
-                showMessage('⏳ Формируем Excel файл...');
+                showMessage('⏳ Формируем файл...');
         
                 const response = await fetch(`${API_URL}/export_to_excel`, {
                     method: 'POST',
@@ -2165,11 +2065,7 @@
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                
-                // Создаем имя файла с датой
-                const date = new Date().toISOString().split('T')[0];
-                a.download = `finance_export_${state.currentSpaceId}_${date}.xlsx`;
-                
+                a.download = `expenses_${state.currentSpaceId}_${new Date().toISOString().split('T')[0]}.xlsx`;
                 document.body.appendChild(a);
                 a.click();
         
@@ -2177,7 +2073,7 @@
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
         
-                showMessage('✅ Excel файл успешно скачан! Проверьте папку "Загрузки"');
+                showMessage('✅ Файл успешно скачан! Проверьте папку "Загрузки"');
         
             } catch (error) {
                 console.error('Export error:', error);
@@ -2215,6 +2111,13 @@
             .catch(error => {
                 console.error('Error loading quick spaces:', error);
             });
+        }
+
+        function selectQuickSpace(spaceId) {
+            state.currentSpaceId = spaceId;
+            saveState();
+            loadQuickSpaces(); // Перерисовываем иконки
+            loadDashboardKPI(); // Загружаем KPI
         }
 
         function toggleKPIVisibility() {
@@ -2287,7 +2190,47 @@
             await loadDashboardStats();
             await loadRecentExpenses();
         }
+        
+        // ===== Удаление пространства =====
+        async function deleteSpace() {
+            if (!state.currentSpaceId || !confirm('ВНИМАНИЕ! Вы уверены, что хотите УДАЛИТЬ это пространство? Все данные будут потеряны безвозвратно!')) {
+                return;
+            }
 
+            try {
+                console.log('Deleting space:', state.currentSpaceId);
+
+                const response = await fetch(`${API_URL}/delete_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId
+                    })
+                });
+
+                console.log('Delete response status:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка удаления пространства');
+                }
+        
+                const result = await response.json();
+                console.log('Delete success:', result);
+
+                showMessage('✅ Пространство успешно удалено!');
+                hideSpaceDetails();
+                loadSpaces();
+                loadQuickSpaces(); // Обновляем быстрые пространства
+                state.currentSpaceId = null;
+                saveState();
+
+            } catch (error) {
+                console.error('Delete space error:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
+        }
         // ===== UTILITY FUNCTIONS =====
         function showLoading(elementId) {
             document.getElementById(elementId).innerHTML = '<div class="loading">Загрузка...</div>';
@@ -2308,6 +2251,19 @@
         // ===== функция для получения ссылки на бота =====
         function getBotLink() {
             return `https://t.me/incomeexpensebookBot`;
+        }
+
+        function shareBotLink() {
+            // Создаем правильную ссылку для приглашения
+            const botUsername = 'incomeexpensebookBot';
+            const inviteLink = `https://t.me/${botUsername}`;
+    
+            // Копируем ссылку в буфер обмена
+            navigator.clipboard.writeText(inviteLink).then(() => {
+                showMessage('✅ Ссылка на бота скопирована! Отправьте друзьям');
+            }).catch(err => {
+                showMessage('❌ Не удалось скопировать ссылку', 'error');
+            });
         }
 
         // ===== INITIALIZE APP =====
