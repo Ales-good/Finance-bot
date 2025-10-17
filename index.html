@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* ВСЕ СТИЛИ СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ */
         * {
             margin: 0;
             padding: 0;
@@ -1021,39 +1022,42 @@
                 loadAnalytics();
             }
             
-            // ОБНОВЛЕНИЕ: Мгновенное обновление данных при переключении вкладок
+            // ИСПРАВЛЕНИЕ 1: Мгновенное обновление данных при переключении вкладок
             refreshCurrentTabData();
         }
         
-        // НОВАЯ ФУНКЦИЯ: Мгновенное обновление данных текущей вкладки
+        // ИСПРАВЛЕНИЕ 1: Мгновенное обновление данных текущей вкладки
         function refreshCurrentTabData() {
             const activeTab = document.querySelector('.tab-content.active').id;
             console.log('Refreshing data for tab:', activeTab);
             
-            switch(activeTab) {
-                case 'dashboard':
-                    loadDashboard();
-                    break;
-                case 'spaces':
-                    loadSpaces();
-                    break;
-                case 'expenses':
-                    loadExpensesTab();
-                    break;
-                case 'analytics':
-                    loadAnalytics();
-                    break;
+            if (state.currentSpaceId) {
+                switch(activeTab) {
+                    case 'dashboard':
+                        loadDashboardKPI();
+                        break;
+                    case 'spaces':
+                        // Данные уже загружены
+                        break;
+                    case 'expenses':
+                        // Данные уже загружены
+                        break;
+                    case 'analytics':
+                        loadAnalytics();
+                        break;
+                }
             }
         }
 
+        // Вспомогательная функция для определения метки таба
         function getTabLabel(tabName) {
             const labels = {
-                dashboard: '🏠',
-                spaces: '👥',
-                expenses: '💸',
-                analytics: '📊'
+                'dashboard': '🏠',
+                'spaces': '👥', 
+                'expenses': '💸',
+                'analytics': '📊'
             };
-            return labels[tabName] || '';
+            return labels[tabName] || tabName;
         }
 
         function setupSwipeNavigation() {
@@ -1066,8 +1070,6 @@
             });
 
             document.addEventListener('touchend', e => {
-                if (!startX) return;
-
                 const endX = e.changedTouches[0].clientX;
                 const diff = startX - endX;
 
@@ -1076,10 +1078,8 @@
                     let newIndex;
 
                     if (diff > 0) {
-                        // Swipe left
                         newIndex = Math.min(currentIndex + 1, tabs.length - 1);
                     } else {
-                        // Swipe right
                         newIndex = Math.max(currentIndex - 1, 0);
                     }
 
@@ -1088,143 +1088,210 @@
                         showTab(currentTab);
                     }
                 }
-
-                startX = 0;
             });
         }
 
-        // ===== INITIALIZATION =====
-        async function initializeApp() {
-            try {
-                await loadSpaces();
-                await loadCategories();
-                initializeKeypad();
-                handleStartParameters();
-                showTab('dashboard');
-            } catch (error) {
-                console.error('Initialization error:', error);
-                showMessage('Ошибка загрузки приложения', 'error');
+        // ===== CURRENCY MANAGEMENT =====
+        function selectCurrency(currency, updateKeypad = true) {
+            state.currentCurrency = currency;
+            
+            document.querySelectorAll('.currency-flag').forEach(flag => {
+                flag.classList.toggle('active', flag.dataset.currency === currency);
+            });
+            
+            document.getElementById('amountCurrency').textContent = CURRENCIES[currency].symbol;
+            
+            if (updateKeypad) {
+                generateKeypad();
             }
+            
+            saveState();
+        }
+
+        function generateKeypad() {
+            const keypad = document.getElementById('numericKeypad');
+            const amounts = CURRENCIES[state.currentCurrency].keypad;
+            
+            keypad.innerHTML = '';
+            
+            amounts.forEach(amount => {
+                const button = document.createElement('div');
+                button.className = 'keypad-btn';
+                button.textContent = amount;
+                button.onclick = () => addToAmount(amount);
+                keypad.appendChild(button);
+            });
+            
+            const clearBtn = document.createElement('div');
+            clearBtn.className = 'keypad-btn clear';
+            clearBtn.textContent = 'C';
+            clearBtn.onclick = clearAmount;
+            keypad.appendChild(clearBtn);
+        }
+
+        function addToAmount(amount) {
+            state.currentAmount += amount;
+            updateAmountDisplay();
+        }
+
+        function clearAmount() {
+            state.currentAmount = 0;
+            updateAmountDisplay();
+        }
+
+        function updateAmountDisplay() {
+            document.getElementById('currentAmount').textContent = state.currentAmount;
         }
 
         // ===== SPACES MANAGEMENT =====
+        function displaySpacesGrid(spaces, containerId, isQuick = false) {
+            const container = document.getElementById(containerId);
+            
+            if (!spaces || spaces.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🏠</div>
+                        <div>У вас пока нет пространств</div>
+                    </div>
+                `;
+                return;
+            }
+
+            const gridClass = isQuick ? 'spaces-grid quick-grid' : 'spaces-grid';
+            container.className = gridClass;
+            
+            container.innerHTML = spaces.map(space => `
+                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                     onclick="${isQuick ? `selectQuickSpace(${space.id})` : `showSpaceDetails(${space.id})`}">
+                    <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                    <div class="space-name">${space.name}</div>
+                    ${!isQuick ? `<div class="space-meta">${space.member_count} участ.</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function loadSpacesForSelector(containerId, isQuick = false) {
+            fetch(`${API_URL}/get_user_spaces`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(response => response.json())
+            .then(data => displaySpacesGrid(data.spaces, containerId, isQuick))
+            .catch(error => console.error('Ошибка загрузки пространств:', error));
+        }
+
+        function loadQuickSpaces() {
+            loadSpacesForSelector('quickSpacesGrid', true);
+        }
+
         async function loadSpaces() {
             try {
-                const response = await fetch(`${API_URL}/get_spaces`, {
+                showLoading('spacesList');
+                const response = await fetch(`${API_URL}/get_user_spaces`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ initData: tg.initData })
                 });
 
                 if (!response.ok) throw new Error('Ошибка загрузки пространств');
-
+                
                 const data = await response.json();
-                renderSpaces(data.spaces);
+                displaySpacesGrid(data.spaces, 'spacesList', true);
                 
-                // ОБНОВЛЕНИЕ: Автоматически выбираем первое пространство если нет текущего
-                if (data.spaces.length > 0 && !state.currentSpaceId) {
+                // ИСПРАВЛЕНИЕ 1: Автовыбор первого пространства если нет выбранного
+                if (!state.currentSpaceId && data.spaces.length > 0) {
                     selectSpace(data.spaces[0].id);
-                } else if (state.currentSpaceId) {
-                    // Обновляем данные текущего пространства
-                    refreshSpaceData();
                 }
-                
-                return data.spaces;
             } catch (error) {
-                console.error('Error loading spaces:', error);
-                showMessage('Ошибка загрузки пространств', 'error');
-                return [];
+                showError('spacesList', `Ошибка загрузки: ${error.message}`);
             }
         }
 
-        function renderSpaces(spaces) {
-            // Обновляем все сетки пространств на всех вкладках
-            const spaceGrids = [
-                'quickSpacesGrid', 
-                'spacesList', 
-                'expenseSpacesGrid', 
-                'analyticsSpacesGrid'
+        function updateSpaceSelectors(spaces) {
+            const spaceSelectors = [
+                document.getElementById('analyticsSpacesGrid'),
+                document.getElementById('expenseSpacesGrid'),
+                document.getElementById('dashboardSpaces')
             ];
 
-            spaceGrids.forEach(gridId => {
-                const grid = document.getElementById(gridId);
-                if (grid) {
-                    grid.innerHTML = spaces.map(space => `
-                        <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                             onclick="selectSpace('${space.id}')">
-                            <div class="space-icon">${getSpaceIcon(space.type)}</div>
-                            <div class="space-name">${space.name}</div>
-                            <div class="space-meta">${space.member_count || 0} участ.</div>
-                        </div>
-                    `).join('');
+            spaceSelectors.forEach(container => {
+                if (!container) return;
+                
+                if (!spaces || spaces.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Нет пространств</div>';
+                    return;
                 }
-            });
 
-            // Обновляем состояние интерфейса
-            updateUIForSpaceSelection();
+                container.innerHTML = spaces.map(space => `
+                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                         onclick="selectSpace(${space.id})">
+                        <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                        <div class="space-name">${space.name}</div>
+                        <div class="space-meta">${space.member_count} участ.</div>
+                    </div>
+                `).join('');
+            });
         }
 
         function getSpaceIcon(type) {
             const icons = {
-                personal: '👤',
-                family: '👨‍👩‍👧‍👦',
-                friends: '👥',
-                work: '💼'
+                'personal': '👤',
+                'family': '👨‍👩‍👧‍👦', 
+                'friends': '👥',
+                'work': '💼'
             };
             return icons[type] || '🏠';
         }
 
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Выбор пространства с мгновенным обновлением
-        async function selectSpace(spaceId) {
-            console.log('Selecting space:', spaceId);
+        // ИСПРАВЛЕНИЕ 1: Улучшенная функция выбора пространства
+        function selectSpace(spaceId) {
             state.currentSpaceId = spaceId;
             saveState();
             
-            // Обновляем визуальное выделение во всех сетках
-            document.querySelectorAll('.space-card').forEach(card => {
-                card.classList.remove('active');
-                if (card.onclick && card.onclick.toString().includes(spaceId)) {
-                    card.classList.add('active');
-                }
+            // Мгновенное обновление всех вкладок
+            refreshAllData();
+        }
+
+        function selectQuickSpace(spaceId) {
+            state.currentSpaceId = spaceId;
+            saveState();
+            loadQuickSpaces();
+            loadDashboardKPI();
+        }
+
+        // ИСПРАВЛЕНИЕ 1: Мгновенное обновление всех данных
+        function refreshAllData() {
+            console.log('🔄 Мгновенное обновление данных для space:', state.currentSpaceId);
+            
+            // Обновляем отображение пространств
+            document.querySelectorAll('.spaces-grid').forEach(grid => {
+                grid.querySelectorAll('.space-card').forEach(card => {
+                    const cardSpaceId = parseInt(card.onclick.toString().match(/\d+/)[0]);
+                    card.classList.toggle('active', cardSpaceId === state.currentSpaceId);
+                });
             });
             
-            // Мгновенно обновляем данные для текущей вкладки
-            await refreshSpaceData();
-        }
-
-        // НОВАЯ ФУНКЦИЯ: Мгновенное обновление данных пространства
-        async function refreshSpaceData() {
-            if (!state.currentSpaceId) return;
+            // Мгновенно обновляем дашборд
+            loadDashboardKPI();
             
-            try {
-                // Загружаем детали пространства
-                const response = await fetch(`${API_URL}/get_space_details`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId
-                    })
-                });
-
-                if (response.ok) {
-                    currentSpaceData = await response.json();
-                }
-                
-                // Обновляем все вкладки
-                await loadDashboard();
-                await loadExpensesTab();
-                await loadAnalytics();
-                
-            } catch (error) {
-                console.error('Error refreshing space data:', error);
+            // Если активна аналитика - обновляем её
+            if (document.getElementById('analytics').classList.contains('active')) {
+                loadAnalytics();
             }
+            
+            // Показываем уведомление о смене пространства
+            showMessage('✅ Пространство изменено, данные обновляются...');
         }
 
-        function updateUIForSpaceSelection() {
-            const hasSpace = !!state.currentSpaceId;
-            document.getElementById('dashboardKPI').classList.toggle('hidden', !hasSpace);
-            document.getElementById('noSpaceSelected').classList.toggle('hidden', hasSpace);
+        function showCreateSpaceForm() {
+            document.getElementById('createSpaceForm').classList.remove('hidden');
+            document.getElementById('spacesList').classList.add('hidden');
+        }
+
+        function hideCreateSpaceForm() {
+            document.getElementById('createSpaceForm').classList.add('hidden');
+            document.getElementById('spacesList').classList.remove('hidden');
         }
 
         async function createSpace() {
@@ -1243,158 +1310,164 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        name,
-                        type,
-                        description
+                        name: name,
+                        type: type,
+                        description: description
                     })
                 });
 
-                if (!response.ok) throw new Error('Ошибка создания пространства');
-
-                showMessage('Пространство создано!');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка создания пространства');
+                }
+                
+                const data = await response.json();
+                showMessage(`Пространство "${name}" создано! Код: ${data.invite_code}`);
                 hideCreateSpaceForm();
-                await loadSpaces();
+                loadSpaces();
+                
+                document.getElementById('spaceName').value = '';
+                document.getElementById('spaceDescription').value = '';
             } catch (error) {
-                showMessage('Ошибка создания пространства', 'error');
+                showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
 
-        function showCreateSpaceForm() {
-            document.getElementById('createSpaceForm').classList.remove('hidden');
+        async function showSpaceDetails(spaceId) {
+            state.currentSpaceId = spaceId;
+            try {
+                const [spacesResponse, membersResponse] = await Promise.all([
+                    fetch(`${API_URL}/get_user_spaces`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ initData: tg.initData })
+                    }),
+                    fetch(`${API_URL}/get_space_members`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: spaceId
+                        })
+                    })
+                ]);
+
+                if (!spacesResponse.ok || !membersResponse.ok) {
+                    throw new Error('Ошибка загрузки данных пространства');
+                }
+
+                const spacesData = await spacesResponse.json();
+                const membersData = await membersResponse.json();
+
+                currentSpaceData = spacesData.spaces.find(s => s.id === spaceId);
+                if (!currentSpaceData) throw new Error('Пространство не найдено');
+
+                displaySpaceDetails(currentSpaceData, membersData.members);
+                document.getElementById('spaceDetails').classList.remove('hidden');
+            } catch (error) {
+                showMessage(`Ошибка: ${error.message}`, 'error');
+            }
         }
 
-        function hideCreateSpaceForm() {
-            document.getElementById('createSpaceForm').classList.add('hidden');
-        }
-
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Показать детали пространства
-        function showSpaceDetails(spaceId) {
-            const space = getSpaceById(spaceId);
-            if (!space) return;
-
+        function displaySpaceDetails(space, members) {
             document.getElementById('currentSpaceName').textContent = space.name;
             document.getElementById('currentInviteCode').value = space.invite_code;
             
-            // Обновляем информацию о пространстве
             document.getElementById('spaceInfo').innerHTML = `
-                <p><strong>Тип:</strong> ${getSpaceTypeName(space.type)}</p>
-                <p><strong>Участников:</strong> ${space.member_count || 1}</p>
-                ${space.description ? `<p><strong>Описание:</strong> ${space.description}</p>` : ''}
+                <div class="space-meta">
+                    <strong>Тип:</strong> ${getSpaceTypeLabel(space.space_type)}<br>
+                    <strong>Участников:</strong> ${members.length}<br>
+                    ${space.description ? `<strong>Описание:</strong> ${space.description}` : ''}
+                </div>
             `;
 
-            // Загружаем участников
-            loadSpaceMembers(spaceId);
-            
-            document.getElementById('spaceDetails').classList.remove('hidden');
+            const membersHtml = members.map(member => `
+                <div class="member-item">
+                    <div>
+                        <strong>${member.user_name}</strong>
+                        ${member.user_id === userData.id ? ' (Вы)' : ''}
+                    </div>
+                    <div class="member-role">${getRoleLabel(member.role)}</div>
+                </div>
+            `).join('');
+
+            document.getElementById('spaceMembersList').innerHTML = `
+                <h4>Участники (${members.length}):</h4>
+                ${membersHtml || '<div class="empty-state">Нет участников</div>'}
+            `;
         }
 
-        function getSpaceById(spaceId) {
-            // Эта функция должна возвращать пространство по ID
-            // В реальном приложении нужно хранить список пространств
-            return currentSpaceData;
-        }
-
-        function getSpaceTypeName(type) {
+        function getSpaceTypeLabel(type) {
             const types = {
-                personal: 'Личное',
-                family: 'Семья',
-                friends: 'Друзья',
-                work: 'Работа'
+                'personal': 'Личное',
+                'family': 'Семья', 
+                'friends': 'Друзья',
+                'work': 'Работа'
             };
             return types[type] || type;
         }
 
-        async function loadSpaceMembers(spaceId) {
-            try {
-                const response = await fetch(`${API_URL}/get_space_members`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId
-                    })
-                });
-
-                if (!response.ok) throw new Error('Ошибка загрузки участников');
-
-                const data = await response.json();
-                renderSpaceMembers(data.members);
-            } catch (error) {
-                console.error('Error loading members:', error);
-                document.getElementById('spaceMembersList').innerHTML = '<p>Ошибка загрузки участников</p>';
-            }
-        }
-
-        function renderSpaceMembers(members) {
-            const container = document.getElementById('spaceMembersList');
-            container.innerHTML = members.map(member => `
-                <div class="member-item">
-                    <div>
-                        <strong>${member.first_name || 'Пользователь'}</strong>
-                        ${member.is_owner ? '<span class="member-role">Владелец</span>' : ''}
-                    </div>
-                </div>
-            `).join('');
+        function getRoleLabel(role) {
+            const roles = {
+                'owner': 'Владелец',
+                'admin': 'Админ',
+                'member': 'Участник'
+            };
+            return roles[role] || role;
         }
 
         function hideSpaceDetails() {
             document.getElementById('spaceDetails').classList.add('hidden');
+            currentSpaceData = null;
         }
 
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Копирование кода приглашения с уведомлением
+        // ИСПРАВЛЕНИЕ 2: Улучшенное уведомление при копировании
         function copyInviteCode() {
             const codeInput = document.getElementById('currentInviteCode');
             codeInput.select();
             document.execCommand('copy');
-            showMessage('Код приглашения скопирован! ✅');
+            showMessage('✅ Код приглашения скопирован в буфер обмена!');
         }
 
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Поделиться ссылкой приглашения
+        // ИСПРАВЛЕНИЕ 2: Улучшенное уведомление при копировании ссылки
         function shareInviteLink() {
             const code = document.getElementById('currentInviteCode').value;
-            const inviteLink = `https://t.me/your_bot?start=invite_${code}`;
-            
+            const botUsername = 'incomeexpensebookBot';
+            const inviteLink = `https://t.me/${botUsername}?start=invite_${code}`;
+    
             navigator.clipboard.writeText(inviteLink).then(() => {
-                showMessage('Ссылка приглашения скопирована! ✅');
-            }).catch(() => {
-                // Fallback
-                const tempInput = document.createElement('input');
-                tempInput.value = inviteLink;
-                document.body.appendChild(tempInput);
-                tempInput.select();
-                document.execCommand('copy');
-                document.body.removeChild(tempInput);
-                showMessage('Ссылка приглашения скопирована! ✅');
+                showMessage('✅ Ссылка приглашения скопирована! Отправьте её друзьям');
+            }).catch(err => {
+                showMessage('❌ Не удалось скопировать ссылку', 'error');
             });
         }
 
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Пригласить друзей с уведомлением
+        // ИСПРАВЛЕНИЕ 2: Улучшенное уведомление при приглашении друзей
         function shareBotLink() {
-            const botLink = 'https://t.me/your_bot'; // Замените на ссылку вашего бота
-            
-            navigator.clipboard.writeText(botLink).then(() => {
-                showMessage('Ссылка на бота скопирована! ✅');
-            }).catch(() => {
-                // Fallback
-                const tempInput = document.createElement('input');
-                tempInput.value = botLink;
-                document.body.appendChild(tempInput);
-                tempInput.select();
-                document.execCommand('copy');
-                document.body.removeChild(tempInput);
-                showMessage('Ссылка на бота скопирована! ✅');
+            const botUsername = 'incomeexpensebookBot';
+            const inviteLink = `https://t.me/${botUsername}`;
+    
+            navigator.clipboard.writeText(inviteLink).then(() => {
+                showMessage('✅ Ссылка на бота скопирована! Отправьте друзьям');
+            }).catch(err => {
+                showMessage('❌ Не удалось скопировать ссылку', 'error');
             });
         }
 
         async function joinSpace() {
             const code = document.getElementById('inviteCodeInput').value.trim();
+            if (!code) {
+                showMessage('Введите код приглашения', 'error');
+                return;
+            }
             await joinSpaceWithCode(code);
         }
 
+        // ИСПРАВЛЕНИЕ 2: Функции управления пространствами
         async function leaveSpace() {
-            if (!state.currentSpaceId) return;
-
-            if (!confirm('Вы уверены, что хотите покинуть это пространство?')) return;
+            if (!state.currentSpaceId || !confirm('Вы уверены, что хотите покинуть это пространство?')) {
+                return;
+            }
 
             try {
                 const response = await fetch(`${API_URL}/leave_space`, {
@@ -1406,22 +1479,27 @@
                     })
                 });
 
-                if (!response.ok) throw new Error('Ошибка выхода из пространства');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка выхода из пространства');
+                }
 
-                showMessage('Вы вышли из пространства');
+                showMessage('✅ Вы вышли из пространства');
+                hideSpaceDetails();
+                loadSpaces();
+                loadQuickSpaces();
                 state.currentSpaceId = null;
                 saveState();
-                hideSpaceDetails();
-                await loadSpaces();
+
             } catch (error) {
-                showMessage('Ошибка выхода из пространства', 'error');
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
 
         async function deleteSpace() {
-            if (!state.currentSpaceId) return;
-
-            if (!confirm('Вы уверены, что хотите удалить это пространство? Это действие нельзя отменить.')) return;
+            if (!state.currentSpaceId || !confirm('ВНИМАНИЕ! Вы уверены, что хотите УДАЛИТЬ это пространство? Все данные будут потеряны безвозвратно!')) {
+                return;
+            }
 
             try {
                 const response = await fetch(`${API_URL}/delete_space`, {
@@ -1433,193 +1511,111 @@
                     })
                 });
 
-                if (!response.ok) throw new Error('Ошибка удаления пространства');
-
-                showMessage('Пространство удалено');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка удаления пространства');
+                }
+        
+                showMessage('✅ Пространство успешно удалено!');
+                hideSpaceDetails();
+                loadSpaces();
+                loadQuickSpaces();
                 state.currentSpaceId = null;
                 saveState();
-                hideSpaceDetails();
-                await loadSpaces();
+
             } catch (error) {
-                showMessage('Ошибка удаления пространства', 'error');
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
 
-        // ===== EXPENSES MANAGEMENT =====
-        function initializeKeypad() {
-            const keypad = document.getElementById('numericKeypad');
-            const keys = [1, 2, 3, 4, 5, 6, 7, 8, 9, '.', 0, '⌫'];
+        // ===== EXPENSES TAB =====
+        function loadExpensesTab() {
+            console.log('=== loadExpensesTab() called ===');
+            loadSpacesForSelector('expenseSpacesGrid', true);
+            generateKeypad();
+            loadCategories();
+        }
+
+        function loadCategories() {
+            console.log('=== loadCategories() called ===');
             
-            keypad.innerHTML = keys.map(key => `
-                <div class="keypad-btn" onclick="handleKeypadPress(${typeof key === 'string' ? `'${key}'` : key})">
-                    ${key === '⌫' ? '⌫' : key}
-                </div>
-            `).join('') + `
-                <div class="keypad-btn clear" onclick="clearAmount()">Очистить</div>
-            `;
-        }
-
-        function handleKeypadPress(key) {
-            if (key === '⌫') {
-                state.currentAmount = Math.floor(state.currentAmount / 10);
-            } else if (key === '.') {
-                // Handle decimal input if needed
-            } else {
-                state.currentAmount = state.currentAmount * 10 + key;
-            }
-            updateAmountDisplay();
-        }
-
-        function clearAmount() {
-            state.currentAmount = 0;
-            updateAmountDisplay();
-        }
-
-        function updateAmountDisplay() {
-            document.getElementById('currentAmount').textContent = state.currentAmount;
-        }
-
-        function selectCurrency(currency, updateKeypad = true) {
-            state.currentCurrency = currency;
-            document.querySelectorAll('.currency-flag').forEach(flag => {
-                flag.classList.remove('active');
-            });
-            document.querySelector(`.currency-flag[data-currency="${currency}"]`).classList.add('active');
-            
-            document.getElementById('amountCurrency').textContent = CURRENCIES[currency].symbol;
-            
-            if (updateKeypad) {
-                updateKeypadForCurrency();
-            }
-            saveState();
-        }
-
-        function updateKeypadForCurrency() {
-            const keypad = document.getElementById('numericKeypad');
-            const keys = CURRENCIES[state.currentCurrency].keypad;
-            
-            keypad.innerHTML = keys.map(key => `
-                <div class="keypad-btn" onclick="addToAmount(${key})">
-                    +${key}
-                </div>
-            `).join('') + `
-                <div class="keypad-btn" onclick="handleKeypadPress('.')">.</div>
-                <div class="keypad-btn" onclick="handleKeypadPress(0)">0</div>
-                <div class="keypad-btn" onclick="handleKeypadPress('⌫')">⌫</div>
-                <div class="keypad-btn clear" onclick="clearAmount()">Очистить</div>
-            `;
-        }
-
-        function addToAmount(value) {
-            state.currentAmount += value;
-            updateAmountDisplay();
-        }
-
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Загрузка вкладки расходов
-        async function loadExpensesTab() {
-            console.log('Loading expenses tab...');
-            await loadCategories();
-            
-            // Обновляем сетку пространств для расходов
-            const spacesGrid = document.getElementById('expenseSpacesGrid');
-            if (spacesGrid) {
-                const spaces = await loadSpaces();
-                spacesGrid.innerHTML = spaces.map(space => `
-                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                         onclick="selectSpace('${space.id}')">
-                        <div class="space-icon">${getSpaceIcon(space.type)}</div>
-                        <div class="space-name">${space.name}</div>
-                    </div>
-                `).join('');
-            }
-            
-            // Сбрасываем форму
-            clearExpenseForm();
-        }
-
-        function clearExpenseForm() {
-            state.currentAmount = 0;
-            updateAmountDisplay();
-            document.getElementById('expenseDescription').value = '';
-            
-            // Сбрасываем выбор категории
-            document.querySelectorAll('.category-item').forEach(item => {
-                item.classList.remove('active');
-            });
-        }
-
-        let selectedCategoryId = null;
-
-        async function loadCategories() {
-            try {
-                const response = await fetch(`${API_URL}/get_categories`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: tg.initData })
-                });
-
-                if (!response.ok) throw new Error('Ошибка загрузки категорий');
-
-                const data = await response.json();
-                renderCategories(data.categories);
-                return data.categories;
-            } catch (error) {
-                console.error('Error loading categories:', error);
-                // Fallback categories
-                const fallbackCategories = [
-                    { id: '1', name: '🍔 Еда', icon: '🍔' },
-                    { id: '2', name: '🚗 Транспорт', icon: '🚗' },
-                    { id: '3', name: '🏠 Дом', icon: '🏠' },
-                    { id: '4', name: '🎮 Развлечения', icon: '🎮' },
-                    { id: '5', name: '👗 Одежда', icon: '👗' },
-                    { id: '6', name: '💊 Здоровье', icon: '💊' }
-                ];
-                renderCategories(fallbackCategories);
-                return fallbackCategories;
-            }
-        }
-
-        function renderCategories(categories) {
             const container = document.getElementById('categoriesGrid');
+            console.log('Categories container:', container);
+
             if (!container) {
-                console.error('Categories grid container not found!');
+                console.error('❌ categoriesGrid container NOT FOUND!');
                 return;
             }
-            
-            container.innerHTML = categories.map(category => `
-                <div class="category-item" onclick="selectCategory('${category.id}')">
-                    <div class="category-icon">${category.icon || '📁'}</div>
-                    <div>${category.name}</div>
+
+            console.log('✅ categoriesGrid container found');
+
+            const categories = [
+                { name: 'Продукты', icon: '🛒' },
+                { name: 'Кафе', icon: '☕' },
+                { name: 'Транспорт', icon: '🚗' },
+                { name: 'Дом', icon: '🏠' },
+                { name: 'Одежда', icon: '👕' },
+                { name: 'Здоровье', icon: '🏥' },
+                { name: 'Развлечения', icon: '🎬' },
+                { name: 'Подписки', icon: '📱' },
+                { name: 'Образование', icon: '📚' },
+                { name: 'Другое', icon: '❓' }
+            ];
+
+            console.log('Categories to load:', categories);
+
+            container.innerHTML = categories.map(cat => `
+                <div class="category-item" onclick="selectCategory('${cat.name}')">
+                    <div class="category-icon">${cat.icon}</div>
+                    <div class="category-name">${cat.name}</div>
                 </div>
             `).join('');
+
+            console.log('✅ Categories HTML generated');
         }
 
-        function selectCategory(categoryId) {
-            selectedCategoryId = categoryId;
+        function selectCategory(category) {
             document.querySelectorAll('.category-item').forEach(item => {
                 item.classList.remove('active');
             });
             event.target.closest('.category-item').classList.add('active');
-        }
 
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Добавление траты с подтверждением
+            // Добавляем визуальную обратную связь
+            const activeItem = event.target.closest('.category-item');
+            activeItem.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                activeItem.style.transform = 'scale(1)';
+            }, 150);
+        }
+        
+        // ИСПРАВЛЕНИЕ 3: Улучшенное подтверждение сохранения траты
         async function addExpense() {
-            if (!state.currentSpaceId) {
+            const amount = state.currentAmount;
+            const categoryElement = document.querySelector('.category-item.active');
+            const category = categoryElement ? categoryElement.querySelector('.category-name').textContent : null;
+            const description = document.getElementById('expenseDescription').value.trim();
+            const spaceId = state.currentSpaceId;
+
+            if (!amount || amount <= 0) {
+                showMessage('Введите сумму траты', 'error');
+                document.getElementById('currentAmount').style.color = '#dc3545';
+                setTimeout(() => {
+                    document.getElementById('currentAmount').style.color = '';
+                }, 1000);
+                return;
+            }
+            if (!category) {
+                showMessage('Выберите категорию', 'error');
+                document.getElementById('categoriesGrid').style.border = '2px solid #dc3545';
+                setTimeout(() => {
+                    document.getElementById('categoriesGrid').style.border = '';
+                }, 1000);
+                return;
+            }
+            if (!spaceId) {
                 showMessage('Выберите пространство', 'error');
                 return;
             }
-
-            if (state.currentAmount <= 0) {
-                showMessage('Введите сумму траты', 'error');
-                return;
-            }
-
-            if (!selectedCategoryId) {
-                showMessage('Выберите категорию', 'error');
-                return;
-            }
-
-            const description = document.getElementById('expenseDescription').value.trim();
 
             try {
                 const response = await fetch(`${API_URL}/add_expense`, {
@@ -1627,11 +1623,11 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        spaceId: state.currentSpaceId,
-                        amount: state.currentAmount,
-                        currency: state.currentCurrency,
-                        categoryId: selectedCategoryId,
-                        description: description
+                        amount: amount,
+                        category: category,
+                        description: description,
+                        spaceId: parseInt(spaceId),
+                        currency: state.currentCurrency
                     })
                 });
 
@@ -1639,33 +1635,197 @@
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Ошибка добавления траты');
                 }
-
-                // ПОПРАВКА: Показываем подтверждение сохранения
-                showMessage('✅ Трата успешно сохранена!', 'success');
-                
+        
+                // ИСПРАВЛЕНИЕ 3: Улучшенное подтверждение
+                showMessage(`✅ Трата сохранена! ${amount} ${CURRENCIES[state.currentCurrency].symbol} - ${category}${description ? ' - ' + description : ''}`);
+        
                 // Сбрасываем форму
-                clearExpenseForm();
-                selectedCategoryId = null;
-                
-                // Обновляем аналитику и дашборд
-                await loadDashboard();
-                await loadAnalytics();
-                
+                clearAmount();
+                document.getElementById('expenseDescription').value = '';
+                document.querySelectorAll('.category-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+        
+                // Мгновенно обновляем дашборд
+                loadDashboardKPI();
+        
             } catch (error) {
-                showMessage(`Ошибка: ${error.message}`, 'error');
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
 
-        // ===== ANALYTICS =====
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Загрузка аналитики
-        async function loadAnalytics() {
-            if (!state.currentSpaceId) {
-                document.getElementById('analyticsChart').innerHTML = '<p>Выберите пространство для просмотра аналитики</p>';
+        // ===== BUDGET MANAGEMENT =====
+        let budgetCurrency = 'RUB';
+
+        function selectBudgetCurrency(currency) {
+            budgetCurrency = currency;
+            document.querySelectorAll('#analytics .currency-flag').forEach(flag => {
+                flag.classList.toggle('active', flag.dataset.currency === currency);
+            });
+        }
+
+        async function setBudget() {
+            const amount = parseFloat(document.getElementById('budgetAmount').value);
+            const spaceId = state.currentSpaceId;
+
+            if (!amount || amount <= 0) {
+                showMessage('Введите корректную сумму бюджета', 'error');
+                return;
+            }
+            if (!spaceId) {
+                showMessage('Выберите пространство', 'error');
                 return;
             }
 
             try {
-                const response = await fetch(`${API_URL}/get_analytics`, {
+                const response = await fetch(`${API_URL}/set_budget`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        amount: amount,
+                        currency: budgetCurrency
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка установки бюджета');
+                }
+        
+                showMessage(`Бюджет ${amount} ${CURRENCIES[budgetCurrency].symbol} установлен!`);
+                document.getElementById('budgetAmount').value = '';
+                loadDashboard();
+        
+            } catch (error) {
+                showMessage(`Ошибка: ${error.message}`, 'error');
+            }
+        }            
+        // ===== DASHBOARD =====
+        async function loadDashboard() {
+            await loadSpacesForSelector('dashboardSpaces');
+            await loadDashboardStats();
+            await loadActiveSpaceInfo();
+        }
+
+        async function loadDashboardStats() {
+            if (!state.currentSpaceId) return;
+
+            try {
+                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        period: 1 // Сегодня
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Сегодня
+                    const todaySpent = data.overview?.total_spent || 0;
+                    document.getElementById('todaySpent').textContent = `${todaySpent.toFixed(0)}`;
+                    
+                    // Бюджет
+                    const budgetResponse = await fetch(`${API_URL}/get_analytics`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId
+                        })
+                    });
+                    
+                    if (budgetResponse.ok) {
+                        const budgetData = await budgetResponse.json();
+                        const budget = budgetData.budget || 0;
+                        const spent = budgetData.total_spent || 0;
+                        const progress = budget > 0 ? (spent / budget) * 100 : 0;
+                        document.getElementById('budgetProgress').textContent = `${progress.toFixed(0)}%`;
+                    }
+                    
+                    // За неделю
+                    const weekResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId,
+                            period: 7
+                        })
+                    });
+                    
+                    if (weekResponse.ok) {
+                        const weekData = await weekResponse.json();
+                        document.getElementById('weekSpent').textContent = `${(weekData.overview?.total_spent || 0).toFixed(0)}`;
+                    }
+                    
+                    // За месяц
+                    const monthResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId,
+                            period: 30
+                        })
+                    });
+                    
+                    if (monthResponse.ok) {
+                        const monthData = await monthResponse.json();
+                        document.getElementById('monthSpent').textContent = `${(monthData.overview?.total_spent || 0).toFixed(0)}`;
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки статистики:', error);
+            }
+        }
+
+        async function loadActiveSpaceInfo() {
+            if (!state.currentSpaceId) {
+                document.getElementById('activeSpaceInfo').innerHTML = '<div class="empty-state">Выберите пространство</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/get_user_spaces`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const space = data.spaces.find(s => s.id === state.currentSpaceId);
+                    if (space) {
+                        document.getElementById('activeSpaceInfo').innerHTML = `
+                            <div class="space-card active">
+                                <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                                <div class="space-name">${space.name}</div>
+                                <div class="space-meta">${space.member_count} участников</div>
+                            </div>
+                        `;
+                    }
+                }
+            } catch (error) {
+                document.getElementById('activeSpaceInfo').innerHTML = '<div class="empty-state">Ошибка загрузки</div>';
+            }
+        }
+
+        // ===== ANALYTICS =====
+        async function loadAnalytics() {
+            if (!state.currentSpaceId) {
+                document.getElementById('categoriesAnalytics').innerHTML = '<div class="empty-state">Выберите пространство</div>';
+                return;
+            }
+
+            try {
+                showLoading('categoriesAnalytics');
+                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -1676,196 +1836,299 @@
                 });
 
                 if (!response.ok) throw new Error('Ошибка загрузки аналитики');
-
+        
                 const data = await response.json();
-                renderAnalytics(data);
+                displayAnalytics(data);
             } catch (error) {
-                console.error('Error loading analytics:', error);
-                showMessage('Ошибка загрузки аналитики', 'error');
+                document.getElementById('categoriesAnalytics').innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
             }
+        }
+
+        function displayAnalytics(data) {
+            // Общие суммы - ИСПРАВЛЕНО: убраны символы валют
+            document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
+            document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
+
+            // Рендерим график
+            renderAnalyticsChart(data);
+
+            // Категории
+            const container = document.getElementById('categoriesAnalytics');
+            if (!data.categories || data.categories.length === 0) {
+                container.innerHTML = '<div class="empty-state">Нет данных о расходах</div>';
+                return;
+            }
+
+            // Очищаем контейнер
+            container.innerHTML = '';
+
+            // Добавляем заголовок для категорий
+            const categoriesTitle = document.createElement('h3');
+            categoriesTitle.textContent = '📊 По категориям';
+            categoriesTitle.style.marginBottom = '16px';
+            container.appendChild(categoriesTitle);
+
+            // Отображаем категории
+            data.categories.forEach(cat => {
+                const categoryItem = document.createElement('div');
+                categoryItem.className = 'category-item';
+                categoryItem.style.display = 'flex';
+                categoryItem.style.justifyContent = 'space-between';
+                categoryItem.style.alignItems = 'center';
+                categoryItem.style.padding = '12px';
+                categoryItem.style.marginBottom = '8px';
+                categoryItem.style.background = 'var(--card-bg)';
+                categoryItem.style.borderRadius = '8px';
+                categoryItem.style.border = '1px solid var(--border-color)';
+
+                categoryItem.innerHTML = `
+                    <div>
+                        <div style="font-weight: 700; font-size: 14px;">${cat.name}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${cat.count} трат</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${cat.total.toFixed(0)}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${((cat.total / data.overview.total_spent) * 100).toFixed(1)}%</div>
+                    </div>
+                `;
+                container.appendChild(categoryItem);
+            });
+
+            // Добавляем разделитель
+            const divider = document.createElement('div');
+            divider.style.height = '1px';
+            divider.style.background = 'var(--border-color)';
+            divider.style.margin = '20px 0';
+            container.appendChild(divider);
+
+            // Добавляем последние траты с описаниями
+            const recentTitle = document.createElement('h3');
+            recentTitle.textContent = '📝 Последние траты';
+            recentTitle.style.marginBottom = '16px';
+            container.appendChild(recentTitle);
+
+            // ИСПРАВЛЕНИЕ 3: Отображаем комментарии в аналитике
+            if (data.recent_expenses && data.recent_expenses.length > 0) {
+                data.recent_expenses.forEach(expense => {
+                    const expenseItem = document.createElement('div');
+                    expenseItem.className = 'expense-item';
+                    expenseItem.style.display = 'flex';
+                    expenseItem.style.justifyContent = 'space-between';
+                    expenseItem.style.alignItems = 'flex-start';
+                    expenseItem.style.padding = '12px';
+                    expenseItem.style.marginBottom = '8px';
+                    expenseItem.style.background = 'var(--card-bg)';
+                    expenseItem.style.borderRadius = '8px';
+                    expenseItem.style.border = '1px solid var(--border-color)';
+
+                    const date = new Date(expense.created_at);
+                    const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+
+                    // ИСПРАВЛЕНИЕ 3: Показываем комментарий
+                    const description = expense.description || '<span style="color: var(--text-muted); font-style: italic;">Без описания</span>';
+
+                    expenseItem.innerHTML = `
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                                <div style="font-size: 18px; margin-right: 8px;">${getCategoryIcon(expense.category)}</div>
+                                <div>
+                                    <div style="font-weight: 700; font-size: 14px;">${expense.category}</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">${formattedDate}</div>
+                                </div>
+                            </div>
+                            <div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px;">
+                                ${description}
+                            </div>
+                        </div>
+                        <div style="text-align: right; min-width: 80px;">
+                            <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount} ${expense.currency_symbol || ''}</div>
+                        </div>
+                    `;
+                    container.appendChild(expenseItem);
+                });
+            } else {
+                // Если нет данных о последних тратах, пробуем загрузить их отдельно
+                loadRecentExpensesForAnalytics();
+            }
+        }
+
+        // Добавьте эту вспомогательную функцию для иконок категорий
+        function getCategoryIcon(categoryName) {
+            const icons = {
+                'Продукты': '🛒',
+                'Кафе': '☕',
+                'Транспорт': '🚗',
+                'Дом': '🏠',
+                'Одежда': '👕',
+                'Здоровье': '🏥',
+                'Развлечения': '🎬',
+                'Подписки': '📱',
+                'Образование': '📚',
+                'Другое': '❓'
+            };
+            return icons[categoryName] || '💰';
+        }
+
+        // Функция для загрузки последних трат если их нет в data
+        async function loadRecentExpensesForAnalytics() {
+            if (!state.currentSpaceId) return;
+
+            try {
+                const response = await fetch(`${API_URL}/get_recent_expenses`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        limit: 10
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayRecentExpensesInAnalytics(data.expenses);
+                }
+            } catch (error) {
+                console.error('Error loading recent expenses for analytics:', error);
+                // Показываем сообщение что нет трат
+                const container = document.getElementById('categoriesAnalytics');
+                const noExpenses = document.createElement('div');
+                noExpenses.className = 'empty-state';
+                noExpenses.innerHTML = `
+                    <div class="empty-state-icon">📝</div>
+                    <div>Нет данных о тратах</div>
+                `;
+                container.appendChild(noExpenses);
+            }
+        }
+
+        // Функция для отображения загруженных трат
+        function displayRecentExpensesInAnalytics(expenses) {
+            const container = document.getElementById('categoriesAnalytics');
+
+            // Находим где вставить (после категорий)
+            const recentTitle = document.createElement('h3');
+            recentTitle.textContent = '📝 Последние траты';
+            recentTitle.style.marginBottom = '16px';
+            recentTitle.style.marginTop = '20px';
+            container.appendChild(recentTitle);
+
+            if (!expenses || expenses.length === 0) {
+                const noExpenses = document.createElement('div');
+                noExpenses.className = 'empty-state';
+                noExpenses.innerHTML = '<div>Нет recent трат</div>';
+                container.appendChild(noExpenses);
+                return;
+            }
+
+            expenses.forEach(expense => {
+                const expenseItem = document.createElement('div');
+                expenseItem.className = 'expense-item';
+                expenseItem.style.display = 'flex';
+                expenseItem.style.justifyContent = 'space-between';
+                expenseItem.style.alignItems = 'flex-start';
+                expenseItem.style.padding = '12px';
+                expenseItem.style.marginBottom = '8px';
+                expenseItem.style.background = 'var(--card-bg)';
+                expenseItem.style.borderRadius = '8px';
+                expenseItem.style.border = '1px solid var(--border-color)';
+
+                const date = new Date(expense.created_at);
+                const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+
+                // ИСПРАВЛЕНИЕ 3: ВАЖНО - Добавляем отображение описания
+                const description = expense.description || '<span style="color: var(--text-muted); font-style: italic;">Без описания</span>';
+        
+                expenseItem.innerHTML = `
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                            <div style="font-size: 18px; margin-right: 8px;">${getCategoryIcon(expense.category)}</div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 14px;">${expense.category}</div>
+                                <div style="font-size: 11px; color: var(--text-muted);">${formattedDate}</div>
+                            </div>
+                        </div>
+                        <div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px;">
+                            ${description}
+                        </div>
+                    </div>
+                    <div style="text-align: right; min-width: 80px;">
+                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount} ${expense.currency_symbol || ''}</div>
+                    </div>
+                `;
+                container.appendChild(expenseItem);
+            });
         }
 
         function setAnalyticsPeriod(period) {
             state.analyticsPeriod = period;
             document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.remove('active');
+                btn.classList.toggle('active', btn.dataset.period == period);
             });
-            event.target.classList.add('active');
             loadAnalytics();
         }
-
-        function renderAnalytics(data) {
-            // Обновляем статистику
-            document.getElementById('totalSpent').textContent = formatCurrency(data.total_spent, state.currentCurrency);
-            document.getElementById('avgDaily').textContent = formatCurrency(data.avg_daily, state.currentCurrency);
-
-            // Рендерим график
-            renderChart(data.chart_data);
-
-            // Рендерим аналитику по категориям С КОММЕНТАРИЯМИ
-            renderCategoriesAnalytics(data.categories);
-        }
-
-        function renderChart(chartData) {
-            const ctx = document.getElementById('analyticsChart').getContext('2d');
-            
-            // Уничтожаем предыдущий график если существует
-            if (window.analyticsChart) {
-                window.analyticsChart.destroy();
-            }
-
-            window.analyticsChart = new Chart(ctx, {
-                type: 'line',
+        
+        function renderCategoryChart(categories) {
+            const ctx = document.createElement('canvas');
+            ctx.id = 'categoryChart';
+            ctx.style.maxHeight = '250px';
+    
+            const container = document.getElementById('categoriesAnalytics');
+            container.innerHTML = '<h3>📊 Распределение по категориям</h3>';
+            container.appendChild(ctx);
+    
+            const categoryChart = new Chart(ctx, {
+                type: 'doughnut',
                 data: {
-                    labels: chartData.labels,
+                    labels: categories.map(cat => cat.name),
                     datasets: [{
-                        label: 'Расходы',
-                        data: chartData.data,
-                        borderColor: '#667eea',
-                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4
+                        data: categories.map(cat => cat.total),
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                            '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF',
+                            '#4BC0C0', '#FF6384'
+                        ]
                     }]
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            display: false
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                color: 'rgba(0,0,0,0.1)'
-                            }
-                        },
-                        x: {
-                            grid: {
-                                display: false
-                            }
+                            position: 'bottom'
                         }
                     }
                 }
             });
         }
 
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Рендеринг аналитики по категориям с комментариями
-        function renderCategoriesAnalytics(categories) {
+        function renderComparisonChart(currentData, previousData) {
+            const ctx = document.createElement('canvas');
+            ctx.id = 'comparisonChart';
+            ctx.style.maxHeight = '250px';
+    
             const container = document.getElementById('categoriesAnalytics');
-            container.innerHTML = categories.map(cat => `
-                <div class="category-analytics-item" style="margin-bottom: 12px; padding: 12px; background: var(--card-bg); border-radius: 8px;">
-                    <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 8px;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 20px;">${cat.icon || '📁'}</span>
-                            <span style="font-weight: 500;">${cat.name}</span>
-                        </div>
-                        <span style="font-weight: 700;">${formatCurrency(cat.amount, state.currentCurrency)}</span>
-                    </div>
-                    <div style="font-size: 12px; color: var(--text-muted);">
-                        ${cat.percentage}% от общих расходов
-                    </div>
-                    ${cat.recent_expenses && cat.recent_expenses.length > 0 ? `
-                        <div style="margin-top: 8px; font-size: 12px;">
-                            <strong>Последние траты:</strong>
-                            ${cat.recent_expenses.map(expense => `
-                                <div style="display: flex; justify-content: between; margin-top: 4px;">
-                                    <span>${expense.description || 'Без описания'}</span>
-                                    <span>${formatCurrency(expense.amount, expense.currency)}</span>
-                                </div>
-                            `).join('')}
-                        </div>
-                    ` : ''}
-                </div>
-            `).join('');
-        }
-
-        // ===== DASHBOARD =====
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Загрузка дашборда
-        async function loadDashboard() {
-            if (!state.currentSpaceId) {
-                updateUIForSpaceSelection();
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_URL}/get_dashboard`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId
-                    })
-                });
-
-                if (!response.ok) throw new Error('Ошибка загрузки дашборда');
-
-                const data = await response.json();
-                renderDashboard(data);
-            } catch (error) {
-                console.error('Error loading dashboard:', error);
-                showMessage('Ошибка загрузки дашборда', 'error');
-            }
-        }
-
-        function renderDashboard(data) {
-            document.getElementById('todaySpent').textContent = formatCurrency(data.today_spent, state.currentCurrency);
-            document.getElementById('weekSpent').textContent = formatCurrency(data.week_spent, state.currentCurrency);
-            document.getElementById('monthSpent').textContent = formatCurrency(data.month_spent, state.currentCurrency);
-            document.getElementById('budgetProgress').textContent = data.budget_progress + '%';
-            
-            updateUIForSpaceSelection();
-        }
-
-        // ===== BUDGET MANAGEMENT =====
-        async function setBudget() {
-            if (!state.currentSpaceId) {
-                showMessage('Выберите пространство', 'error');
-                return;
-            }
-
-            const amount = parseFloat(document.getElementById('budgetAmount').value);
-            const currency = state.currentCurrency;
-
-            if (!amount || amount <= 0) {
-                showMessage('Введите корректную сумму бюджета', 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_URL}/set_budget`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId,
-                        amount,
-                        currency
-                    })
-                });
-
-                if (!response.ok) throw new Error('Ошибка установки бюджета');
-
-                showMessage('Бюджет установлен!');
-                document.getElementById('budgetAmount').value = '';
-                await loadDashboard();
-            } catch (error) {
-                showMessage('Ошибка установки бюджета', 'error');
-            }
-        }
-
-        function selectBudgetCurrency(currency) {
-            document.querySelectorAll('#spaceDetails .currency-flag').forEach(flag => {
-                flag.classList.remove('active');
+            const comparisonDiv = document.createElement('div');
+            comparisonDiv.innerHTML = '<h3>📈 Сравнение с предыдущим периодом</h3>';
+            comparisonDiv.appendChild(ctx);
+            container.appendChild(comparisonDiv);
+    
+            const comparisonChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Текущий период', 'Предыдущий период'],
+                    datasets: [{
+                        label: 'Общие расходы',
+                        data: [currentData.overview.total_spent, previousData.overview.total_spent],
+                        backgroundColor: ['#667eea', '#764ba2']
+                    }]
+                },
+                options: {
+                    responsive: true
+                }
             });
-            document.querySelector(`#spaceDetails .currency-flag[data-currency="${currency}"]`).classList.add('active');
-        }
+        }    
 
-        // ===== EXPORT FUNCTIONALITY =====
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ: Экспорт в Excel
+        // ИСПРАВЛЕНИЕ 4: Исправленный экспорт в Excel
         async function exportToExcel() {
             if (!state.currentSpaceId) {
                 showMessage('Выберите пространство для экспорта', 'error');
@@ -1873,72 +2136,294 @@
             }
 
             try {
-                showMessage('🔄 Подготавливаем файл для скачивания...');
-                
+                showMessage('⏳ Формируем Excel файл...');
+        
                 const response = await fetch(`${API_URL}/export_to_excel`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        spaceId: state.currentSpaceId
+                        spaceId: state.currentSpaceId,
+                        period: state.analyticsPeriod
                     })
                 });
 
                 if (!response.ok) {
-                    throw new Error('Ошибка экспорта данных');
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка экспорта');
                 }
 
-                // Получаем blob данных
+                // Получаем blob с файлом
                 const blob = await response.blob();
-                
+        
+                // Проверяем что blob не пустой
+                if (blob.size === 0) {
+                    throw new Error('Файл пустой');
+                }
+
                 // Создаем ссылку для скачивания
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.style.display = 'none';
                 a.href = url;
                 
-                // Генерируем имя файла с датой
+                // Создаем имя файла с датой
                 const date = new Date().toISOString().split('T')[0];
-                a.download = `finance_export_${date}.xlsx`;
+                a.download = `finance_export_${state.currentSpaceId}_${date}.xlsx`;
                 
                 document.body.appendChild(a);
                 a.click();
-                
-                // Очищаем память
+        
+                // Очищаем
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
-                
-                showMessage('✅ Файл успешно скачан!', 'success');
-                
+        
+                showMessage('✅ Excel файл успешно скачан! Проверьте папку "Загрузки"');
+        
             } catch (error) {
                 console.error('Export error:', error);
-                showMessage(`Ошибка экспорта: ${error.message}`, 'error');
+                showMessage(`❌ Ошибка экспорта: ${error.message}`, 'error');
+            }
+        }
+        
+        // Функция для загрузки быстрых пространств
+        function loadQuickSpaces() {
+            fetch(`${API_URL}/get_user_spaces`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('quickSpacesGrid');
+                if (!data.spaces || data.spaces.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Нет пространств</div>';
+                    return;
+                }
+
+                container.innerHTML = data.spaces.map(space => `
+                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                        onclick="selectQuickSpace(${space.id})"
+                        style="padding: 12px; min-height: 60px;">
+                        <div class="space-icon" style="font-size: 20px;">${getSpaceIcon(space.space_type)}</div>
+                        <div class="space-name" style="font-size: 12px;">${space.name}</div>
+                    </div>
+                `).join('');
+
+                // Показываем/скрываем KPI в зависимости от выбора
+                toggleKPIVisibility();
+            })
+            .catch(error => {
+                console.error('Error loading quick spaces:', error);
+            });
+        }
+
+        function toggleKPIVisibility() {
+            const kpiSection = document.getElementById('dashboardKPI');
+            const noSpaceSection = document.getElementById('noSpaceSelected');
+    
+            if (state.currentSpaceId) {
+                kpiSection.classList.remove('hidden');
+                noSpaceSection.classList.add('hidden');
+            } else {
+                kpiSection.classList.add('hidden');
+                noSpaceSection.classList.remove('hidden');
             }
         }
 
-        // ===== UTILITY FUNCTIONS =====
-        function formatCurrency(amount, currency) {
-            const symbol = CURRENCIES[currency]?.symbol || '₽';
-            return `${amount} ${symbol}`;
+        // Функция для загрузки последних трат
+        async function loadRecentExpenses() {
+            if (!state.currentSpaceId) return;
+
+            try {
+                const response = await fetch(`${API_URL}/get_recent_expenses`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        limit: 5
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayRecentExpenses(data.expenses);
+                }
+            } catch (error) {
+                console.error('Error loading recent expenses:', error);
+            }
         }
 
-        function showMessage(text, type = 'success') {
+        function displayRecentExpenses(expenses) {
+            const container = document.getElementById('recentExpenses');
+    
+            if (!expenses || expenses.length === 0) {
+                container.innerHTML = '<div class="empty-state">Нет recent трат</div>';
+                return;
+            }
+
+            container.innerHTML = expenses.map(expense => `
+                <div class="expense-item" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                    <div>
+                        <strong>${expense.category}</strong>
+                        <div style="font-size: 12px; color: var(--text-muted);">${expense.description || 'Без описания'}</div>
+                    </div>
+                    <div style="font-weight: 700; color: #dc3545;">
+                        ${expense.amount} ${expense.currency_symbol}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Обновите loadDashboard
+        async function loadDashboard() {
+            await loadQuickSpaces();
+            await loadDashboardKPI();
+        }
+
+        async function loadDashboardKPI() {
+            if (!state.currentSpaceId) return;
+    
+            await loadDashboardStats();
+            await loadRecentExpenses();
+        }
+
+        // ===== UTILITY FUNCTIONS =====
+        function showLoading(elementId) {
+            document.getElementById(elementId).innerHTML = '<div class="loading">Загрузка...</div>';
+        }
+
+        function showMessage(message, type = 'success') {
             const messageEl = document.getElementById('message');
-            messageEl.textContent = text;
+            messageEl.textContent = message;
             messageEl.className = `message ${type}`;
             messageEl.classList.remove('hidden');
             
+            // Автоматически скрываем через 4 секунды
             setTimeout(() => {
                 messageEl.classList.add('hidden');
-            }, 3000);
+            }, 4000);
         }
 
-        // ===== INITIALIZATION =====
-        document.addEventListener('DOMContentLoaded', function() {
-            loadState();
-            initializeApp();
-            setupSwipeNavigation();
-        });
+        // ===== функция для получения ссылки на бота =====
+        function getBotLink() {
+            return `https://t.me/incomeexpensebookBot`;
+        }
+
+        // ===== INITIALIZE APP =====
+        function initializeApp() {
+            loadSpaces();
+            loadQuickSpaces();
+            generateKeypad();
+            handleStartParameters();
+            
+            // Загружаем пространства для всех вкладок
+            loadSpacesForSelector('expenseSpacesGrid', true);
+            loadSpacesForSelector('analyticsSpacesGrid', true);
+        }
+
+        // ===== CHARTS =====
+                let analyticsChart = null;
+
+                function renderAnalyticsChart(data) {
+                    const ctx = document.getElementById('analyticsChart').getContext('2d');
+    
+                    // Удаляем старый график если есть
+                    if (analyticsChart) {
+                        analyticsChart.destroy();
+                    }
+    
+                    if (!data.daily_data || data.daily_data.length === 0) {
+                        // Показываем заглушку если нет данных
+                        ctx.font = '16px Arial';
+                        ctx.fillStyle = '#666';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Нет данных для графика', 150, 100);
+                        return;
+                    }
+    
+                    // Подготавливаем данные для графика
+                    const labels = data.daily_data.map(item => {
+                        const date = new Date(item.day);
+                        return `${date.getDate()}.${date.getMonth() + 1}`;
+                    });
+    
+                    const amounts = data.daily_data.map(item => item.total);
+    
+                    analyticsChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Расходы по дням',
+                                data: amounts,
+                                borderColor: '#667eea',
+                                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: false
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    grid: {
+                                        color: 'rgba(0,0,0,0.1)'
+                                    }
+                                },
+                                x: {
+                                    grid: {
+                                        display: false
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // Обнови функцию displayAnalytics чтобы она вызывала рендер графика
+                async function displayAnalytics(data) {
+                    // Общие суммы
+                    document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
+                    document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
+
+                    // Рендерим основной график
+                    renderAnalyticsChart(data);
+
+                    // Рендерим круговую диаграмму категорий
+                    if (data.categories && data.categories.length > 0) {
+                        renderCategoryChart(data.categories);
+                    }
+
+                    // Загружаем данные для сравнения
+                    try {
+                        const prevResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                initData: tg.initData,
+                                spaceId: state.currentSpaceId,
+                                period: state.analyticsPeriod,
+                                previousPeriod: true
+                            })
+                        });
+
+                        if (prevResponse.ok) {
+                            const prevData = await prevResponse.json();
+                            renderComparisonChart(data, prevData);
+                        }
+                    } catch (error) {
+                        console.log('Не удалось загрузить данные для сравнения');
+                    }
+                }
     </script>
 </body>
 </html>
