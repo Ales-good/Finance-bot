@@ -2302,7 +2302,7 @@
 
             try {
                 showMessage('⏳ Формируем файл...');
-        
+
                 const response = await fetch(`${API_URL}/export_to_excel`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -2318,31 +2318,57 @@
                     throw new Error(errorData.error || 'Ошибка экспорта');
                 }
 
+                // Проверяем content-type
+                const contentType = response.headers.get('content-type');
+                console.log('Content-Type:', contentType);
+
                 // Получаем blob с файлом
                 const blob = await response.blob();
-        
+                console.log('Blob size:', blob.size, 'type:', blob.type);
+
                 // Проверяем что blob не пустой
                 if (blob.size === 0) {
                     throw new Error('Файл пустой');
                 }
 
+                // Определяем правильное расширение файла
+                let fileExtension = '.xlsx';
+                let mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                
+                if (contentType && contentType.includes('csv')) {
+                    fileExtension = '.csv';
+                    mimeType = 'text/csv';
+                }
+
+                // Создаем правильный blob с нужным MIME type
+                const correctBlob = new Blob([blob], { type: mimeType });
+
                 // Создаем ссылку для скачивания
-                const url = window.URL.createObjectURL(blob);
+                const url = window.URL.createObjectURL(correctBlob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `expenses_${state.currentSpaceId}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                
+                // Генерируем имя файла с датой
+                const date = new Date().toISOString().split('T')[0];
+                a.download = `expenses_${state.currentSpaceId}_${date}${fileExtension}`;
+                
                 document.body.appendChild(a);
                 a.click();
-        
+
                 // Очищаем
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
-        
+
                 showMessage('✅ Файл успешно скачан! Проверьте папку "Загрузки"');
-        
+
             } catch (error) {
                 console.error('Export error:', error);
                 showMessage(`❌ Ошибка экспорта: ${error.message}`, 'error');
+                
+                // Показываем дополнительную информацию для отладки
+                if (error.message.includes('пустой')) {
+                    showMessage('❌ Сервер вернул пустой файл. Проверьте настройки экспорта.', 'error');
+                }
             }
         }
         
