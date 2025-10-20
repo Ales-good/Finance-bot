@@ -825,6 +825,11 @@
             <div class="card">
                 <h2>📊 Аналитика</h2>
                 
+                <div style="display: flex; justify-content: flex-end; margin-bottom: 16px;">
+                    <button class="btn btn-outline" onclick="refreshAnalytics()" style="width: auto; padding: 8px 16px;">
+                        🔄 Обновить данные
+                    </button>
+                </div>
                 <div class="form-group">
                     <label>Пространство:</label>
                     <div id="analyticsSpacesGrid" class="spaces-grid quick-grid">
@@ -1291,7 +1296,33 @@
             loadSpaceDataImmediately(spaceId);
         }
 
-        
+        // ===== MANUAL REFRESH FOR ANALYTICS =====
+        async function refreshAnalytics() {
+            if (!state.currentSpaceId) {
+                showMessage('Выберите пространство для обновления', 'error');
+                return;
+            }
+
+            try {
+                showMessage('🔄 Обновляем данные...');
+                
+                // Очищаем кэш пространств для принудительного обновления
+                dataCache.spaces = null;
+                dataCache.lastUpdate = null;
+                
+                // Перезагружаем пространства
+                await loadSpacesForSelector('analyticsSpacesGrid', true);
+                
+                // Полная перезагрузка аналитики
+                await loadAnalytics();
+                
+                showMessage('✅ Данные успешно обновлены!');
+                
+            } catch (error) {
+                console.error('Ошибка обновления аналитики:', error);
+                showMessage('❌ Ошибка при обновлении данных', 'error');
+            }
+        }
 
         // Извлечение ID пространства из карточки
         function extractSpaceIdFromCard(card) {
@@ -1363,7 +1394,6 @@
         
             } catch (error) {
                 console.error('Ошибка загрузки данных:', error);
-                showMessage('⚠️ Данные обновлены частично', 'warning');
             } finally {
                 hideLoadingIndicator();
             }
