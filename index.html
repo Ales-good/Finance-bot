@@ -250,13 +250,14 @@
             border-radius: 12px;
             text-align: center;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: all 0.2s;
             border: 2px solid transparent;
             min-height: 70px;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
+            position: relative; /* Добавляем это */
         }
 
         .space-card:hover {
@@ -264,9 +265,30 @@
             border-color: var(--primary-gradient);
         }
 
+        /* ЗАМЕНИТЕ этот блок */
         .space-card.active {
             border-color: #667eea;
             background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            transform: scale(0.98); /* Добавляем легкое уменьшение для акцента */
+        }
+
+        /* ДОБАВЬТЕ этот новый блок */
+        .space-card.loading::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.8);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        [data-theme="dark"] .space-card.loading::after {
+            background: rgba(0,0,0,0.6);
         }
 
         .space-icon {
@@ -872,6 +894,43 @@
         tg.enableClosingConfirmation();
 
         // ===== STATE MANAGEMENT =====
+
+        // Добавьте в state management
+        let dataCache = {
+            spaces: null,
+            lastUpdate: null,
+            cacheDuration: 60000 // 1 минута
+        };
+
+        async function loadSpacesWithCache() {
+            const now = Date.now();
+    
+            if (dataCache.spaces && dataCache.lastUpdate && 
+                (now - dataCache.lastUpdate) < dataCache.cacheDuration) {
+                console.log('📦 Используем кэшированные пространства');
+                return dataCache.spaces;
+            }
+    
+            try {
+                const response = await fetch(`${API_URL}/get_user_spaces`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    dataCache.spaces = data.spaces;
+                    dataCache.lastUpdate = Date.now();
+                    return data.spaces;
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки пространств:', error);
+            }
+    
+            return [];
+        }
+
         let state = {
             currentSpaceId: null,
             currentCurrency: 'RUB',
@@ -1120,7 +1179,7 @@
         // ===== SPACES MANAGEMENT =====
         function displaySpacesGrid(spaces, containerId, isQuick = false) {
             const container = document.getElementById(containerId);
-            
+    
             if (!spaces || spaces.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
@@ -1133,10 +1192,11 @@
 
             const gridClass = isQuick ? 'spaces-grid quick-grid' : 'spaces-grid';
             container.className = gridClass;
-            
+    
             container.innerHTML = spaces.map(space => `
                 <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                     onclick="${isQuick ? `selectQuickSpace(${space.id})` : `showSpaceDetails(${space.id})`}">
+                     data-space-id="${space.id}"
+                     onclick="selectSpace(${space.id})">
                     <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
                     <div class="space-name">${space.name}</div>
                     ${!isQuick ? `<div class="space-meta">${space.member_count} участ.</div>` : ''}
@@ -1219,12 +1279,95 @@
         }
 
         function selectSpace(spaceId) {
+            if (state.currentSpaceId === spaceId) return; // Уже выбрано
+    
             state.currentSpaceId = spaceId;
             saveState();
-            
-            // Мгновенное обновление всех вкладок
-            refreshAllData();
+    
+            // Мгновенное визуальное обновление
+            updateSpaceVisualSelection(spaceId);
+    
+            // Быстрая загрузка данных без полного обновления страницы
+            loadSpaceDataImmediately(spaceId);
         }
+
+        // Мгновенное обновление визуального выделения
+        function updateSpaceVisualSelection(selectedSpaceId) {
+            document.querySelectorAll('.space-card').forEach(card => {
+                const cardSpaceId = extractSpaceIdFromCard(card);
+                card.classList.toggle('active', cardSpaceId === selectedSpaceId);
+            });
+        }
+
+        // Извлечение ID пространства из карточки
+        function extractSpaceIdFromCard(card) {
+            // Пробуем разные способы найти ID
+            const onclick = card.getAttribute('onclick');
+            if (onclick) {
+                const match = onclick.match(/selectSpace\((\d+)\)/) || 
+                             onclick.match(/selectQuickSpace\((\d+)\)/) ||
+                             onclick.match(/showSpaceDetails\((\d+)\)/);
+                if (match) return parseInt(match[1]);
+            }
+    
+            // Альтернативно: data-attribute
+            const dataId = card.getAttribute('data-space-id');
+            if (dataId) return parseInt(dataId);
+    
+            return null;
+        }
+
+
+        // ФУНКЦИЯ быстрой загрузки данных
+        async function loadSpaceDataImmediately(spaceId) {
+            console.log(`🚀 Быстрая загрузка данных для пространства: ${spaceId}`);
+    
+            // Показываем индикатор загрузки
+            showLoadingIndicator();
+    
+            try {
+                // Параллельная загрузка всех необходимых данных
+                await Promise.all([
+                    loadDashboardKPI(spaceId),
+                    loadRecentExpenses(spaceId),
+                    updateAnalyticsIfOpen(spaceId)
+                ]);
+        
+                // Обновляем заголовки и информацию
+                updateSpaceInfo(spaceId);
+        
+            } catch (error) {
+                console.error('Ошибка загрузки данных:', error);
+                showMessage('⚠️ Данные обновлены частично', 'warning');
+            } finally {
+                hideLoadingIndicator();
+            }
+        }
+
+        // Индикатор загрузки
+        function showLoadingIndicator() {
+            let indicator = document.getElementById('quickLoadingIndicator');
+            if (!indicator) {
+                indicator = document.createElement('div');
+                indicator.id = 'quickLoadingIndicator';
+                indicator.innerHTML = '🔄 Обновление...';
+                indicator.style.cssText = `
+                    position: fixed; top: 10px; right: 10px; 
+                    background: var(--primary-gradient); color: white;
+                    padding: 8px 12px; border-radius: 20px; font-size: 12px;
+                    z-index: 1000; box-shadow: var(--shadow);
+                `;
+                document.body.appendChild(indicator);
+            }
+        }
+
+        function hideLoadingIndicator() {
+            const indicator = document.getElementById('quickLoadingIndicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
 
         // НОВАЯ ФУНКЦИЯ: Мгновенное обновление всех данных
         function refreshAllData() {
@@ -1721,6 +1864,41 @@
         }
 
         // ===== ANALYTICS =====
+        
+        function updateAnalyticsIfOpen(spaceId) {
+            const analyticsTab = document.getElementById('analytics');
+            if (analyticsTab.classList.contains('active')) {
+                // Быстрая перезагрузка аналитики
+                loadAnalyticsQuick(spaceId);
+            }
+        }
+
+        async function loadAnalyticsQuick(spaceId) {
+            if (!spaceId) return;
+    
+            try {
+                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        period: state.analyticsPeriod
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    // Быстрое обновление без полного рендеринга
+                    updateAnalyticsDisplayQuick(data);
+                }
+            } catch (error) {
+                console.error('Быстрая загрузка аналитики:', error);
+            }
+        }
+        
+        
+        
         async function loadAnalytics() {
             if (!state.currentSpaceId) {
                 document.getElementById('categoriesAnalytics').innerHTML = '<div class="empty-state">Выберите пространство</div>';
@@ -2184,11 +2362,63 @@
             await loadDashboardKPI();
         }
 
-        async function loadDashboardKPI() {
-            if (!state.currentSpaceId) return;
+        async function loadDashboardKPI(spaceId = state.currentSpaceId) {
+            if (!spaceId) {
+                document.getElementById('dashboardKPI').classList.add('hidden');
+                document.getElementById('noSpaceSelected').classList.remove('hidden');
+                return;
+            }
+
+            try {
+                // Один запрос вместо нескольких
+                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        period: 30 // Получаем данные за 30 дней для всех KPI
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    updateKPIDisplay(data, spaceId);
+                }
+        
+                // Показываем KPI секцию
+                document.getElementById('dashboardKPI').classList.remove('hidden');
+                document.getElementById('noSpaceSelected').classList.add('hidden');
+        
+            } catch (error) {
+                console.error('Ошибка загрузки KPI:', error);
+            }
+        }
+
+        function updateKPIDisplay(data, spaceId) {
+            // Сегодня
+            const todaySpent = data.daily_data?.find(day => 
+                day.day === new Date().toISOString().split('T')[0]
+            )?.total || 0;
+            document.getElementById('todaySpent').textContent = `${todaySpent.toFixed(0)}`;
     
-            await loadDashboardStats();
-            await loadRecentExpenses();
+            // Бюджет (отдельный быстрый запрос)
+            loadBudgetProgress(spaceId);
+    
+            // Неделя и месяц из тех же данных
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            const monthAgo = new Date();
+            monthAgo.setDate(monthAgo.getDate() - 30);
+    
+            const weekSpent = data.daily_data
+                ?.filter(day => new Date(day.day) >= weekAgo)
+                ?.reduce((sum, day) => sum + day.total, 0) || 0;
+    
+            const monthSpent = data.overview?.total_spent || 0;
+    
+            document.getElementById('weekSpent').textContent = `${weekSpent.toFixed(0)}`;
+            document.getElementById('monthSpent').textContent = `${monthSpent.toFixed(0)}`;
         }
         
         // ===== Удаление пространства =====
