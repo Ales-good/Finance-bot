@@ -2313,62 +2313,77 @@
                     })
                 });
 
-                if (!response.ok) {
+                console.log('Export response status:', response.status);
+                console.log('Export response headers:', Object.fromEntries(response.headers.entries()));
+
+                // Проверяем, не возвращает ли сервер JSON с ошибкой
+                const contentType = response.headers.get('content-type') || '';
+                
+                if (contentType.includes('application/json')) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Ошибка экспорта');
                 }
 
-                // Проверяем content-type
-                const contentType = response.headers.get('content-type');
-                console.log('Content-Type:', contentType);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
 
-                // Получаем blob с файлом
+                // Проверяем что ответ не пустой
+                const contentLength = response.headers.get('content-length');
+                if (contentLength === '0') {
+                    throw new Error('Сервер вернул пустой файл');
+                }
+
                 const blob = await response.blob();
-                console.log('Blob size:', blob.size, 'type:', blob.type);
+                console.log('Blob details:', {
+                    size: blob.size,
+                    type: blob.type
+                });
 
-                // Проверяем что blob не пустой
                 if (blob.size === 0) {
-                    throw new Error('Файл пустой');
+                    throw new Error('Получен пустой файл');
                 }
 
-                // Определяем правильное расширение файла
+                // Определяем расширение файла по MIME-type
                 let fileExtension = '.xlsx';
-                let mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-                
-                if (contentType && contentType.includes('csv')) {
+                if (blob.type.includes('csv')) {
                     fileExtension = '.csv';
-                    mimeType = 'text/csv';
+                } else if (blob.type.includes('sheet')) {
+                    fileExtension = '.xlsx';
                 }
-
-                // Создаем правильный blob с нужным MIME type
-                const correctBlob = new Blob([blob], { type: mimeType });
 
                 // Создаем ссылку для скачивания
-                const url = window.URL.createObjectURL(correctBlob);
+                const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
+                a.download = `expenses_${state.currentSpaceId}_${new Date().toISOString().split('T')[0]}${fileExtension}`;
                 
-                // Генерируем имя файла с датой
-                const date = new Date().toISOString().split('T')[0];
-                a.download = `expenses_${state.currentSpaceId}_${date}${fileExtension}`;
-                
+                // Добавляем в DOM и кликаем
                 document.body.appendChild(a);
                 a.click();
-
-                // Очищаем
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
+                
+                // Очистка
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
 
                 showMessage('✅ Файл успешно скачан! Проверьте папку "Загрузки"');
 
             } catch (error) {
-                console.error('Export error:', error);
-                showMessage(`❌ Ошибка экспорта: ${error.message}`, 'error');
+                console.error('Export error details:', error);
                 
-                // Показываем дополнительную информацию для отладки
-                if (error.message.includes('пустой')) {
-                    showMessage('❌ Сервер вернул пустой файл. Проверьте настройки экспорта.', 'error');
+                let errorMessage = `Ошибка экспорта: ${error.message}`;
+                
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = '❌ Ошибка соединения с сервером';
+                } else if (error.message.includes('пустой')) {
+                    errorMessage = '❌ Нет данных для экспорта';
+                } else if (error.message.includes('401') || error.message.includes('403')) {
+                    errorMessage = '❌ Ошибка авторизации';
                 }
+                
+                showMessage(errorMessage, 'error');
             }
         }
         
