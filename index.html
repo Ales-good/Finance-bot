@@ -1871,8 +1871,8 @@
         function updateAnalyticsIfOpen(spaceId) {
             const analyticsTab = document.getElementById('analytics');
             if (analyticsTab.classList.contains('active')) {
-                // Полная перезагрузка аналитики с графиками
-                loadAnalytics();
+                // Быстрая перезагрузка аналитики
+                loadAnalyticsQuick(spaceId);
             }
         }
 
@@ -1929,37 +1929,21 @@
                 });
 
                 if (!response.ok) throw new Error('Ошибка загрузки аналитики');
-
+        
                 const data = await response.json();
                 displayAnalytics(data);
-                
             } catch (error) {
-                console.error('Ошибка загрузки аналитики:', error);
-                // Показываем ошибку в интерфейсе
-                document.getElementById('categoriesAnalytics').innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">⚠️</div>
-                        <div>Ошибка загрузки данных</div>
-                        <button class="btn btn-outline" onclick="loadAnalytics()" style="margin-top: 12px;">
-                            🔄 Повторить
-                        </button>
-                    </div>
-                `;
+                document.getElementById('categoriesAnalytics').innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
             }
         }
 
         function displayAnalytics(data) {
-            // Общие суммы
+            // Общие суммы - ИСПРАВЛЕНО: убраны символы валют
             document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
             document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
 
-            // ОБЯЗАТЕЛЬНО перерисовываем основной график
+            // Рендерим график
             renderAnalyticsChart(data);
-
-            // Перерисовываем круговую диаграмму категорий если она есть
-            if (data.categories && data.categories.length > 0) {
-                renderCategoryChart(data.categories);
-            }
 
             // Категории
             const container = document.getElementById('categoriesAnalytics');
@@ -2175,30 +2159,15 @@
         }
         
         function renderCategoryChart(categories) {
-            const existingChart = document.getElementById('categoryChart');
-            if (existingChart) {
-                existingChart.remove();
-            }
-
             const ctx = document.createElement('canvas');
             ctx.id = 'categoryChart';
             ctx.style.maxHeight = '250px';
-
+    
             const container = document.getElementById('categoriesAnalytics');
-            
-            // Находим где вставить диаграмму (после заголовка "По категориям")
-            const categoriesTitle = document.createElement('h3');
-            categoriesTitle.textContent = '📊 Распределение по категориям';
-            categoriesTitle.style.marginBottom = '16px';
-            container.appendChild(categoriesTitle);
+            container.innerHTML = '<h3>📊 Распределение по категориям</h3>';
             container.appendChild(ctx);
-
-            // Удаляем старую диаграмму если есть
-            if (window.categoryChart) {
-                window.categoryChart.destroy();
-            }
-
-            window.categoryChart = new Chart(ctx, {
+    
+            const categoryChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
                     labels: categories.map(cat => cat.name),
@@ -2555,30 +2524,30 @@
 
                 function renderAnalyticsChart(data) {
                     const ctx = document.getElementById('analyticsChart').getContext('2d');
-                    const errorContainer = document.getElementById('chartError');
-
-                    errorContainer.classList.add('hidden');
-
-                    // УНИЧТОЖАЕМ старый график
-                    if (window.analyticsChart) {
-                        window.analyticsChart.destroy();
-                        window.analyticsChart = null;
+    
+                    // Удаляем старый график если есть
+                    if (analyticsChart) {
+                        analyticsChart.destroy();
                     }
-
+    
                     if (!data.daily_data || data.daily_data.length === 0) {
-                        errorContainer.classList.remove('hidden');
+                        // Показываем заглушку если нет данных
+                        ctx.font = '16px Arial';
+                        ctx.fillStyle = '#666';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Нет данных для графика', 150, 100);
                         return;
                     }
-
+    
+                    // Подготавливаем данные для графика
                     const labels = data.daily_data.map(item => {
                         const date = new Date(item.day);
                         return `${date.getDate()}.${date.getMonth() + 1}`;
                     });
-
+    
                     const amounts = data.daily_data.map(item => item.total);
-
-                    // Сохраняем в глобальную переменную для доступа
-                    window.analyticsChart = new Chart(ctx, {
+    
+                    analyticsChart = new Chart(ctx, {
                         type: 'line',
                         data: {
                             labels: labels,
