@@ -1399,7 +1399,50 @@
             }
         }
 
-        
+        // ===== BUDGET PROGRESS =====
+        async function loadBudgetProgress(spaceId = state.currentSpaceId) {
+            if (!spaceId) return 0;
+
+            try {
+                const response = await fetch(`${API_URL}/get_analytics`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const budget = data.budget || 0;
+                    const spent = data.total_spent || 0;
+                    
+                    let progress = 0;
+                    if (budget > 0) {
+                        progress = Math.min((spent / budget) * 100, 100);
+                    }
+                    
+                    document.getElementById('budgetProgress').textContent = `${progress.toFixed(0)}%`;
+                    
+                    // Добавляем визуальную индикацию
+                    const progressElement = document.getElementById('budgetProgress');
+                    if (progress >= 80) {
+                        progressElement.style.color = '#dc3545'; // Красный при接近 лимита
+                    } else if (progress >= 50) {
+                        progressElement.style.color = '#ffc107'; // Желтый
+                    } else {
+                        progressElement.style.color = '#28a745'; // Зеленый
+                    }
+                    
+                    return progress;
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки прогресса бюджета:', error);
+            }
+            
+            return 0;
+        }
 
 
         // НОВАЯ ФУНКЦИЯ: Мгновенное обновление всех данных
@@ -1778,6 +1821,9 @@
                 document.getElementById('budgetAmount').value = '';
                 loadDashboard(); // Обновляем статистику
         
+                // ОБНОВЛЯЕМ ДАШБОРД СРАЗУ ПОСЛЕ УСТАНОВКИ БЮДЖЕТА
+                loadDashboardKPI();
+                loadBudgetProgress();
             } catch (error) {
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
@@ -2426,7 +2472,10 @@
                     const data = await response.json();
                     updateKPIDisplay(data, spaceId);
                 }
-        
+
+                // Дополнительно загружаем бюджет
+                await loadBudgetProgress(spaceId);    
+
                 // Показываем KPI секцию
                 document.getElementById('dashboardKPI').classList.remove('hidden');
                 document.getElementById('noSpaceSelected').classList.add('hidden');
@@ -2442,22 +2491,22 @@
                 day.day === new Date().toISOString().split('T')[0]
             )?.total || 0;
             document.getElementById('todaySpent').textContent = `${todaySpent.toFixed(0)}`;
-    
-            // Бюджет (отдельный быстрый запрос)
+
+            // Бюджет
             loadBudgetProgress(spaceId);
-    
+
             // Неделя и месяц из тех же данных
             const weekAgo = new Date();
             weekAgo.setDate(weekAgo.getDate() - 7);
             const monthAgo = new Date();
             monthAgo.setDate(monthAgo.getDate() - 30);
-    
+
             const weekSpent = data.daily_data
                 ?.filter(day => new Date(day.day) >= weekAgo)
                 ?.reduce((sum, day) => sum + day.total, 0) || 0;
-    
+
             const monthSpent = data.overview?.total_spent || 0;
-    
+
             document.getElementById('weekSpent').textContent = `${weekSpent.toFixed(0)}`;
             document.getElementById('monthSpent').textContent = `${monthSpent.toFixed(0)}`;
         }
