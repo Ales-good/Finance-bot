@@ -1346,26 +1346,36 @@ def api_export_to_excel():
         
         # Создаем Excel файл в памяти
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Основной лист с тратами
-            df.to_excel(writer, sheet_name='Траты', index=False)
+        
+        try:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # Основной лист с тратами
+                df.to_excel(writer, sheet_name='Траты', index=False)
+                
+                # Добавляем сводку
+                summary_data = {
+                    'Метрика': ['Всего трат', 'Сумма расходов', 'Средний чек', 'Период'],
+                    'Значение': [
+                        len(df),
+                        f"{df['amount'].sum():.2f}",
+                        f"{df['amount'].mean():.2f}",
+                        f"Последние {period} дней"
+                    ]
+                }
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Сводка', index=False)
             
-            # Добавляем сводку
-            summary_data = {
-                'Метрика': ['Всего трат', 'Сумма расходов', 'Средний чек', 'Период'],
-                'Значение': [
-                    len(df),
-                    f"{df['amount'].sum():.2f}",
-                    f"{df['amount'].mean():.2f}",
-                    f"Последние {period} дней"
-                ]
-            }
-            summary_df = pd.DataFrame(summary_data)
-            summary_df.to_excel(writer, sheet_name='Сводка', index=False)
+            # Получаем байты после закрытия writer
+            excel_data = output.getvalue()
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка создания Excel файла: {e}")
+            return jsonify({'error': 'Ошибка создания файла Excel'}), 500
         
-        excel_data = output.getvalue()
-        
-        # Возвращаем файл как ответ
+        if len(excel_data) == 0:
+            return jsonify({'error': 'Создан пустой файл'}), 500
+
+        # Возвращаем файл как ответ с правильным Content-Type
         from flask import Response
         response = Response(
             excel_data,
@@ -1378,7 +1388,7 @@ def api_export_to_excel():
         
     except Exception as e:
         logger.error(f"❌ API Error in export_to_excel: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 # ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 @flask_app.route('/')
