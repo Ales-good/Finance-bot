@@ -2294,54 +2294,98 @@
             });
         }    
 
-        // Export
-        async exportToExcel() {
-            if (!this.state.currentSpaceId) {
-                this.showMessage('Выберите пространство для экспорта', 'error');
-                 return;
+        async function exportToExcel() {
+            if (!state.currentSpaceId) {
+                showMessage('Выберите пространство для экспорта', 'error');
+                return;
             }
 
             try {
-                this.showMessage('⏳ Формируем файл...');
-            
-                const response = await fetch(`${this.API_URL}/export_to_excel`, {
+                showMessage('⏳ Формируем файл...');
+
+                const response = await fetch(`${API_URL}/export_to_excel`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
-                        initData: this.tg.initData,
-                        spaceId: this.state.currentSpaceId,
-                        period: this.state.analyticsPeriod
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        period: state.analyticsPeriod
                     })
                 });
 
-                if (!response.ok) {
+                console.log('Export response status:', response.status);
+                console.log('Export response headers:', Object.fromEntries(response.headers.entries()));
+
+                // Проверяем, не возвращает ли сервер JSON с ошибкой
+                const contentType = response.headers.get('content-type') || '';
+                
+                if (contentType.includes('application/json')) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Ошибка экспорта');
                 }
 
-                const blob = await response.blob();
-            
-                if (blob.size === 0) {
-                    throw new Error('Файл пустой');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
 
-                const url = window.URL.createObjectURL(blob);
+                // Проверяем что ответ не пустой
+                const contentLength = response.headers.get('content-length');
+                if (contentLength === '0') {
+                    throw new Error('Сервер вернул пустой файл');
+                }
+
+                const blob = await response.blob();
+                console.log('Blob details:', {
+                    size: blob.size,
+                    type: blob.type
+                });
+
+                if (blob.size === 0) {
+                    throw new Error('Получен пустой файл');
+                }
+
+                // Определяем расширение файла по MIME-type
+                let fileExtension = '.xlsx';
+                if (blob.type.includes('csv')) {
+                    fileExtension = '.csv';
+                } else if (blob.type.includes('sheet')) {
+                    fileExtension = '.xlsx';
+                }
+
+                // Создаем ссылку для скачивания
+                const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `expenses_${this.state.currentSpaceId}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                a.download = `expenses_${state.currentSpaceId}_${new Date().toISOString().split('T')[0]}${fileExtension}`;
+                
+                // Добавляем в DOM и кликаем
                 document.body.appendChild(a);
                 a.click();
-            
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-            
-                this.showMessage('✅ Файл успешно скачан! Проверьте папку "Загрузки"');
-            
+                
+                // Очистка
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+
+                showMessage('✅ Файл успешно скачан! Проверьте папку "Загрузки"');
+
             } catch (error) {
-                console.error('Export error:', error);
-                this.showMessage(`❌ Ошибка экспорта: ${error.message}`, 'error');
+                console.error('Export error details:', error);
+                
+                let errorMessage = `Ошибка экспорта: ${error.message}`;
+                
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = '❌ Ошибка соединения с сервером';
+                } else if (error.message.includes('пустой')) {
+                    errorMessage = '❌ Нет данных для экспорта';
+                } else if (error.message.includes('401') || error.message.includes('403')) {
+                    errorMessage = '❌ Ошибка авторизации';
+                }
+                
+                showMessage(errorMessage, 'error');
             }
-        },
+        }
         
         // Функция для загрузки быстрых пространств
         function loadQuickSpaces() {
