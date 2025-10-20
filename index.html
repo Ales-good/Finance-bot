@@ -1291,13 +1291,7 @@
             loadSpaceDataImmediately(spaceId);
         }
 
-        // Мгновенное обновление визуального выделения
-        function updateSpaceVisualSelection(selectedSpaceId) {
-            document.querySelectorAll('.space-card').forEach(card => {
-                const cardSpaceId = extractSpaceIdFromCard(card);
-                card.classList.toggle('active', cardSpaceId === selectedSpaceId);
-            });
-        }
+        
 
         // Извлечение ID пространства из карточки
         function extractSpaceIdFromCard(card) {
@@ -1317,6 +1311,37 @@
             return null;
         }
 
+        // Мгновенное обновление визуального выделения
+        function updateSpaceVisualSelection(selectedSpaceId) {
+            document.querySelectorAll('.space-card').forEach(card => {
+                const cardSpaceId = extractSpaceIdFromCard(card);
+                card.classList.toggle('active', cardSpaceId === selectedSpaceId);
+            });
+        }
+
+        // Индикатор загрузки
+        function showLoadingIndicator() {
+            let indicator = document.getElementById('quickLoadingIndicator');
+            if (!indicator) {
+                indicator = document.createElement('div');
+                indicator.id = 'quickLoadingIndicator';
+                indicator.innerHTML = '🔄 Обновление...';
+                indicator.style.cssText = `
+                    position: fixed; top: 10px; right: 10px; 
+                    background: var(--primary-gradient); color: white;
+                    padding: 8px 12px; border-radius: 20px; font-size: 12px;
+                    z-index: 1000; box-shadow: var(--shadow);
+                `;
+                document.body.appendChild(indicator);
+            }
+        }
+
+        function hideLoadingIndicator() {
+            const indicator = document.getElementById('quickLoadingIndicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
 
         // ФУНКЦИЯ быстрой загрузки данных
         async function loadSpaceDataImmediately(spaceId) {
@@ -1344,29 +1369,7 @@
             }
         }
 
-        // Индикатор загрузки
-        function showLoadingIndicator() {
-            let indicator = document.getElementById('quickLoadingIndicator');
-            if (!indicator) {
-                indicator = document.createElement('div');
-                indicator.id = 'quickLoadingIndicator';
-                indicator.innerHTML = '🔄 Обновление...';
-                indicator.style.cssText = `
-                    position: fixed; top: 10px; right: 10px; 
-                    background: var(--primary-gradient); color: white;
-                    padding: 8px 12px; border-radius: 20px; font-size: 12px;
-                    z-index: 1000; box-shadow: var(--shadow);
-                `;
-                document.body.appendChild(indicator);
-            }
-        }
-
-        function hideLoadingIndicator() {
-            const indicator = document.getElementById('quickLoadingIndicator');
-            if (indicator) {
-                indicator.remove();
-            }
-        }
+        
 
 
         // НОВАЯ ФУНКЦИЯ: Мгновенное обновление всех данных
@@ -1897,7 +1900,15 @@
             }
         }
         
-        
+        function updateAnalyticsDisplayQuick(data) {
+            document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
+            document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
+            
+            if (window.analyticsChart && data.daily_data) {
+                window.analyticsChart.data.datasets[0].data = data.daily_data.map(item => item.total);
+                window.analyticsChart.update('none');
+            }
+        }
         
         async function loadAnalytics() {
             if (!state.currentSpaceId) {
