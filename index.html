@@ -2295,69 +2295,130 @@
         }    
 
         async function exportToExcel() {
+            console.log('=== 🎯 EXPORT TO EXCEL START ===');
+            
             if (!state.currentSpaceId) {
+                console.log('❌ No space selected');
                 showMessage('Выберите пространство для экспорта', 'error');
                 return;
             }
 
             try {
                 showMessage('⏳ Формируем файл...');
-
-                const response = await fetch(`${API_URL}/export_to_excel`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId,
-                        period: state.analyticsPeriod
-                    })
+                
+                const requestData = {
+                    initData: tg.initData,
+                    spaceId: state.currentSpaceId,
+                    period: state.analyticsPeriod
+                };
+                
+                console.log('📨 Request data:', {
+                    spaceId: state.currentSpaceId,
+                    period: state.analyticsPeriod,
+                    initDataLength: tg.initData ? tg.initData.length : 0
                 });
 
-                // Проверяем статус ответа
-                if (response.status === 404) {
-                    throw new Error('Нет данных для экспорта');
-                }
+                console.log('🔄 Sending request to server...');
+                const response = await fetch(`${API_URL}/export_to_excel`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                console.log('📩 Response received:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok
+                });
+
+                // Логируем все заголовки
+                const headers = {};
+                response.headers.forEach((value, key) => {
+                    headers[key] = value;
+                });
+                console.log('📋 Response headers:', headers);
+
+                const contentType = response.headers.get('content-type') || '';
+                console.log('📄 Content-Type:', contentType);
 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка сервера');
+                    let errorMessage = `HTTP Error: ${response.status}`;
+                    
+                    try {
+                        const errorData = await response.json();
+                        console.error('❌ Server error (JSON):', errorData);
+                        errorMessage = errorData.error || errorMessage;
+                    } catch (e) {
+                        const errorText = await response.text();
+                        console.error('❌ Server error (text):', errorText);
+                        errorMessage = errorText || errorMessage;
+                    }
+                    
+                    throw new Error(errorMessage);
                 }
 
-                // Получаем blob
+                // Проверяем что это Excel
+                const isExcel = contentType.includes('application/vnd.openxmlformats-officedocument') || 
+                            contentType.includes('application/octet-stream');
+                
+                if (!isExcel) {
+                    const text = await response.text();
+                    console.error('❌ Not Excel file, content:', text.substring(0, 200));
+                    throw new Error(`Server returned: ${contentType}`);
+                }
+
                 const blob = await response.blob();
+                console.log('📦 Blob details:', {
+                    size: blob.size,
+                    type: blob.type,
+                    blobObject: blob
+                });
 
                 if (blob.size === 0) {
-                    throw new Error('Файл пустой');
+                    throw new Error('Empty file received (0 bytes)');
                 }
 
-                // Создаем и кликаем ссылку
+                console.log('🖱️ Creating download link...');
+                
+                // Создаем и скачиваем
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `finance_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+                a.download = `finance_export_${state.currentSpaceId}.xlsx`;
+                a.style.display = 'none';
+                
                 document.body.appendChild(a);
+                console.log('👉 Clicking download link...');
                 a.click();
                 
                 // Очистка
                 setTimeout(() => {
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
-                }, 100);
+                    console.log('🧹 Cleanup completed');
+                }, 5000); // Даем больше времени на скачивание
 
-                showMessage('✅ Файл успешно скачан!');
+                console.log('✅ Download initiated');
+                showMessage('✅ Файл успешно скачан! Проверьте загрузки');
 
             } catch (error) {
-                console.error('Export error:', error);
-                let message = error.message;
+                console.error('💥 EXPORT FAILED:', error);
                 
+                let userMessage = error.message;
                 if (error.message.includes('Failed to fetch')) {
-                    message = 'Ошибка соединения с сервером';
-                } else if (error.message.includes('Нет данных')) {
-                    message = 'Нет данных для экспорта за выбранный период';
+                    userMessage = 'Ошибка соединения с сервером';
+                } else if (error.message.includes('Empty')) {
+                    userMessage = 'Сервер вернул пустой файл';
+                } else if (error.message.includes('HTTP Error')) {
+                    userMessage = 'Ошибка сервера';
                 }
                 
-                showMessage(`❌ ${message}`, 'error');
+                showMessage(`❌ ${userMessage}`, 'error');
             }
+            
+            console.log('=== 🏁 EXPORT TO EXCEL END ===');
         }
         
         // Функция для загрузки быстрых пространств
