@@ -1978,7 +1978,117 @@ def api_get_analytics():
     except Exception as e:
         logger.error(f"❌ API Error in get_analytics: {e}")
         return jsonify({'error': 'Internal server error'}), 500
-    
+
+
+@flask_app.route('/get_space_chart_data', methods=['POST'])
+def api_get_space_chart_data():
+    """API для получения данных для линейного графика пространства"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        period = data.get('period', 30)
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if not is_user_in_space(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        conn = get_db_connection()
+        
+        # Получаем данные по дням для всех участников
+        if isinstance(conn, sqlite3.Connection):
+            # SQLite
+            daily_query = '''
+                SELECT 
+                    date(date) as day,
+                    user_name,
+                    SUM(amount) as daily_total
+                FROM expenses 
+                WHERE space_id = ? AND date >= DATE('now', ?)
+                GROUP BY date(date), user_name
+                ORDER BY date(date)
+            '''
+            daily_df = pd.read_sql_query(daily_query, conn, params=(space_id, f'-{period} days'))
+        else:
+            # PostgreSQL
+            daily_query = '''
+                SELECT 
+                    date::date as day,
+                    user_name,
+                    SUM(amount) as daily_total
+                FROM expenses 
+                WHERE space_id = %s AND date >= CURRENT_DATE - INTERVAL '%s days'
+                GROUP BY date::date, user_name
+                ORDER BY date::date
+            '''
+            daily_df = pd.read_sql_query(daily_query, conn, params=(space_id, period))
+        
+        # Получаем общий бюджет пространства
+        budget, currency = get_space_budget(space_id)
+        
+        # Получаем список всех участников
+        if isinstance(conn, sqlite3.Connection):
+            users_query = '''SELECT DISTINCT user_name FROM space_members WHERE space_id = ?'''
+            users_df = pd.read_sql_query(users_query, conn, params=(space_id,))
+        else:
+            users_query = '''SELECT DISTINCT user_name FROM space_members WHERE space_id = %s'''
+            users_df = pd.read_sql_query(users_query, conn, params=(space_id,))
+        
+        conn.close()
+        
+        # Формируем данные для графика
+        unique_dates = sorted(daily_df['day'].unique())
+        users = users_df['user_name'].tolist()
+        
+        # Данные по дням для каждого пользователя
+        user_data = {}
+        for user in users:
+            user_data[user] = []
+            for date in unique_dates:
+                user_day_data = daily_df[(daily_df['user_name'] == user) & (daily_df['day'] == date)]
+                total = user_day_data['daily_total'].sum() if not user_day_data.empty else 0
+                user_data[user].append(float(total))
+        
+        # Накопительные суммы для каждого пользователя
+        cumulative_data = {}
+        for user, daily_totals in user_data.items():
+            cumulative = []
+            total = 0
+            for day_total in daily_totals:
+                total += day_total
+                cumulative.append(total)
+            cumulative_data[user] = cumulative
+        
+        # Данные бюджета (равномерно распределенный)
+        daily_budget = budget / len(unique_dates) if budget > 0 else 0
+        budget_data = [daily_budget * (i + 1) for i in range(len(unique_dates))]
+        
+        # Форматируем даты для отображения
+        formatted_dates = []
+        for date_str in unique_dates:
+            date_obj = datetime.strptime(str(date_str), '%Y-%m-%d')
+            formatted_dates.append(date_obj.strftime('%d.%m'))
+        
+        return jsonify({
+            'dates': formatted_dates,
+            'users': users,
+            'cumulative_data': cumulative_data,
+            'budget_data': budget_data,
+            'budget': budget,
+            'currency': currency,
+            'period': period
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_space_chart_data: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
 @flask_app.route('/get_user_breakdown', methods=['POST'])
 def api_get_user_breakdown():
     """API для получения разбивки по пользователям"""
