@@ -1296,29 +1296,23 @@ def api_add_user_category():
 
 @flask_app.route('/export_to_excel', methods=['POST'])
 def api_export_to_excel():
-    """Экспорт данных в Excel"""
+    """Экспорт данных в Excel - простой способ"""
     logger.info("🎯 START EXPORT TO EXCEL")
     
     try:
         data = request.json
-        logger.info(f"📨 Received export request")
-        
         init_data = data.get('initData')
         space_id = data.get('spaceId')
         period = data.get('period', 30)
         
-        logger.info(f"🔧 Params: space_id={space_id}, period={period}")
-        
         if not validate_webapp_data(init_data):
-            logger.warning("❌ Validation failed")
             return jsonify({'error': 'Invalid data'}), 401
             
         user_data = get_user_from_init_data(init_data)
         if not user_data:
-            logger.warning("❌ User not found")
             return jsonify({'error': 'User not found'}), 401
         
-        # Получаем реальные данные из БД
+        # Получаем данные из БД
         conn = get_db_connection()
         
         if isinstance(conn, sqlite3.Connection):
@@ -1338,7 +1332,7 @@ def api_export_to_excel():
         
         conn.close()
         
-        logger.info(f"📊 Found {len(df)} records from database")
+        logger.info(f"📊 Found {len(df)} records")
         
         if df.empty:
             return jsonify({'error': 'Нет данных для экспорта'}), 404
@@ -1363,48 +1357,17 @@ def api_export_to_excel():
         excel_data = output.getvalue()
         logger.info(f"✅ Excel created, size: {len(excel_data)} bytes")
         
-        # В Telegram Web App отправляем файл через бота
-        user_id = user_data['id']
-        filename = f"finance_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        # Возвращаем файл напрямую
+        from flask import make_response
+        response = make_response(excel_data)
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        response.headers['Content-Disposition'] = f'attachment; filename=finance_export.xlsx'
         
-        # Сохраняем файл временно и отправляем через бота
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as temp_file:
-            temp_file.write(excel_data)
-            temp_path = temp_file.name
-        
-        try:
-            # Отправляем файл через Telegram Bot
-            from telegram import Bot
-            bot = Bot(token=BOT_TOKEN)
-            
-            with open(temp_path, 'rb') as file:
-                await bot.send_document(
-                    chat_id=user_id,
-                    document=file,
-                    filename=filename,
-                    caption=f"📊 Экспорт финансовых данных\nПространство ID: {space_id}\nПериод: {period} дней"
-                )
-            
-            logger.info(f"✅ File sent via Telegram bot to user {user_id}")
-            
-            # Удаляем временный файл
-            os.unlink(temp_path)
-            
-            return jsonify({'success': True, 'message': 'Файл отправлен в Telegram'})
-            
-        except Exception as e:
-            logger.error(f"❌ Telegram send failed: {e}")
-            # Если не удалось отправить через бота, возвращаем файл напрямую
-            from flask import make_response
-            response = make_response(excel_data)
-            response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            response.headers['Content-Disposition'] = f'attachment; filename={filename}'
-            return response
+        logger.info("📤 Sending file directly")
+        return response
         
     except Exception as e:
         logger.error(f"💥 Export failed: {e}")
-        import traceback
-        logger.error(f"🔍 Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
 # ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
