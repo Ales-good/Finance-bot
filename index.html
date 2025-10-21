@@ -752,6 +752,9 @@
                     <button class="btn btn-outline" onclick="debugSpaces()" style="background: red; color: white; margin-top: 10px;">
                     🐛 Диагностика пространств
                     </button>
+                    <button class="btn btn-outline" onclick="debugMembership()" style="background: purple; color: white; margin-top: 10px;">
+                    🐛 Диагностика членства
+                    </button>
                 </div>
             </div>
 
@@ -2112,6 +2115,32 @@
                 }
             } catch (error) {
                 document.getElementById('activeSpaceInfo').innerHTML = '<div class="empty-state">Ошибка загрузки</div>';
+            }
+        }
+
+        async function debugMembership() {
+            try {
+                const response = await fetch(`${API_URL}/debug_user_membership`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+
+                const data = await response.json();
+                console.log('🔍 Membership debug:', data);
+                
+                alert(`Диагностика членства:
+        User ID: ${data.user_id}
+        Всего членств: ${data.debug_info.total_memberships}
+        Пространство "Семья" существует: ${data.debug_info.family_space_exists}
+        Пространство активно: ${data.debug_info.family_is_active}
+        Пользователь в пространстве: ${data.debug_info.user_in_family}
+
+        Все членства: ${JSON.stringify(data.all_memberships, null, 2)}`);
+                
+            } catch (error) {
+                console.error('Debug error:', error);
+                alert('Ошибка диагностики');
             }
         }
 
