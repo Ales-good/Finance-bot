@@ -1753,38 +1753,24 @@
                 if (!response.ok) {
                     const errorData = await response.json();
                     console.error('❌ Join error:', errorData);
-                    
-                    // Если пользователь уже в пространстве - перезагружаем список
-                    if (errorData.error && errorData.error.includes('уже состоите')) {
-                        showMessage('ℹ️ Вы уже в этом пространстве');
-                        // ПЕРЕЗАГРУЖАЕМ ПРОСТРАНСТВА
-                        await loadSpaces();
-                        await loadQuickSpaces();
-                        // Очищаем поле ввода
-                        document.getElementById('inviteCodeInput').value = '';
-                        return;
-                    }
-                    
                     throw new Error(errorData.error || 'Ошибка присоединения');
                 }
 
                 const data = await response.json();
-                console.log('✅ Join success:', data);
+                console.log('✅ Join response:', data);
                 
-                showMessage(`✅ Вы присоединились к пространству: ${data.space_name}`);
+                if (data.already_member) {
+                    showMessage('ℹ️ Вы уже состоите в этом пространстве');
+                } else {
+                    showMessage(`✅ Вы присоединились к пространству: ${data.space_name}`);
+                }
                 
                 // Очищаем поле ввода
                 document.getElementById('inviteCodeInput').value = '';
                 
-                // ПЕРЕЗАГРУЖАЕМ ПРОСТРАНСТВА
+                // Перезагружаем пространства
                 await loadSpaces();
                 await loadQuickSpaces();
-                
-                // Автоматически выбираем новое пространство
-                if (data.space_id) {
-                    console.log('🔍 Selecting joined space:', data.space_id);
-                    selectSpace(data.space_id);
-                }
                 
             } catch (error) {
                 console.error('💥 Join failed:', error);
