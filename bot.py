@@ -954,44 +954,7 @@ def remove_member_from_space(space_id, user_id, remover_id):
     finally:
         conn.close()
 
-def set_user_budget(user_id, space_id, amount, currency="RUB"):
-    """Установка бюджета пользователя"""
-    conn = get_db_connection()
-    
-    try:
-        current_month = datetime.now().strftime('%Y-%m')
-        
-        if isinstance(conn, sqlite3.Connection):
-            c = conn.cursor()
-            # Проверяем, есть ли уже бюджет на этот месяц
-            c.execute('SELECT id FROM budgets WHERE user_id = ? AND space_id = ? AND month_year = ?', 
-                     (user_id, space_id, current_month))
-            existing = c.fetchone()
-            
-            if existing:
-                c.execute('UPDATE budgets SET amount = ?, currency = ? WHERE id = ?', (amount, currency, existing[0]))
-            else:
-                c.execute('INSERT INTO budgets (user_id, space_id, amount, month_year, currency) VALUES (?, ?, ?, ?, ?)',
-                         (user_id, space_id, amount, current_month, currency))
-        else:
-            c = conn.cursor()
-            c.execute('SELECT id FROM budgets WHERE user_id = %s AND space_id = %s AND month_year = %s', 
-                     (user_id, space_id, current_month))
-            existing = c.fetchone()
-            
-            if existing:
-                c.execute('UPDATE budgets SET amount = %s, currency = %s WHERE id = %s', (amount, currency, existing[0]))
-            else:
-                c.execute('INSERT INTO budgets (user_id, space_id, amount, month_year, currency) VALUES (%s, %s, %s, %s, %s)',
-                         (user_id, space_id, amount, current_month, currency))
-        
-        conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"❌ Error setting budget: {e}")
-        return False
-    finally:
-        conn.close()
+
 
 def set_space_budget(space_id, amount, currency="RUB"):
     """Установка общего бюджета для пространства"""
