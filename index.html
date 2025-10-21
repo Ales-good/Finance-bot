@@ -749,6 +749,9 @@
                     <button class="btn btn-danger" onclick="leaveSpace()">🚪 Покинуть пространство</button>
                     <button class="btn btn-danger" onclick="deleteSpace()">🗑️ Удалить пространство</button>
                     <button class="btn btn-secondary" onclick="hideSpaceDetails()">← Назад</button>
+                    <button class="btn btn-outline" onclick="debugSpaces()" style="background: red; color: white; margin-top: 10px;">
+                    🐛 Диагностика пространств
+                    </button>
                 </div>
             </div>
 
@@ -1192,6 +1195,7 @@
         // ===== SPACES MANAGEMENT =====
         function displaySpacesGrid(spaces, containerId, isQuick = false) {
             const container = document.getElementById(containerId);
+            console.log(`🎯 Displaying ${spaces ? spaces.length : 0} spaces in ${containerId}`);
 
             if (!spaces || spaces.length === 0) {
                 container.innerHTML = `
@@ -1207,9 +1211,8 @@
             container.className = gridClass;
 
             container.innerHTML = spaces.map(space => {
-                // Ключевое изменение здесь:
-                // Для вкладки "Пространства" используем showSpaceDetails, для остальных - selectSpace
-                const onClickFunction = (containerId === 'spacesList') ? 
+                // Для вкладки пространств используем showSpaceDetails, для остальных - selectSpace
+                const onClickFunction = containerId === 'spacesList' ? 
                     `showSpaceDetails(${space.id})` : 
                     `selectSpace(${space.id})`;
                     
@@ -1223,6 +1226,8 @@
                     </div>
                 `;
             }).join('');
+            
+            console.log(`✅ Displayed ${spaces.length} spaces in ${containerId}`);
         }
 
         function loadSpacesForSelector(containerId, isQuick = false) {
@@ -1241,25 +1246,41 @@
         }
 
         async function loadSpaces() {
+            console.log('🔄 Loading spaces...');
+            
             try {
-                showLoading('spacesList');
                 const response = await fetch(`${API_URL}/get_user_spaces`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ initData: tg.initData })
                 });
 
-                if (!response.ok) throw new Error('Ошибка загрузки пространств');
+                console.log('📩 Spaces response status:', response.status);
+
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки пространств');
+                }
                 
                 const data = await response.json();
-                displaySpacesGrid(data.spaces, 'spacesList', true); // Исправлено: добавлен true для маленьких иконок
+                console.log('🏠 Loaded spaces:', data.spaces);
+                
+                // Отображаем пространства во всех контейнерах
+                displaySpacesGrid(data.spaces, 'spacesList', true);
+                displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
+                displaySpacesGrid(data.spaces, 'expenseSpacesGrid', true);
+                displaySpacesGrid(data.spaces, 'analyticsSpacesGrid', true);
                 
                 // Автовыбор первого пространства если нет выбранного
                 if (!state.currentSpaceId && data.spaces.length > 0) {
+                    console.log('🔍 Auto-selecting first space:', data.spaces[0].id);
                     selectSpace(data.spaces[0].id);
                 }
+                
+                return data.spaces;
+                
             } catch (error) {
-                showError('spacesList', `Ошибка загрузки: ${error.message}`);
+                console.error('❌ Error loading spaces:', error);
+                return [];
             }
         }
 
@@ -1315,6 +1336,36 @@
             refreshDashboard();
         }
 
+        // ===== Добавим временную диагностическую функцию =====
+        async function debugSpaces() {
+            console.log('=== 🐛 DEBUG SPACES ===');
+            
+            try {
+                const response = await fetch(`${API_URL}/get_user_spaces`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+
+                const data = await response.json();
+                console.log('🔍 Current spaces from server:', data.spaces);
+                console.log('🔍 Current state.spaceId:', state.currentSpaceId);
+                
+                // Покажем пространства в alert для проверки
+                if (data.spaces && data.spaces.length > 0) {
+                    const spaceNames = data.spaces.map(s => `${s.name} (ID: ${s.id})`).join(', ');
+                    alert(`Ваши пространства: ${spaceNames}`);
+                } else {
+                    alert('У вас нет пространств');
+                }
+                
+            } catch (error) {
+                console.error('Debug error:', error);
+                alert('Ошибка загрузки пространств');
+            }
+        }
+        
+        
         // ===== MANUAL REFRESH FOR MAIN =====
         async function refreshDashboard() {
             console.log('🔄 Обновляем дашборд...');
@@ -1699,6 +1750,18 @@
                 if (!response.ok) {
                     const errorData = await response.json();
                     console.error('❌ Join error:', errorData);
+                    
+                    // Если пользователь уже в пространстве - перезагружаем список
+                    if (errorData.error && errorData.error.includes('уже состоите')) {
+                        showMessage('ℹ️ Вы уже в этом пространстве');
+                        // ПЕРЕЗАГРУЖАЕМ ПРОСТРАНСТВА
+                        await loadSpaces();
+                        await loadQuickSpaces();
+                        // Очищаем поле ввода
+                        document.getElementById('inviteCodeInput').value = '';
+                        return;
+                    }
+                    
                     throw new Error(errorData.error || 'Ошибка присоединения');
                 }
 
@@ -1710,9 +1773,15 @@
                 // Очищаем поле ввода
                 document.getElementById('inviteCodeInput').value = '';
                 
-                // Обновляем список пространств
+                // ПЕРЕЗАГРУЖАЕМ ПРОСТРАНСТВА
                 await loadSpaces();
                 await loadQuickSpaces();
+                
+                // Автоматически выбираем новое пространство
+                if (data.space_id) {
+                    console.log('🔍 Selecting joined space:', data.space_id);
+                    selectSpace(data.space_id);
+                }
                 
             } catch (error) {
                 console.error('💥 Join failed:', error);
