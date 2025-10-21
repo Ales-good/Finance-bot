@@ -1184,7 +1184,7 @@
         // ===== SPACES MANAGEMENT =====
         function displaySpacesGrid(spaces, containerId, isQuick = false) {
             const container = document.getElementById(containerId);
-    
+
             if (!spaces || spaces.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
@@ -1197,16 +1197,24 @@
 
             const gridClass = isQuick ? 'spaces-grid quick-grid' : 'spaces-grid';
             container.className = gridClass;
-    
-            container.innerHTML = spaces.map(space => `
-                <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                     data-space-id="${space.id}"
-                     onclick="selectSpace(${space.id})">
-                    <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
-                    <div class="space-name">${space.name}</div>
-                    ${!isQuick ? `<div class="space-meta">${space.member_count} участ.</div>` : ''}
-                </div>
-            `).join('');
+
+            container.innerHTML = spaces.map(space => {
+                // Ключевое изменение здесь:
+                // Для вкладки "Пространства" используем showSpaceDetails, для остальных - selectSpace
+                const onClickFunction = (containerId === 'spacesList') ? 
+                    `showSpaceDetails(${space.id})` : 
+                    `selectSpace(${space.id})`;
+                    
+                return `
+                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                        data-space-id="${space.id}"
+                        onclick="${onClickFunction}">
+                        <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                        <div class="space-name">${space.name}</div>
+                        ${!isQuick ? `<div class="space-meta">${space.member_count} участ.</div>` : ''}
+                    </div>
+                `;
+            }).join('');
         }
 
         function loadSpacesForSelector(containerId, isQuick = false) {
@@ -1643,8 +1651,29 @@
             }
 
             try {
-                showMessage('Функция выхода из пространства в разработке');
+                showMessage('⏳ Покидаем пространство...');
+                
+                const response = await fetch(`${API_URL}/remove_member`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        targetUserId: userData.id  // Выходим сами
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка выхода из пространства');
+                }
+
+                showMessage('✅ Вы покинули пространство');
+                hideSpaceDetails();
+                loadSpaces(); // Перезагружаем список
+                
             } catch (error) {
+                console.error('❌ Error leaving space:', error);
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
@@ -2532,8 +2561,8 @@
             }
 
             try {
-                console.log('Deleting space:', state.currentSpaceId);
-
+                showMessage('⏳ Удаляем пространство...');
+                
                 const response = await fetch(`${API_URL}/delete_space`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -2543,26 +2572,20 @@
                     })
                 });
 
-                console.log('Delete response status:', response.status);
-
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Ошибка удаления пространства');
                 }
-        
-                const result = await response.json();
-                console.log('Delete success:', result);
 
-                showMessage('✅ Пространство успешно удалено!');
+                showMessage('✅ Пространство удалено');
                 hideSpaceDetails();
-                loadSpaces();
-                loadQuickSpaces(); // Обновляем быстрые пространства
+                loadSpaces(); // Перезагружаем список
                 state.currentSpaceId = null;
                 saveState();
-
+                
             } catch (error) {
-                console.error('Delete space error:', error);
-                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+                console.error('❌ Error deleting space:', error);
+                showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
         // ===== UTILITY FUNCTIONS =====
