@@ -1296,7 +1296,7 @@ def api_add_user_category():
 
 @flask_app.route('/export_to_excel', methods=['POST'])
 def api_export_to_excel():
-    """Экспорт данных в Excel - простой способ"""
+    """Экспорт данных в Excel"""
     logger.info("🎯 START EXPORT TO EXCEL")
     
     try:
@@ -1357,17 +1357,25 @@ def api_export_to_excel():
         excel_data = output.getvalue()
         logger.info(f"✅ Excel created, size: {len(excel_data)} bytes")
         
-        # Возвращаем файл напрямую
-        from flask import make_response
-        response = make_response(excel_data)
-        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        response.headers['Content-Disposition'] = f'attachment; filename=finance_export.xlsx'
+        # Конвертируем в base64 для Telegram Web App
+        import base64
+        excel_b64 = base64.b64encode(excel_data).decode('utf-8')
+        filename = f"finance_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         
-        logger.info("📤 Sending file directly")
-        return response
+        logger.info(f"📤 Returning base64 data URL, length: {len(excel_b64)}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Файл готов к скачиванию',
+            'download_url': f'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{excel_b64}',
+            'filename': filename,
+            'file_size': len(excel_data)
+        })
         
     except Exception as e:
         logger.error(f"💥 Export failed: {e}")
+        import traceback
+        logger.error(f"🔍 Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
 # ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
