@@ -2315,59 +2315,49 @@
                     })
                 });
 
-                console.log('📩 Response status:', response.status);
-
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Ошибка сервера');
                 }
 
                 const result = await response.json();
-                console.log('📦 Server response:', {
-                    success: result.success,
-                    message: result.message,
-                    filename: result.filename,
-                    file_size: result.file_size,
-                    download_url_length: result.download_url ? result.download_url.length : 0
-                });
+                console.log('📦 Server response:', result);
 
-                if (!result.download_url) {
-                    throw new Error('Сервер не вернул ссылку для скачивания');
+                if (result.sent_via_bot) {
+                    // Файл отправлен через бота
+                    showMessage('✅ Файл отправлен в чат с ботом! Проверьте Telegram.');
+                    
+                    // Можно предложить открыть чат с ботом
+                    setTimeout(() => {
+                        if (confirm('Открыть чат с ботом для получения файла?')) {
+                            window.open('https://t.me/incomeexpensebookBot', '_blank');
+                        }
+                    }, 1000);
+                    
+                } else if (result.download_url) {
+                    // Пробуем скачать через data URL
+                    console.log('📥 Trying data URL download...');
+                    const a = document.createElement('a');
+                    a.href = result.download_url;
+                    a.download = result.filename || 'finance_export.xlsx';
+                    a.style.display = 'none';
+                    
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                    }, 1000);
+                    
+                    showMessage('✅ Файл скачивается...');
+                } else {
+                    throw new Error('Неизвестный формат ответа');
                 }
-
-                // Создаем ссылку и скачиваем
-                console.log('📥 Creating download link...');
-                const a = document.createElement('a');
-                a.href = result.download_url;
-                a.download = result.filename || 'finance_export.xlsx';
-                a.style.display = 'none';
-                
-                document.body.appendChild(a);
-                console.log('🖱️ Clicking download link...');
-                a.click();
-                
-                // Очистка
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    console.log('✅ Download completed');
-                }, 1000);
-
-                showMessage('✅ Файл скачивается...');
 
             } catch (error) {
                 console.error('💥 Export failed:', error);
-                
-                let userMessage = error.message;
-                if (error.message.includes('Failed to fetch')) {
-                    userMessage = 'Ошибка соединения с сервером';
-                } else if (error.message.includes('Нет данных')) {
-                    userMessage = 'Нет данных для экспорта';
-                }
-                
-                showMessage(`❌ ${userMessage}`, 'error');
+                showMessage(`❌ ${error.message}`, 'error');
             }
-            
-            console.log('=== 🏁 EXPORT TO EXCEL END ===');
         }
         
         // Функция для загрузки быстрых пространств
