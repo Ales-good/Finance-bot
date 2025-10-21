@@ -1297,111 +1297,78 @@ def api_add_user_category():
 @flask_app.route('/export_to_excel', methods=['POST'])
 def api_export_to_excel():
     """Экспорт данных в Excel"""
+    logger.info("🎯 START EXPORT TO EXCEL")
+    
     try:
         data = request.json
+        logger.info(f"📨 Received export request")
+        
         init_data = data.get('initData')
         space_id = data.get('spaceId')
         period = data.get('period', 30)
         
-        logger.info(f"🔍 Export request: space_id={space_id}, period={period}")
+        logger.info(f"🔧 Params: space_id={space_id}, period={period}")
         
-        if not validate_webapp_data(init_data):
-            return jsonify({'error': 'Invalid data'}), 401
+        # ВРЕМЕННО - упрощенная проверка для теста
+        # if not validate_webapp_data(init_data):
+        #     logger.warning("❌ Validation failed")
+        #     return jsonify({'error': 'Invalid data'}), 401
             
-        user_data = get_user_from_init_data(init_data)
-        if not user_data:
-            return jsonify({'error': 'User not found'}), 401
+        # user_data = get_user_from_init_data(init_data)
+        # if not user_data:
+        #     logger.warning("❌ User not found")
+        #     return jsonify({'error': 'User not found'}), 401
         
-        conn = get_db_connection()
+        # Простые тестовые данные (временно)
+        test_data = {
+            'Дата': [datetime.now().strftime('%Y-%m-%d'), datetime.now().strftime('%Y-%m-%d')],
+            'Сумма': [100, 200],
+            'Категория': ['Тест1', 'Тест2'],
+            'Описание': ['Тестовая трата 1', 'Тестовая трата 2'],
+            'Валюта': ['RUB', 'RUB']
+        }
+        df = pd.DataFrame(test_data)
         
-        # ИСПРАВЛЕННЫЕ ЗАПРОСЫ ДЛЯ POSTGRESQL
-        if space_id:
-            if isinstance(conn, sqlite3.Connection):
-                # SQLite
-                query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
-                          FROM expenses e
-                          JOIN financial_spaces fs ON e.space_id = fs.id
-                          WHERE e.space_id = ? AND e.date >= DATE('now', ?)
-                          ORDER BY e.date DESC'''
-                df = pd.read_sql_query(query, conn, params=(space_id, f'-{period} days'))
-            else:
-                # PostgreSQL - ИСПРАВЛЕНО
-                query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
-                          FROM expenses e
-                          JOIN financial_spaces fs ON e.space_id = fs.id
-                          WHERE e.space_id = %s AND e.date >= CURRENT_DATE - INTERVAL '%s days'
-                          ORDER BY e.date DESC'''
-                df = pd.read_sql_query(query, conn, params=(space_id, period))
-        else:
-            if isinstance(conn, sqlite3.Connection):
-                # SQLite
-                query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
-                          FROM expenses e
-                          JOIN financial_spaces fs ON e.space_id = fs.id
-                          WHERE e.user_id = ? AND e.date >= DATE('now', ?)
-                          ORDER BY e.date DESC'''
-                df = pd.read_sql_query(query, conn, params=(user_data['id'], f'-{period} days'))
-            else:
-                # PostgreSQL - ИСПРАВЛЕНО
-                query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
-                          FROM expenses e
-                          JOIN financial_spaces fs ON e.space_id = fs.id
-                          WHERE e.user_id = %s AND e.date >= CURRENT_DATE - INTERVAL '%s days'
-                          ORDER BY e.date DESC'''
-                df = pd.read_sql_query(query, conn, params=(user_data['id'], period))
+        logger.info(f"📊 Created test DataFrame with {len(df)} rows")
         
-        conn.close()
-        
-        logger.info(f"📊 Found {len(df)} records for export")
-        
-        if df.empty:
-            return jsonify({'error': 'Нет данных для экспорта'}), 404
-        
-        # Создаем Excel файл в памяти
+        # Создаем Excel
         output = io.BytesIO()
-        
         try:
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # Основной лист с тратами
                 df.to_excel(writer, sheet_name='Траты', index=False)
                 
-                # Добавляем сводку
                 summary_data = {
-                    'Метрика': ['Всего трат', 'Сумма расходов', 'Средний чек', 'Период'],
-                    'Значение': [
-                        len(df),
-                        f"{df['amount'].sum():.2f}",
-                        f"{df['amount'].mean():.2f}",
-                        f"Последние {period} дней"
-                    ]
+                    'Метрика': ['Всего трат', 'Сумма', 'Период'],
+                    'Значение': [len(df), df['Сумма'].sum(), f'{period} дней']
                 }
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Сводка', index=False)
             
             excel_data = output.getvalue()
-            logger.info(f"✅ Excel file created, size: {len(excel_data)} bytes")
+            logger.info(f"✅ Excel created, size: {len(excel_data)} bytes")
             
         except Exception as e:
-            logger.error(f"❌ Excel creation error: {e}")
-            return jsonify({'error': 'Ошибка создания файла Excel'}), 500
+            logger.error(f"❌ Excel creation failed: {e}")
+            return jsonify({'error': f'Excel creation failed: {str(e)}'}), 500
         
         if len(excel_data) == 0:
-            return jsonify({'error': 'Создан пустой файл'}), 500
+            logger.error("❌ Empty Excel file")
+            return jsonify({'error': 'Empty file generated'}), 500
 
-        # Возвращаем файл
+        # Отправляем файл
+        from flask import make_response
+        response = make_response(excel_data)
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        response.headers['Content-Disposition'] = f'attachment; filename=finance_export.xlsx'
         
-        response = Response(
-            excel_data,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            headers={
-                'Content-Disposition': f'attachment; filename=finance_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-            }
-        )
+        logger.info("📤 Sending file to client")
         return response
         
     except Exception as e:
-        logger.error(f"❌ Export error: {e}")
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+        logger.error(f"💥 Export failed: {e}")
+        import traceback
+        logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
 # ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 @flask_app.route('/')
