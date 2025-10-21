@@ -205,18 +205,19 @@ def init_db():
                       currency TEXT DEFAULT 'RUB',
                       FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
         
-        # Таблица бюджетов
+        # ОБНОВЛЕННАЯ: Таблица бюджетов (теперь общие для пространства)
         c.execute('''CREATE TABLE IF NOT EXISTS budgets
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      user_id INTEGER,
-                      space_id INTEGER,
-                      amount REAL,
-                      month_year TEXT,
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      space_id INTEGER NOT NULL,
+                      amount REAL NOT NULL,
+                      month_year TEXT NOT NULL,
                       currency TEXT DEFAULT 'RUB',
-                      FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      created_by INTEGER,
+                      FOREIGN KEY (space_id) REFERENCES financial_spaces (id),
+                      UNIQUE(space_id, month_year))''')  # Уникальный бюджет на пространство-месяц
         
-        # НОВАЯ: Таблица уведомлений о бюджете
+        # Таблица уведомлений о бюджете
         c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       user_id INTEGER,
@@ -228,7 +229,7 @@ def init_db():
                       sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                       FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
         
-        # НОВАЯ: Таблица категорий пользователя
+        # Таблица категорий пользователя
         c.execute('''CREATE TABLE IF NOT EXISTS user_categories
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       user_id INTEGER,
@@ -272,16 +273,18 @@ def init_db():
                       date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                       currency TEXT DEFAULT 'RUB')''')
         
+        # ОБНОВЛЕННАЯ: Таблица бюджетов (теперь общие для пространства)
         c.execute('''CREATE TABLE IF NOT EXISTS budgets
                      (id SERIAL PRIMARY KEY,
-                      user_id BIGINT,
-                      space_id INTEGER REFERENCES financial_spaces(id),
-                      amount REAL,
-                      month_year TEXT,
+                      space_id INTEGER REFERENCES financial_spaces(id) NOT NULL,
+                      amount REAL NOT NULL,
+                      month_year TEXT NOT NULL,
+                      currency TEXT DEFAULT 'RUB',
                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      currency TEXT DEFAULT 'RUB')''')
+                      created_by BIGINT,
+                      UNIQUE(space_id, month_year))''')  # Уникальный бюджет на пространство-месяц
         
-        # НОВАЯ: Таблица уведомлений о бюджете
+        # Таблица уведомлений о бюджете
         c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
                      (id SERIAL PRIMARY KEY,
                       user_id BIGINT,
@@ -292,7 +295,7 @@ def init_db():
                       alert_type TEXT,
                       sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         
-        # НОВАЯ: Таблица категорий пользователя
+        # Таблица категорий пользователя
         c.execute('''CREATE TABLE IF NOT EXISTS user_categories
                      (id SERIAL PRIMARY KEY,
                       user_id BIGINT,
@@ -317,13 +320,19 @@ def init_db():
     ]
     
     for category_name, icon in default_categories:
-        c.execute('''INSERT OR IGNORE INTO user_categories 
-                     (user_id, space_id, category_name, category_icon, is_custom) 
-                     VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
+        if isinstance(conn, sqlite3.Connection):
+            c.execute('''INSERT OR IGNORE INTO user_categories 
+                         (user_id, space_id, category_name, category_icon, is_custom) 
+                         VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
+        else:
+            c.execute('''INSERT INTO user_categories 
+                         (user_id, space_id, category_name, category_icon, is_custom) 
+                         VALUES (0, 0, %s, %s, FALSE)
+                         ON CONFLICT DO NOTHING''', (category_name, icon))
     
     conn.commit()
     conn.close()
-    logger.info("✅ База данных инициализирована с новыми таблицами")
+    logger.info("✅ База данных инициализирована с обновленной таблицей бюджетов")
 
 # ===== НОВЫЕ ФУНКЦИИ ДЛЯ УВЕДОМЛЕНИЙ =====
 async def check_budget_alerts():
