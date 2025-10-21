@@ -993,6 +993,69 @@ def set_user_budget(user_id, space_id, amount, currency="RUB"):
     finally:
         conn.close()
 
+def set_space_budget(space_id, amount, currency="RUB"):
+    """Установка общего бюджета для пространства"""
+    conn = get_db_connection()
+    
+    try:
+        current_month = datetime.now().strftime('%Y-%m')
+        
+        if isinstance(conn, sqlite3.Connection):
+            c = conn.cursor()
+            # Проверяем, есть ли уже бюджет на этот месяц
+            c.execute('SELECT id FROM budgets WHERE space_id = ? AND month_year = ?', 
+                     (space_id, current_month))
+            existing = c.fetchone()
+            
+            if existing:
+                c.execute('UPDATE budgets SET amount = ?, currency = ? WHERE id = ?', (amount, currency, existing[0]))
+            else:
+                c.execute('INSERT INTO budgets (space_id, amount, month_year, currency) VALUES (?, ?, ?, ?)',
+                         (space_id, amount, current_month, currency))
+        else:
+            c = conn.cursor()
+            c.execute('SELECT id FROM budgets WHERE space_id = %s AND month_year = %s', 
+                     (space_id, current_month))
+            existing = c.fetchone()
+            
+            if existing:
+                c.execute('UPDATE budgets SET amount = %s, currency = %s WHERE id = %s', (amount, currency, existing[0]))
+            else:
+                c.execute('INSERT INTO budgets (space_id, amount, month_year, currency) VALUES (%s, %s, %s, %s)',
+                         (space_id, amount, current_month, currency))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error setting space budget: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_space_budget(space_id):
+    """Получение общего бюджета пространства"""
+    conn = get_db_connection()
+    
+    try:
+        current_month = datetime.now().strftime('%Y-%m')
+        
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT amount, currency FROM budgets WHERE space_id = ? AND month_year = ?'''
+            df = pd.read_sql_query(query, conn, params=(space_id, current_month))
+        else:
+            query = '''SELECT amount, currency FROM budgets WHERE space_id = %s AND month_year = %s'''
+            df = pd.read_sql_query(query, conn, params=(space_id, current_month))
+        
+        if not df.empty:
+            return float(df.iloc[0]['amount']), df.iloc[0]['currency']
+        else:
+            return 0, 'RUB'
+    except Exception as e:
+        logger.error(f"❌ Error getting space budget: {e}")
+        return 0, 'RUB'
+    finally:
+        conn.close()
+
 def get_user_budget(user_id, space_id):
     """Получение бюджета пользователя"""
     conn = get_db_connection()
@@ -1914,12 +1977,9 @@ def api_get_analytics():
 
 @flask_app.route('/set_budget', methods=['POST'])
 def api_set_budget():
-    """API для установки бюджета"""
+    """API для установки бюджета пространства"""
     try:
         data = request.json
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-            
         init_data = data.get('initData')
         space_id = data.get('spaceId')
         amount = data.get('amount')
@@ -1941,13 +2001,200 @@ def api_set_budget():
         if not is_user_in_space(user_data['id'], space_id):
             return jsonify({'error': 'Access denied'}), 403
         
-        success = set_user_budget(user_data['id'], space_id, float(amount), currency)
+        # Используем новую функцию для общего бюджета пространства
+        success = set_space_budget(space_id, float(amount), currency)
         
         return jsonify({'success': success})
             
     except Exception as e:
         logger.error(f"❌ API Error in set_budget: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+@flask_app.route('/get_analytics', methods=['POST'])
+def api_get_analytics():
+    """API для получения аналитики"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        user_id = data.get('userId')
+        
+        logger.info(f"📊 Получение аналитики: space_id={space_id}, user_id={user_id}")
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        # Проверяем, что пользователь состоит в пространстве
+        if not is_user_in_space(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        conn = get_db_connection()
+        
+        # Получаем участников пространства для фильтра
+        if isinstance(conn, sqlite3.Connection):
+            users_query = '''SELECT DISTINCT user_id, user_name FROM space_members WHERE space_id = ?'''
+            users_df = pd.read_sql_query(users_query, conn, params=(space_id,))
+        else:
+            users_query = '''SELECT DISTINCT user_id, user_name FROM space_members WHERE space_id = %s'''
+            users_df = pd.read_sql_query(users_query, conn, params=(space_id,))
+        
+        users = []
+        for _, row in users_df.iterrows():
+            users.append({
+                'id': int(row['user_id']),
+                'name': row['user_name']
+            })
+        
+        # Статистика по категориям
+        if user_id:
+            if isinstance(conn, sqlite3.Connection):
+                query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                           FROM expenses 
+                           WHERE space_id = ? AND user_id = ?
+                           GROUP BY category 
+                           ORDER BY total DESC'''
+                df = pd.read_sql_query(query, conn, params=(space_id, user_id))
+                
+                count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = ? AND user_id = ?'''
+                count_df = pd.read_sql_query(count_query, conn, params=(space_id, user_id))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = ? AND user_id = ? AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id, user_id))
+            else:
+                query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                           FROM expenses 
+                           WHERE space_id = %s AND user_id = %s
+                           GROUP BY category 
+                           ORDER BY total DESC'''
+                df = pd.read_sql_query(query, conn, params=(space_id, user_id))
+                
+                count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = %s AND user_id = %s'''
+                count_df = pd.read_sql_query(count_query, conn, params=(space_id, user_id))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = %s AND user_id = %s AND DATE_TRUNC('month', date) = DATE_TRUNC('month', CURRENT_DATE)'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id, user_id))
+        else:
+            if isinstance(conn, sqlite3.Connection):
+                query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                           FROM expenses 
+                           WHERE space_id = ?
+                           GROUP BY category 
+                           ORDER BY total DESC'''
+                df = pd.read_sql_query(query, conn, params=(space_id,))
+                
+                count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = ?'''
+                count_df = pd.read_sql_query(count_query, conn, params=(space_id,))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = ? AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id,))
+            else:
+                query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                           FROM expenses 
+                           WHERE space_id = %s
+                           GROUP BY category 
+                           ORDER BY total DESC'''
+                df = pd.read_sql_query(query, conn, params=(space_id,))
+                
+                count_query = '''SELECT COUNT(*) as total_count FROM expenses WHERE space_id = %s'''
+                count_df = pd.read_sql_query(count_query, conn, params=(space_id,))
+                
+                total_spent_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent FROM expenses WHERE space_id = %s AND DATE_TRUNC('month', date) = DATE_TRUNC('month', CURRENT_DATE)'''
+                total_spent_df = pd.read_sql_query(total_spent_query, conn, params=(space_id,))
+        
+        conn.close()
+        
+        categories = []
+        for _, row in df.iterrows():
+            categories.append({
+                'name': row['category'],
+                'total': float(row['total']),
+                'count': int(row['count'])
+            })
+        
+        total_count = int(count_df.iloc[0]['total_count']) if not count_df.empty else 0
+        total_spent = float(total_spent_df.iloc[0]['total_spent']) if not total_spent_df.empty else 0
+        
+        # Получаем общий бюджет пространства
+        budget, currency = get_space_budget(space_id)
+        
+        return jsonify({
+            'categories': categories,
+            'total_count': total_count,
+            'total_spent': total_spent,
+            'budget': budget,
+            'currency': currency,
+            'users': users
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_analytics: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+    
+@flask_app.route('/get_user_breakdown', methods=['POST'])
+def api_get_user_breakdown():
+    """API для получения разбивки по пользователям"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        period = data.get('period', 30)
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if not is_user_in_space(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT 
+                         user_name,
+                         SUM(amount) as total_spent,
+                         COUNT(*) as expense_count,
+                         AVG(amount) as avg_expense
+                       FROM expenses 
+                       WHERE space_id = ? AND date >= DATE('now', ?)
+                       GROUP BY user_name 
+                       ORDER BY total_spent DESC'''
+            df = pd.read_sql_query(query, conn, params=(space_id, f'-{period} days'))
+        else:
+            query = '''SELECT 
+                         user_name,
+                         SUM(amount) as total_spent,
+                         COUNT(*) as expense_count,
+                         AVG(amount) as avg_expense
+                       FROM expenses 
+                       WHERE space_id = %s AND date >= CURRENT_DATE - INTERVAL '%s days'
+                       GROUP BY user_name 
+                       ORDER BY total_spent DESC'''
+            df = pd.read_sql_query(query, conn, params=(space_id, period))
+        
+        conn.close()
+        
+        users_data = []
+        for _, row in df.iterrows():
+            users_data.append({
+                'name': row['user_name'],
+                'total_spent': float(row['total_spent']),
+                'expense_count': int(row['expense_count']),
+                'avg_expense': float(row['avg_expense'])
+            })
+        
+        return jsonify({'users': users_data})
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_user_breakdown: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
 
 @flask_app.route('/join_space', methods=['POST'])
 def api_join_space():
