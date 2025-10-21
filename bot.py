@@ -29,6 +29,8 @@ import hashlib
 import hmac
 import asyncio
 import traceback  # ← Добавьте если используете traceback
+import secrets
+import string
 
 # Настройка логирования
 logging.basicConfig(
@@ -1712,6 +1714,47 @@ def api_get_space_members():
         logger.error(f"❌ API Error in get_space_members: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
+
+
+def generate_invite_code(length=8):
+    """Генерация безопасного уникального кода приглашения"""
+    alphabet = string.ascii_uppercase + string.digits
+    # Исключаем похожие символы: 0, O, 1, I
+    alphabet = alphabet.replace('0', '').replace('O', '').replace('1', '').replace('I', '')
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+def generate_unique_invite_code(length=8, max_attempts=10):
+    """Генерация гарантированно уникального кода приглашения"""
+    conn = get_db_connection()
+    
+    for attempt in range(max_attempts):
+        code = generate_invite_code(length)
+        
+        try:
+            if isinstance(conn, sqlite3.Connection):
+                query = "SELECT id FROM financial_spaces WHERE invite_code = ?"
+                df = pd.read_sql_query(query, conn, params=(code,))
+            else:
+                query = "SELECT id FROM financial_spaces WHERE invite_code = %s"
+                df = pd.read_sql_query(query, conn, params=(code,))
+            
+            if df.empty:
+                return code
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Error checking invite code uniqueness: {e}")
+            return code  # В случае ошибки возвращаем сгенерированный код
+    
+    # Если не удалось сгенерировать уникальный код
+    logger.error("❌ Failed to generate unique invite code")
+    return generate_invite_code(length)  # Возвращаем любой код
+
+def generate_invite_code(length=8):
+    """Генерация безопасного уникального кода приглашения"""
+    alphabet = string.ascii_uppercase + string.digits
+    # Исключаем похожие символы: 0, O, 1, I
+    alphabet = alphabet.replace('0', '').replace('O', '').replace('1', '').replace('I', '')
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
 @flask_app.route('/create_space', methods=['POST'])
 def api_create_space():
     """API для создания пространства"""
@@ -1738,7 +1781,7 @@ def api_create_space():
         
         try:
             # Генерируем уникальный код приглашения
-            invite_code = generate_invite_code()
+            invite_code = generate_unique_invite_code()
             
             if isinstance(conn, sqlite3.Connection):
                 # SQLite
