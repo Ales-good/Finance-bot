@@ -1,3 +1,10 @@
+# Flask imports
+from flask import Flask, request, jsonify, Response  # ← Важно: Response здесь
+import logging
+from threading import Thread
+import time
+
+# Другие импорты
 import sqlite3
 import pandas as pd
 from datetime import datetime, timedelta
@@ -15,16 +22,13 @@ import speech_recognition as sr
 import numpy as np
 import psycopg2
 from urllib.parse import urlparse
-import logging
-from flask import Flask, request, jsonify
 import random
 import string
 from flask_cors import CORS
 import hashlib
 import hmac
 import asyncio
-from threading import Thread
-import time
+import traceback  # ← Добавьте если используете traceback
 
 # Настройка логирования
 logging.basicConfig(
@@ -1385,7 +1389,7 @@ def api_export_to_excel():
             return jsonify({'error': 'Создан пустой файл'}), 500
 
         # Возвращаем файл
-        from flask import Response
+        
         response = Response(
             excel_data,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
