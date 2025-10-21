@@ -624,6 +624,14 @@
                 <button class="tab" onclick="showTab('analytics')">📊</button>
             </div>
 
+
+            <!-- Добавьте эту кнопку сразу после табов -->
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 16px;">
+                <button class="btn btn-outline" onclick="refreshDashboard()" style="width: auto; padding: 8px 16px;">
+                    🔄 Обновить данные
+                </button>
+            </div>
+
             <!-- Быстрый выбор пространства -->
             <div class="card">
                 <h3>🏠 Мои пространства</h3>
@@ -1292,18 +1300,47 @@
         }
 
         function selectSpace(spaceId) {
-            if (state.currentSpaceId === spaceId) return; // Уже выбрано
-    
+            if (state.currentSpaceId === spaceId) return;
+
             state.currentSpaceId = spaceId;
             saveState();
-    
+
             // Мгновенное визуальное обновление
             updateSpaceVisualSelection(spaceId);
-    
+
             // Быстрая загрузка данных без полного обновления страницы
             loadSpaceDataImmediately(spaceId);
+            
+            // ОБНОВЛЯЕМ ДАШБОРД ПРИ СМЕНЕ ПРОСТРАНСТВА
+            refreshDashboard();
         }
 
+        // ===== MANUAL REFRESH FOR MAIN =====
+        async function refreshDashboard() {
+            console.log('🔄 Обновляем дашборд...');
+            
+            try {
+                showMessage('🔄 Обновляем данные...');
+                
+                // Очищаем кэш пространств
+                dataCache.spaces = null;
+                dataCache.lastUpdate = null;
+                
+                // Перезагружаем быстрые пространства
+                await loadQuickSpaces();
+                
+                // Перезагружаем KPI если есть выбранное пространство
+                if (state.currentSpaceId) {
+                    await loadDashboardKPI(state.currentSpaceId);
+                }
+                
+                showMessage('✅ Данные обновлены!');
+                
+            } catch (error) {
+                console.error('❌ Ошибка обновления дашборда:', error);
+                showMessage('❌ Ошибка при обновлении данных', 'error');
+            }
+        }
         // ===== MANUAL REFRESH FOR ANALYTICS =====
         async function refreshAnalytics() {
             if (!state.currentSpaceId) {
@@ -2492,7 +2529,7 @@
             await loadDashboardKPI();
         }
 
-        async function loadDashboardKPI(spaceId = state.currentSpaceId) {
+        async function loadDashboardKPI(spaceId = state.currentSpaceId, forceRefresh = false) {
             if (!spaceId) {
                 document.getElementById('dashboardKPI').classList.add('hidden');
                 document.getElementById('noSpaceSelected').classList.remove('hidden');
@@ -2500,6 +2537,12 @@
             }
 
             try {
+                if (forceRefresh) {
+                    // Принудительно очищаем кэш
+                    dataCache.spaces = null;
+                    dataCache.lastUpdate = null;
+                }
+
                 // Один запрос вместо нескольких
                 const response = await fetch(`${API_URL}/get_advanced_analytics`, {
                     method: 'POST',
@@ -2522,7 +2565,7 @@
                 // Показываем KPI секцию
                 document.getElementById('dashboardKPI').classList.remove('hidden');
                 document.getElementById('noSpaceSelected').classList.add('hidden');
-        
+                
             } catch (error) {
                 console.error('Ошибка загрузки KPI:', error);
             }
