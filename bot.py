@@ -1991,9 +1991,9 @@ def api_join_space():
             logger.warning(f"❌ Space not found for code: {invite_code}")
             return jsonify({'error': 'Неверный код приглашения или пространство не существует'}), 404
         
-        space_id = space_df.iloc[0]['id']
-        space_name = space_df.iloc[0]['name']
-        space_type = space_df.iloc[0]['space_type']
+        space_id = int(space_df.iloc[0]['id'])  # Конвертируем в int
+        space_name = str(space_df.iloc[0]['name'])  # Конвертируем в string
+        space_type = str(space_df.iloc[0]['space_type'])  # Конвертируем в string
         
         logger.info(f"🏠 Space found: {space_name} (ID: {space_id})")
         
@@ -2006,8 +2006,15 @@ def api_join_space():
             member_df = pd.read_sql_query(member_query, conn, params=(space_id, user_data['id']))
         
         if not member_df.empty:
-            logger.warning(f"⚠️ User {user_data['id']} already in space {space_id}")
-            return jsonify({'error': 'Вы уже состоите в этом пространстве'}), 400
+            logger.info(f"ℹ️ User {user_data['id']} already in space {space_id} - returning success")
+            # Вместо ошибки возвращаем успех
+            return jsonify({
+                'success': True,
+                'space_id': space_id,
+                'space_name': space_name,
+                'space_type': space_type,
+                'already_member': True  # Флаг что пользователь уже был участником
+            })
         
         # Добавляем пользователя в пространство
         if isinstance(conn, sqlite3.Connection):
@@ -2030,7 +2037,8 @@ def api_join_space():
             'success': True,
             'space_id': space_id,
             'space_name': space_name,
-            'space_type': space_type
+            'space_type': space_type,
+            'already_member': False
         })
         
     except Exception as e:
@@ -2038,6 +2046,38 @@ def api_join_space():
         import traceback
         logger.error(f"🔍 Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+@flask_app.route('/debug_space_status', methods=['POST'])
+def debug_space_status():
+    """Проверка статуса пространства"""
+    try:
+        data = request.json
+        space_id = data.get('spaceId')
+        
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT id, name, is_active, invite_code FROM financial_spaces WHERE id = ?'''
+            space_df = pd.read_sql_query(query, conn, params=(space_id,))
+        else:
+            query = '''SELECT id, name, is_active, invite_code FROM financial_spaces WHERE id = %s'''
+            space_df = pd.read_sql_query(query, conn, params=(space_id,))
+        
+        conn.close()
+        
+        if space_df.empty:
+            return jsonify({'error': 'Space not found'}), 404
+        
+        space = space_df.iloc[0]
+        return jsonify({
+            'space_id': int(space['id']),
+            'name': str(space['name']),
+            'is_active': bool(space['is_active']),
+            'invite_code': str(space['invite_code'])
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @flask_app.route('/remove_member', methods=['POST'])
 def api_remove_member():
