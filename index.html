@@ -719,7 +719,7 @@
                     <label>Описание:</label>
                     <textarea id="spaceDescription" placeholder="Описание пространства" rows="3"></textarea>
                 </div>
-                <button class="btn" onclick="createSpace()">Создать</button>
+                <button class="btn" onclick="createSpace()" id="createSpaceBtn">Создать</button>
                 <button class="btn btn-secondary" onclick="hideCreateSpaceForm()">Отмена</button>
             </div>
 
@@ -747,14 +747,9 @@
                 
                 <div class="action-buttons">
                     <button class="btn btn-danger" onclick="leaveSpace()">🚪 Покинуть пространство</button>
-                    <button class="btn btn-danger" onclick="deleteSpace()">🗑️ Удалить пространство</button>
+                    <button class="btn btn-danger" onclick="deleteSpace()" id="deleteSpaceBtn">🗑️ Удалить пространство</button>
                     <button class="btn btn-secondary" onclick="hideSpaceDetails()">← Назад</button>
-                    <button class="btn btn-outline" onclick="debugSpaces()" style="background: red; color: white; margin-top: 10px;">
-                    🐛 Диагностика пространств
-                    </button>
-                    <button class="btn btn-outline" onclick="debugMembership()" style="background: purple; color: white; margin-top: 10px;">
-                    🐛 Диагностика членства
-                    </button>
+                    
                 </div>
             </div>
 
@@ -1635,6 +1630,12 @@
                 return;
             }
 
+            // Показываем индикатор загрузки
+            const button = event.target;
+            const originalText = button.textContent;
+            button.textContent = '⏳ Создаем...';
+            button.disabled = true;
+
             try {
                 const response = await fetch(`${API_URL}/create_space`, {
                     method: 'POST',
@@ -1653,14 +1654,74 @@
                 }
                 
                 const data = await response.json();
-                showMessage(`Пространство "${name}" создано! Код: ${data.invite_code}`);
+                showMessage(`✅ Пространство "${name}" создано!`);
                 hideCreateSpaceForm();
-                loadSpaces();
                 
+                // Очищаем форму
                 document.getElementById('spaceName').value = '';
                 document.getElementById('spaceDescription').value = '';
+                
+                // Перезагружаем пространства
+                await loadSpaces();
+                
             } catch (error) {
-                showMessage(`Ошибка: ${error.message}`, 'error');
+                console.error('❌ Create space error:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            } finally {
+                // Восстанавливаем кнопку
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+
+        async function deleteSpace() {
+            if (!state.currentSpaceId) return;
+            
+            if (!confirm('ВНИМАНИЕ! Вы уверены, что хотите УДАЛИТЬ это пространство?\n\nВсе данные будут удалены безвозвратно!\n\nЭто действие нельзя отменить.')) {
+                return;
+            }
+
+            // Показываем индикатор
+            const button = event.target;
+            const originalText = button.textContent;
+            button.textContent = '⏳ Удаляем...';
+            button.disabled = true;
+
+            try {
+                showMessage('⏳ Удаляем пространство...');
+                
+                const response = await fetch(`${API_URL}/delete_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка удаления пространства');
+                }
+
+                showMessage('✅ Пространство удалено');
+                hideSpaceDetails();
+                
+                // Сбрасываем текущее пространство
+                state.currentSpaceId = null;
+                saveState();
+                
+                // Перезагружаем пространства
+                await loadSpaces();
+                await loadQuickSpaces();
+                
+            } catch (error) {
+                console.error('❌ Delete space error:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            } finally {
+                // Восстанавливаем кнопку
+                button.textContent = originalText;
+                button.disabled = false;
             }
         }
 
@@ -2788,39 +2849,7 @@
         }
         
         // ===== Удаление пространства =====
-        async function deleteSpace() {
-            if (!state.currentSpaceId || !confirm('ВНИМАНИЕ! Вы уверены, что хотите УДАЛИТЬ это пространство? Все данные будут потеряны безвозвратно!')) {
-                return;
-            }
-
-            try {
-                showMessage('⏳ Удаляем пространство...');
-                
-                const response = await fetch(`${API_URL}/delete_space`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка удаления пространства');
-                }
-
-                showMessage('✅ Пространство удалено');
-                hideSpaceDetails();
-                loadSpaces(); // Перезагружаем список
-                state.currentSpaceId = null;
-                saveState();
-                
-            } catch (error) {
-                console.error('❌ Error deleting space:', error);
-                showMessage(`Ошибка: ${error.message}`, 'error');
-            }
-        }
+        
 
         // ===== ОБНОВЛЕННЫЙ JavaScript для линейного графика =====
         let usersChart = null;
