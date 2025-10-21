@@ -1505,6 +1505,67 @@ def api_get_user_spaces():
         logger.error(f"❌ API Error in get_user_spaces: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
+@flask_app.route('/debug_user_membership', methods=['POST'])
+def debug_user_membership():
+    """Диагностика членства пользователя в пространствах"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        user_id = user_data['id']
+        
+        conn = get_db_connection()
+        
+        # 1. Проверим все пространства пользователя
+        if isinstance(conn, sqlite3.Connection):
+            members_query = '''SELECT sm.space_id, sm.role, fs.name, fs.is_active 
+                              FROM space_members sm
+                              JOIN financial_spaces fs ON sm.space_id = fs.id
+                              WHERE sm.user_id = ?'''
+            members_df = pd.read_sql_query(members_query, conn, params=(user_id,))
+        else:
+            members_query = '''SELECT sm.space_id, sm.role, fs.name, fs.is_active 
+                              FROM space_members sm
+                              JOIN financial_spaces fs ON sm.space_id = fs.id
+                              WHERE sm.user_id = %s'''
+            members_df = pd.read_sql_query(members_query, conn, params=(user_id,))
+        
+        # 2. Проверим конкретное пространство "Семья" (ID: 1)
+        if isinstance(conn, sqlite3.Connection):
+            family_query = '''SELECT fs.id, fs.name, fs.is_active, 
+                             (SELECT COUNT(*) FROM space_members WHERE space_id = fs.id AND user_id = ?) as is_member
+                             FROM financial_spaces fs 
+                             WHERE fs.id = ?'''
+            family_df = pd.read_sql_query(family_query, conn, params=(user_id, 1))
+        else:
+            family_query = '''SELECT fs.id, fs.name, fs.is_active, 
+                             (SELECT COUNT(*) FROM space_members WHERE space_id = fs.id AND user_id = %s) as is_member
+                             FROM financial_spaces fs 
+                             WHERE fs.id = %s'''
+            family_df = pd.read_sql_query(family_query, conn, params=(user_id, 1))
+        
+        conn.close()
+        
+        return jsonify({
+            'user_id': user_id,
+            'all_memberships': members_df.to_dict('records'),
+            'family_space_check': family_df.to_dict('records') if not family_df.empty else [],
+            'debug_info': {
+                'total_memberships': len(members_df),
+                'family_space_exists': not family_df.empty,
+                'family_is_active': family_df.iloc[0]['is_active'] if not family_df.empty else False,
+                'user_in_family': family_df.iloc[0]['is_member'] > 0 if not family_df.empty else False
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Debug error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @flask_app.route('/get_space_members', methods=['POST'])
 def api_get_space_members():
     """API для получения участников пространства"""
