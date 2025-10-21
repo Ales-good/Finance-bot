@@ -1675,11 +1675,49 @@
 
         async function joinSpace() {
             const code = document.getElementById('inviteCodeInput').value.trim();
+            console.log('🔍 Join space attempt with code:', code);
+            
             if (!code) {
                 showMessage('Введите код приглашения', 'error');
                 return;
             }
-            await joinSpaceWithCode(code);
+
+            try {
+                showMessage('⏳ Присоединяемся к пространству...');
+                
+                const response = await fetch(`${API_URL}/join_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        inviteCode: code
+                    })
+                });
+
+                console.log('📩 Join response status:', response.status);
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error('❌ Join error:', errorData);
+                    throw new Error(errorData.error || 'Ошибка присоединения');
+                }
+
+                const data = await response.json();
+                console.log('✅ Join success:', data);
+                
+                showMessage(`✅ Вы присоединились к пространству: ${data.space_name}`);
+                
+                // Очищаем поле ввода
+                document.getElementById('inviteCodeInput').value = '';
+                
+                // Обновляем список пространств
+                await loadSpaces();
+                await loadQuickSpaces();
+                
+            } catch (error) {
+                console.error('💥 Join failed:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
         }
 
         async function leaveSpace() {
