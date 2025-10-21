@@ -334,6 +334,51 @@ def init_db():
     conn.close()
     logger.info("✅ База данных инициализирована с обновленной таблицей бюджетов")
 
+# ВЫЗЫВАЕМ ОПТИМИЗАЦИЮ ПОСЛЕ СОЗДАНИЯ ТАБЛИЦ
+    optimize_database()
+
+def optimize_database():
+    """Создание индексов для улучшения производительности"""
+    conn = get_db_connection()
+    
+    try:
+        logger.info("🔧 Оптимизация базы данных...")
+        
+        if isinstance(conn, sqlite3.Connection):
+            # SQLite индексы
+            indexes = [
+                'CREATE INDEX IF NOT EXISTS idx_expenses_space_date ON expenses(space_id, date)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_user_space ON expenses(user_id, space_id)',
+                'CREATE INDEX IF NOT EXISTS idx_members_space_user ON space_members(space_id, user_id)',
+                'CREATE INDEX IF NOT EXISTS idx_budgets_space_month ON budgets(space_id, month_year)',
+                'CREATE INDEX IF NOT EXISTS idx_spaces_invite_code ON financial_spaces(invite_code)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category)'
+            ]
+        else:
+            # PostgreSQL индексы
+            indexes = [
+                'CREATE INDEX IF NOT EXISTS idx_expenses_space_date ON expenses(space_id, date)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_user_space ON expenses(user_id, space_id)',
+                'CREATE INDEX IF NOT EXISTS idx_members_space_user ON space_members(space_id, user_id)',
+                'CREATE INDEX IF NOT EXISTS idx_budgets_space_month ON budgets(space_id, month_year)',
+                'CREATE INDEX IF NOT EXISTS idx_spaces_invite_code ON financial_spaces(invite_code)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category)'
+            ]
+        
+        for index_sql in indexes:
+            try:
+                conn.execute(index_sql)
+                logger.info(f"✅ Создан индекс: {index_sql.split('ON ')[1]}")
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось создать индекс: {e}")
+        
+        conn.commit()
+        logger.info("✅ База данных оптимизирована")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка оптимизации базы данных: {e}")
+    finally:
+        conn.close()
 # ===== НОВЫЕ ФУНКЦИИ ДЛЯ УВЕДОМЛЕНИЙ =====
 async def check_budget_alerts():
     """Проверка и отправка уведомлений о бюджете"""
@@ -1669,72 +1714,96 @@ def api_get_space_members():
 
 @flask_app.route('/create_space', methods=['POST'])
 def api_create_space():
-    """API для создания нового пространства"""
+    """API для создания пространства"""
     try:
         data = request.json
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-            
         init_data = data.get('initData')
         name = data.get('name')
-        space_type = data.get('type')
+        space_type = data.get('type', 'personal')
         description = data.get('description', '')
         
-        logger.info(f"📝 Создание пространства: {name}, тип: {space_type}")
-        logger.info(f"📦 Данные запроса: {data}")
+        logger.info(f"🏗️ Создание пространства: {name} ({space_type})")
         
         if not validate_webapp_data(init_data):
-            logger.warning("❌ Валидация WebApp данных не пройдена")
             return jsonify({'error': 'Invalid data'}), 401
             
         user_data = get_user_from_init_data(init_data)
         if not user_data:
-            logger.warning("❌ Не удалось извлечь данные пользователя")
             return jsonify({'error': 'User not found'}), 401
             
-        logger.info(f"👤 Пользователь: {user_data}")
+        if not name:
+            return jsonify({'error': 'Name is required'}), 400
+        
+        conn = get_db_connection()
+        
+        try:
+            # Генерируем уникальный код приглашения
+            invite_code = generate_invite_code()
             
-        if not name or not space_type:
-            logger.warning("❌ Отсутствуют обязательные поля")
-            return jsonify({'error': 'Missing required fields'}), 400
-        
-        # Создаем пространство
-        result = create_financial_space(
-            name, description, space_type, 
-            user_data['id'], user_data['first_name']
-        )
-        
-        if result and result[0] is not None:
-            space_id, invite_code = result
-            logger.info(f"✅ Пространство создано: {space_id}, код: {invite_code}")
+            if isinstance(conn, sqlite3.Connection):
+                # SQLite
+                c = conn.cursor()
+                c.execute('''INSERT INTO financial_spaces 
+                            (name, description, space_type, created_by, invite_code) 
+                            VALUES (?, ?, ?, ?, ?)''',
+                         (name, description, space_type, user_data['id'], invite_code))
+                space_id = c.lastrowid
+                
+                # Добавляем создателя как участника
+                c.execute('''INSERT INTO space_members 
+                            (space_id, user_id, user_name, role) 
+                            VALUES (?, ?, ?, ?)''',
+                         (space_id, user_data['id'], 
+                          f"{user_data.get('first_name', 'User')} {user_data.get('last_name', '')}".strip(), 
+                          'owner'))
+            else:
+                # PostgreSQL
+                c = conn.cursor()
+                c.execute('''INSERT INTO financial_spaces 
+                            (name, description, space_type, created_by, invite_code) 
+                            VALUES (%s, %s, %s, %s, %s) RETURNING id''',
+                         (name, description, space_type, user_data['id'], invite_code))
+                space_id = c.fetchone()[0]
+                
+                # Добавляем создателя как участника
+                c.execute('''INSERT INTO space_members 
+                            (space_id, user_id, user_name, role) 
+                            VALUES (%s, %s, %s, %s)''',
+                         (space_id, user_data['id'], 
+                          f"{user_data.get('first_name', 'User')} {user_data.get('last_name', '')}".strip(), 
+                          'owner'))
+            
+            conn.commit()
+            logger.info(f"✅ Пространство создано: {name} (ID: {space_id})")
+            
             return jsonify({
                 'success': True,
                 'space_id': space_id,
-                'invite_code': invite_code
+                'invite_code': invite_code,
+                'message': f'Пространство "{name}" создано!'
             })
-        else:
-            logger.error("❌ Ошибка создания пространства - функция вернула None")
-            return jsonify({'error': 'Failed to create space - check database connection'}), 500
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"❌ Database error in create_space: {e}")
+            return jsonify({'error': 'Database error'}), 500
+        finally:
+            conn.close()
             
     except Exception as e:
         logger.error(f"❌ API Error in create_space: {e}")
-        import traceback
-        logger.error(f"❌ Traceback: {traceback.format_exc()}")
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @flask_app.route('/delete_space', methods=['POST'])
 def api_delete_space():
-    """API для удаления пространства"""
+    """API для удаления пространства (только для владельца)"""
     try:
         data = request.json
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-            
         init_data = data.get('initData')
         space_id = data.get('spaceId')
         
-        logger.info(f"🗑️ Удаление пространства: {space_id}")
+        logger.info(f"🗑️ Запрос на удаление пространства: {space_id}")
         
         if not validate_webapp_data(init_data):
             return jsonify({'error': 'Invalid data'}), 401
@@ -1742,38 +1811,87 @@ def api_delete_space():
         user_data = get_user_from_init_data(init_data)
         if not user_data:
             return jsonify({'error': 'User not found'}), 401
-            
-        if not space_id:
-            return jsonify({'error': 'Missing space ID'}), 400
         
-        # Проверяем права владельца
         conn = get_db_connection()
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT role FROM space_members WHERE space_id = ? AND user_id = ?'''
-            df = pd.read_sql_query(query, conn, params=(space_id, user_data['id']))
-        else:
-            query = '''SELECT role FROM space_members WHERE space_id = %s AND user_id = %s'''
-            df = pd.read_sql_query(query, conn, params=(space_id, user_data['id']))
         
-        if df.empty or df.iloc[0]['role'] != 'owner':
-            return jsonify({'error': 'Только владелец может удалить пространство'}), 403
-        
-        # Мягкое удаление - помечаем как неактивное
-        if isinstance(conn, sqlite3.Connection):
-            c = conn.cursor()
-            c.execute('UPDATE financial_spaces SET is_active = FALSE WHERE id = ?', (space_id,))
-        else:
-            c = conn.cursor()
-            c.execute('UPDATE financial_spaces SET is_active = FALSE WHERE id = %s', (space_id,))
-        
-        conn.commit()
-        conn.close()
-        
-        return jsonify({'success': True, 'message': 'Пространство удалено'})
-        
+        try:
+            # Проверяем, что пользователь - владелец пространства
+            if isinstance(conn, sqlite3.Connection):
+                c = conn.cursor()
+                c.execute('''SELECT role FROM space_members 
+                            WHERE space_id = ? AND user_id = ?''', 
+                         (space_id, user_data['id']))
+                member = c.fetchone()
+                
+                if not member or member[0] != 'owner':
+                    return jsonify({'error': 'Только владелец может удалить пространство'}), 403
+                
+                # Удаляем в правильном порядке (избегаем foreign key constraints)
+                c.execute('DELETE FROM budget_alerts WHERE space_id = ?', (space_id,))
+                c.execute('DELETE FROM user_categories WHERE space_id = ?', (space_id,))
+                c.execute('DELETE FROM expenses WHERE space_id = ?', (space_id,))
+                c.execute('DELETE FROM budgets WHERE space_id = ?', (space_id,))
+                c.execute('DELETE FROM space_members WHERE space_id = ?', (space_id,))
+                c.execute('DELETE FROM financial_spaces WHERE id = ?', (space_id,))
+                
+            else:
+                c = conn.cursor()
+                c.execute('''SELECT role FROM space_members 
+                            WHERE space_id = %s AND user_id = %s''', 
+                         (space_id, user_data['id']))
+                member = c.fetchone()
+                
+                if not member or member[0] != 'owner':
+                    return jsonify({'error': 'Только владелец может удалить пространство'}), 403
+                
+                # Удаляем в правильном порядке
+                c.execute('DELETE FROM budget_alerts WHERE space_id = %s', (space_id,))
+                c.execute('DELETE FROM user_categories WHERE space_id = %s', (space_id,))
+                c.execute('DELETE FROM expenses WHERE space_id = %s', (space_id,))
+                c.execute('DELETE FROM budgets WHERE space_id = %s', (space_id,))
+                c.execute('DELETE FROM space_members WHERE space_id = %s', (space_id,))
+                c.execute('DELETE FROM financial_spaces WHERE id = %s', (space_id,))
+            
+            conn.commit()
+            logger.info(f"✅ Пространство удалено: {space_id}")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Пространство удалено'
+            })
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"❌ Database error in delete_space: {e}")
+            return jsonify({'error': f'Ошибка удаления: {str(e)}'}), 500
+        finally:
+            conn.close()
+            
     except Exception as e:
         logger.error(f"❌ API Error in delete_space: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+def is_space_owner(user_id, space_id):
+    """Проверяет, является ли пользователь владельцем пространства"""
+    conn = get_db_connection()
+    
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT role FROM space_members 
+                      WHERE space_id = ? AND user_id = ?'''
+            df = pd.read_sql_query(query, conn, params=(space_id, user_id))
+        else:
+            query = '''SELECT role FROM space_members 
+                      WHERE space_id = %s AND user_id = %s'''
+            df = pd.read_sql_query(query, conn, params=(space_id, user_id))
+        
+        return not df.empty and df.iloc[0]['role'] == 'owner'
+    except Exception as e:
+        logger.error(f"❌ Error checking space owner: {e}")
+        return False
+    finally:
+        conn.close()
 
 
 @flask_app.route('/add_expense', methods=['POST'])
