@@ -2313,52 +2313,28 @@
                     })
                 });
 
-                console.log('Export response status:', response.status);
-                console.log('Export response headers:', Object.fromEntries(response.headers.entries()));
-
-                // Проверяем, не возвращает ли сервер JSON с ошибкой
-                const contentType = response.headers.get('content-type') || '';
-                
-                if (contentType.includes('application/json')) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка экспорта');
+                // Проверяем статус ответа
+                if (response.status === 404) {
+                    throw new Error('Нет данных для экспорта');
                 }
 
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка сервера');
                 }
 
-                // Проверяем что ответ не пустой
-                const contentLength = response.headers.get('content-length');
-                if (contentLength === '0') {
-                    throw new Error('Сервер вернул пустой файл');
-                }
-
+                // Получаем blob
                 const blob = await response.blob();
-                console.log('Blob details:', {
-                    size: blob.size,
-                    type: blob.type
-                });
 
                 if (blob.size === 0) {
-                    throw new Error('Получен пустой файл');
+                    throw new Error('Файл пустой');
                 }
 
-                // Определяем расширение файла по MIME-type
-                let fileExtension = '.xlsx';
-                if (blob.type.includes('csv')) {
-                    fileExtension = '.csv';
-                } else if (blob.type.includes('sheet')) {
-                    fileExtension = '.xlsx';
-                }
-
-                // Создаем ссылку для скачивания
+                // Создаем и кликаем ссылку
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `expenses_${state.currentSpaceId}_${new Date().toISOString().split('T')[0]}${fileExtension}`;
-                
-                // Добавляем в DOM и кликаем
+                a.download = `finance_export_${new Date().toISOString().split('T')[0]}.xlsx`;
                 document.body.appendChild(a);
                 a.click();
                 
@@ -2368,22 +2344,19 @@
                     URL.revokeObjectURL(url);
                 }, 100);
 
-                showMessage('✅ Файл успешно скачан! Проверьте папку "Загрузки"');
+                showMessage('✅ Файл успешно скачан!');
 
             } catch (error) {
-                console.error('Export error details:', error);
-                
-                let errorMessage = `Ошибка экспорта: ${error.message}`;
+                console.error('Export error:', error);
+                let message = error.message;
                 
                 if (error.message.includes('Failed to fetch')) {
-                    errorMessage = '❌ Ошибка соединения с сервером';
-                } else if (error.message.includes('пустой')) {
-                    errorMessage = '❌ Нет данных для экспорта';
-                } else if (error.message.includes('401') || error.message.includes('403')) {
-                    errorMessage = '❌ Ошибка авторизации';
+                    message = 'Ошибка соединения с сервером';
+                } else if (error.message.includes('Нет данных')) {
+                    message = 'Нет данных для экспорта за выбранный период';
                 }
                 
-                showMessage(errorMessage, 'error');
+                showMessage(`❌ ${message}`, 'error');
             }
         }
         
