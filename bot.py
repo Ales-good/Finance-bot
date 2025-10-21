@@ -1309,60 +1309,97 @@ def api_export_to_excel():
         
         logger.info(f"🔧 Params: space_id={space_id}, period={period}")
         
-        # ВРЕМЕННО - упрощенная проверка для теста
-        # if not validate_webapp_data(init_data):
-        #     logger.warning("❌ Validation failed")
-        #     return jsonify({'error': 'Invalid data'}), 401
+        if not validate_webapp_data(init_data):
+            logger.warning("❌ Validation failed")
+            return jsonify({'error': 'Invalid data'}), 401
             
-        # user_data = get_user_from_init_data(init_data)
-        # if not user_data:
-        #     logger.warning("❌ User not found")
-        #     return jsonify({'error': 'User not found'}), 401
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            logger.warning("❌ User not found")
+            return jsonify({'error': 'User not found'}), 401
         
-        # Простые тестовые данные (временно)
-        test_data = {
-            'Дата': [datetime.now().strftime('%Y-%m-%d'), datetime.now().strftime('%Y-%m-%d')],
-            'Сумма': [100, 200],
-            'Категория': ['Тест1', 'Тест2'],
-            'Описание': ['Тестовая трата 1', 'Тестовая трата 2'],
-            'Валюта': ['RUB', 'RUB']
-        }
-        df = pd.DataFrame(test_data)
+        # Получаем реальные данные из БД
+        conn = get_db_connection()
         
-        logger.info(f"📊 Created test DataFrame with {len(df)} rows")
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
+                      FROM expenses e
+                      JOIN financial_spaces fs ON e.space_id = fs.id
+                      WHERE e.space_id = ? AND e.date >= DATE('now', ?)
+                      ORDER BY e.date DESC'''
+            df = pd.read_sql_query(query, conn, params=(space_id, f'-{period} days'))
+        else:
+            query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
+                      FROM expenses e
+                      JOIN financial_spaces fs ON e.space_id = fs.id
+                      WHERE e.space_id = %s AND e.date >= CURRENT_DATE - INTERVAL '%s days'
+                      ORDER BY e.date DESC'''
+            df = pd.read_sql_query(query, conn, params=(space_id, period))
+        
+        conn.close()
+        
+        logger.info(f"📊 Found {len(df)} records from database")
+        
+        if df.empty:
+            return jsonify({'error': 'Нет данных для экспорта'}), 404
         
         # Создаем Excel
         output = io.BytesIO()
-        try:
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Траты', index=False)
-                
-                summary_data = {
-                    'Метрика': ['Всего трат', 'Сумма', 'Период'],
-                    'Значение': [len(df), df['Сумма'].sum(), f'{period} дней']
-                }
-                summary_df = pd.DataFrame(summary_data)
-                summary_df.to_excel(writer, sheet_name='Сводка', index=False)
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Траты', index=False)
             
-            excel_data = output.getvalue()
-            logger.info(f"✅ Excel created, size: {len(excel_data)} bytes")
+            summary_data = {
+                'Метрика': ['Всего трат', 'Сумма расходов', 'Средний чек', 'Период'],
+                'Значение': [
+                    len(df),
+                    f"{df['amount'].sum():.2f}",
+                    f"{df['amount'].mean():.2f}",
+                    f"Последние {period} дней"
+                ]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Сводка', index=False)
+        
+        excel_data = output.getvalue()
+        logger.info(f"✅ Excel created, size: {len(excel_data)} bytes")
+        
+        # В Telegram Web App отправляем файл через бота
+        user_id = user_data['id']
+        filename = f"finance_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        # Сохраняем файл временно и отправляем через бота
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as temp_file:
+            temp_file.write(excel_data)
+            temp_path = temp_file.name
+        
+        try:
+            # Отправляем файл через Telegram Bot
+            from telegram import Bot
+            bot = Bot(token=BOT_TOKEN)
+            
+            with open(temp_path, 'rb') as file:
+                await bot.send_document(
+                    chat_id=user_id,
+                    document=file,
+                    filename=filename,
+                    caption=f"📊 Экспорт финансовых данных\nПространство ID: {space_id}\nПериод: {period} дней"
+                )
+            
+            logger.info(f"✅ File sent via Telegram bot to user {user_id}")
+            
+            # Удаляем временный файл
+            os.unlink(temp_path)
+            
+            return jsonify({'success': True, 'message': 'Файл отправлен в Telegram'})
             
         except Exception as e:
-            logger.error(f"❌ Excel creation failed: {e}")
-            return jsonify({'error': f'Excel creation failed: {str(e)}'}), 500
-        
-        if len(excel_data) == 0:
-            logger.error("❌ Empty Excel file")
-            return jsonify({'error': 'Empty file generated'}), 500
-
-        # Отправляем файл
-        from flask import make_response
-        response = make_response(excel_data)
-        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        response.headers['Content-Disposition'] = f'attachment; filename=finance_export.xlsx'
-        
-        logger.info("📤 Sending file to client")
-        return response
+            logger.error(f"❌ Telegram send failed: {e}")
+            # Если не удалось отправить через бота, возвращаем файл напрямую
+            from flask import make_response
+            response = make_response(excel_data)
+            response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+            return response
         
     except Exception as e:
         logger.error(f"💥 Export failed: {e}")
