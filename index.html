@@ -900,7 +900,41 @@
             </div>
         </div>
 
-        
+        <!-- Новая секция: Статистика пространства -->
+        <div class="card" style="margin-top: 16px;">
+            <h3>📊 Статистика пространства</h3>
+            
+            <!-- Мини-график с разделением по пользователям -->
+            <div style="margin: 15px 0; text-align: center;">
+                <canvas id="usersChart" height="120"></canvas>
+            </div>
+            
+            <!-- Ключевые метрики -->
+            <div class="dashboard-stats">
+                <div class="stat-card" style="background: #e8f5e8;">
+                    <div class="stat-value" id="todaySpentStats">0</div>
+                    <div class="stat-label">Траты сегодня</div>
+                </div>
+                <div class="stat-card" style="background: #fff3e0;">
+                    <div class="stat-value" id="budgetLeft">∞</div>
+                    <div class="stat-label">Осталось в бюджете</div>
+                </div>
+                <div class="stat-card" style="background: #e3f2fd;">
+                    <div class="stat-value" id="totalUsers">0</div>
+                    <div class="stat-label">Участников</div>
+                </div>
+                <div class="stat-card" style="background: #f3e5f5;">
+                    <div class="stat-value" id="avgPerUser">0</div>
+                    <div class="stat-label">В среднем на человека</div>
+                </div>
+            </div>
+            
+            <!-- Топ категории -->
+            <div style="margin-top: 15px;">
+                <div style="font-size: 14px; margin-bottom: 8px; font-weight: 600;">🏆 Топ категории месяца:</div>
+                <div id="topCategoriesList">Загрузка...</div>
+            </div>
+        </div>
 
         <div id="message" class="hidden"></div>
     </div>
@@ -2182,20 +2216,41 @@
 
             try {
                 showLoading('categoriesAnalytics');
-                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId,
-                        period: state.analyticsPeriod
+                
+                // Загружаем основную аналитику и разбивку по пользователям параллельно
+                const [analyticsResponse, usersResponse] = await Promise.all([
+                    fetch(`${API_URL}/get_advanced_analytics`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId,
+                            period: state.analyticsPeriod
+                        })
+                    }),
+                    fetch(`${API_URL}/get_user_breakdown`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId,
+                            period: state.analyticsPeriod
+                        })
                     })
-                });
+                ]);
 
-                if (!response.ok) throw new Error('Ошибка загрузки аналитики');
-        
-                const data = await response.json();
-                displayAnalytics(data);
+                if (!analyticsResponse.ok) throw new Error('Ошибка загрузки аналитики');
+                
+                const analyticsData = await analyticsResponse.json();
+                displayAnalytics(analyticsData);
+                
+                // Загружаем разбивку по пользователям если ответ успешный
+                if (usersResponse.ok) {
+                    const usersData = await usersResponse.json();
+                    renderUsersChart(usersData.users);
+                    updateSpaceStats(usersData.users);
+                }
+                
             } catch (error) {
                 document.getElementById('categoriesAnalytics').innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
             }
@@ -2753,6 +2808,128 @@
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
+
+        // ===== JavaScript для новой аналитики: =====
+        let usersChart = null;
+
+        async function loadUsersBreakdown(spaceId) {
+            if (!spaceId) return;
+            
+            try {
+                const response = await fetch(`${API_URL}/get_user_breakdown`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        period: state.analyticsPeriod
+                    })
+                });
+
+                if (!response.ok) return;
+
+                const data = await response.json();
+                renderUsersChart(data.users);
+                updateSpaceStats(data.users);
+                
+            } catch (error) {
+                console.error('Error loading users breakdown:', error);
+            }
+        }
+
+        function renderUsersChart(users) {
+            const ctx = document.getElementById('usersChart').getContext('2d');
+            
+            // Удаляем старый график если есть
+            if (usersChart) {
+                usersChart.destroy();
+            }
+            
+            if (!users || users.length === 0) {
+                ctx.font = '14px Arial';
+                ctx.fillStyle = '#666';
+                ctx.textAlign = 'center';
+                ctx.fillText('Нет данных по пользователям', 150, 60);
+                return;
+            }
+            
+            const labels = users.map(user => user.name);
+            const data = users.map(user => user.total_spent);
+            
+            // Цвета для графика
+            const backgroundColors = [
+                'rgba(102, 126, 234, 0.8)',
+                'rgba(255, 99, 132, 0.8)', 
+                'rgba(75, 192, 192, 0.8)',
+                'rgba(255, 159, 64, 0.8)',
+                'rgba(153, 102, 255, 0.8)'
+            ];
+            
+            usersChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const value = context.raw;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((value / total) * 100).toFixed(1);
+                                    return `${context.label}: ${value.toFixed(0)} ₽ (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateSpaceStats(users) {
+            if (!users || users.length === 0) return;
+            
+            const totalSpent = users.reduce((sum, user) => sum + user.total_spent, 0);
+            const totalUsers = users.length;
+            const avgPerUser = totalSpent / totalUsers;
+            
+            document.getElementById('totalUsers').textContent = totalUsers;
+            document.getElementById('avgPerUser').textContent = avgPerUser.toFixed(0);
+            
+            // Обновляем сегодняшние траты (можно добавить отдельный запрос)
+            document.getElementById('todaySpentStats').textContent = Math.round(totalSpent / state.analyticsPeriod);
+            
+            // Обновляем оставшийся бюджет
+            updateBudgetProgress();
+        }
+
+        function updateBudgetProgress() {
+            // Эта функция будет обновлять оставшийся бюджет
+            // Можно интегрировать с существующей логикой бюджета
+            const budgetElement = document.getElementById('budgetLeft');
+            // Здесь нужно добавить логику расчета оставшегося бюджета
+            budgetElement.textContent = '∞'; // Временное значение
+        }
+
+
         // ===== UTILITY FUNCTIONS =====
         function showLoading(elementId) {
             document.getElementById(elementId).innerHTML = '<div class="loading">Загрузка...</div>';
