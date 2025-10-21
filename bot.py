@@ -1296,7 +1296,7 @@ def api_add_user_category():
 
 @flask_app.route('/export_to_excel', methods=['POST'])
 def api_export_to_excel():
-    """Экспорт данных в Excel"""
+    """Экспорт данных в Excel с отправкой через бота"""
     logger.info("🎯 START EXPORT TO EXCEL")
     
     try:
@@ -1346,8 +1346,8 @@ def api_export_to_excel():
                 'Метрика': ['Всего трат', 'Сумма расходов', 'Средний чек', 'Период'],
                 'Значение': [
                     len(df),
-                    f"{df['amount'].sum():.2f}",
-                    f"{df['amount'].mean():.2f}",
+                    f"{df['amount'].sum():.2f} ₽",
+                    f"{df['amount'].mean():.2f} ₽",
                     f"Последние {period} дней"
                 ]
             }
@@ -1357,20 +1357,70 @@ def api_export_to_excel():
         excel_data = output.getvalue()
         logger.info(f"✅ Excel created, size: {len(excel_data)} bytes")
         
-        # Конвертируем в base64 для Telegram Web App
-        import base64
-        excel_b64 = base64.b64encode(excel_data).decode('utf-8')
-        filename = f"finance_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        # Сохраняем файл временно
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as temp_file:
+            temp_file.write(excel_data)
+            temp_path = temp_file.name
         
-        logger.info(f"📤 Returning base64 data URL, length: {len(excel_b64)}")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Файл готов к скачиванию',
-            'download_url': f'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{excel_b64}',
-            'filename': filename,
-            'file_size': len(excel_data)
-        })
+        # Отправляем файл через Telegram Bot (синхронно)
+        try:
+            from telegram import Bot
+            import asyncio
+            
+            bot = Bot(token=BOT_TOKEN)
+            user_id = user_data['id']
+            filename = f"finance_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            
+            # Используем синхронную отправку
+            with open(temp_path, 'rb') as file:
+                # Создаем event loop для синхронной отправки
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                try:
+                    loop.run_until_complete(
+                        bot.send_document(
+                            chat_id=user_id,
+                            document=file,
+                            filename=filename,
+                            caption=f"📊 Финансовый отчет\n💼 Пространство ID: {space_id}\n📅 Период: {period} дней\n📈 Записей: {len(df)}"
+                        )
+                    )
+                    logger.info(f"✅ File sent via Telegram bot to user {user_id}")
+                    
+                    # Удаляем временный файл
+                    import os
+                    os.unlink(temp_path)
+                    
+                    return jsonify({
+                        'success': True,
+                        'message': 'Файл отправлен в чат с ботом! Проверьте Telegram.',
+                        'sent_via_bot': True
+                    })
+                    
+                finally:
+                    loop.close()
+                    
+        except Exception as e:
+            logger.error(f"❌ Telegram send failed: {e}")
+            # Если не удалось отправить через бота, возвращаем base64
+            import base64
+            excel_b64 = base64.b64encode(excel_data).decode('utf-8')
+            
+            # Удаляем временный файл
+            import os
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Файл готов к скачиванию',
+                'download_url': f'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{excel_b64}',
+                'filename': f"finance_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                'sent_via_bot': False
+            })
         
     except Exception as e:
         logger.error(f"💥 Export failed: {e}")
