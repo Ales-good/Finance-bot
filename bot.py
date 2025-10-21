@@ -1299,6 +1299,8 @@ def api_export_to_excel():
         space_id = data.get('spaceId')
         period = data.get('period', 30)
         
+        logger.info(f"🔍 Export request: space_id={space_id}, period={period}")
+        
         if not validate_webapp_data(init_data):
             return jsonify({'error': 'Invalid data'}), 401
             
@@ -1308,8 +1310,10 @@ def api_export_to_excel():
         
         conn = get_db_connection()
         
+        # ИСПРАВЛЕННЫЕ ЗАПРОСЫ ДЛЯ POSTGRESQL
         if space_id:
             if isinstance(conn, sqlite3.Connection):
+                # SQLite
                 query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
                           FROM expenses e
                           JOIN financial_spaces fs ON e.space_id = fs.id
@@ -1317,14 +1321,16 @@ def api_export_to_excel():
                           ORDER BY e.date DESC'''
                 df = pd.read_sql_query(query, conn, params=(space_id, f'-{period} days'))
             else:
+                # PostgreSQL - ИСПРАВЛЕНО
                 query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
                           FROM expenses e
                           JOIN financial_spaces fs ON e.space_id = fs.id
-                          WHERE e.space_id = %s AND e.date >= CURRENT_DATE - INTERVAL %s
+                          WHERE e.space_id = %s AND e.date >= CURRENT_DATE - INTERVAL '%s days'
                           ORDER BY e.date DESC'''
-                df = pd.read_sql_query(query, conn, params=(space_id, f'{period} days'))
+                df = pd.read_sql_query(query, conn, params=(space_id, period))
         else:
             if isinstance(conn, sqlite3.Connection):
+                # SQLite
                 query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
                           FROM expenses e
                           JOIN financial_spaces fs ON e.space_id = fs.id
@@ -1332,14 +1338,17 @@ def api_export_to_excel():
                           ORDER BY e.date DESC'''
                 df = pd.read_sql_query(query, conn, params=(user_data['id'], f'-{period} days'))
             else:
+                # PostgreSQL - ИСПРАВЛЕНО
                 query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name, fs.name as space_name
                           FROM expenses e
                           JOIN financial_spaces fs ON e.space_id = fs.id
-                          WHERE e.user_id = %s AND e.date >= CURRENT_DATE - INTERVAL %s
+                          WHERE e.user_id = %s AND e.date >= CURRENT_DATE - INTERVAL '%s days'
                           ORDER BY e.date DESC'''
-                df = pd.read_sql_query(query, conn, params=(user_data['id'], f'{period} days'))
+                df = pd.read_sql_query(query, conn, params=(user_data['id'], period))
         
         conn.close()
+        
+        logger.info(f"📊 Found {len(df)} records for export")
         
         if df.empty:
             return jsonify({'error': 'Нет данных для экспорта'}), 404
@@ -1365,17 +1374,17 @@ def api_export_to_excel():
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Сводка', index=False)
             
-            # Получаем байты после закрытия writer
             excel_data = output.getvalue()
+            logger.info(f"✅ Excel file created, size: {len(excel_data)} bytes")
             
         except Exception as e:
-            logger.error(f"❌ Ошибка создания Excel файла: {e}")
+            logger.error(f"❌ Excel creation error: {e}")
             return jsonify({'error': 'Ошибка создания файла Excel'}), 500
         
         if len(excel_data) == 0:
             return jsonify({'error': 'Создан пустой файл'}), 500
 
-        # Возвращаем файл как ответ с правильным Content-Type
+        # Возвращаем файл
         from flask import Response
         response = Response(
             excel_data,
@@ -1387,7 +1396,7 @@ def api_export_to_excel():
         return response
         
     except Exception as e:
-        logger.error(f"❌ API Error in export_to_excel: {e}")
+        logger.error(f"❌ Export error: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 # ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
