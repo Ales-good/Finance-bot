@@ -956,34 +956,7 @@
             cacheDuration: 60000 // 1 минута
         };
 
-        async function loadSpacesWithCache() {
-            const now = Date.now();
-    
-            if (dataCache.spaces && dataCache.lastUpdate && 
-                (now - dataCache.lastUpdate) < dataCache.cacheDuration) {
-                console.log('📦 Используем кэшированные пространства');
-                return dataCache.spaces;
-            }
-    
-            try {
-                const response = await fetch(`${API_URL}/get_user_spaces`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: tg.initData })
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    dataCache.spaces = data.spaces;
-                    dataCache.lastUpdate = Date.now();
-                    return data.spaces;
-                }
-            } catch (error) {
-                console.error('Ошибка загрузки пространств:', error);
-            }
-    
-            return [];
-        }
+        
 
         let state = {
             currentSpaceId: null,
@@ -1231,6 +1204,254 @@
         }
 
         // ===== SPACES MANAGEMENT =====
+
+        // ===== OPTIMIZED SPACES MANAGEMENT =====
+        async function loadSpacesMinimal() {
+            try {
+                const now = Date.now();
+                
+                // Проверяем кэш
+                if (dataCache.spaces && dataCache.lastUpdate && 
+                    (now - dataCache.lastUpdate) < dataCache.cacheDuration) {
+                    console.log('📦 Используем кэшированные пространства');
+                    return dataCache.spaces;
+                }
+
+                console.log('🔄 Загружаем минимальные данные пространств...');
+                const response = await fetch(`${API_URL}/get_spaces_minimal`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки пространств');
+                }
+
+                const data = await response.json();
+                console.log('✅ Минимальные пространства загружены:', data.spaces);
+                
+                // Обновляем кэш
+                dataCache.spaces = data.spaces;
+                dataCache.lastUpdate = Date.now();
+                
+                return data.spaces;
+                
+            } catch (error) {
+                console.error('❌ Ошибка загрузки минимальных пространств:', error);
+                
+                // Пробуем загрузить через старый endpoint как fallback
+                try {
+                    const fallbackResponse = await fetch(`${API_URL}/get_user_spaces`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ initData: tg.initData })
+                    });
+                    
+                    if (fallbackResponse.ok) {
+                        const fallbackData = await fallbackResponse.json();
+                        const minimalSpaces = fallbackData.spaces.map(space => ({
+                            id: space.id,
+                            name: space.name,
+                            space_type: space.space_type
+                        }));
+                        
+                        dataCache.spaces = minimalSpaces;
+                        dataCache.lastUpdate = Date.now();
+                        return minimalSpaces;
+                    }
+                } catch (fallbackError) {
+                    console.error('❌ Fallback также не сработал:', fallbackError);
+                }
+                
+                return [];
+            }
+        }
+
+        async function loadSpacesOptimized(includeDetails = false) {
+            try {
+                console.log(`🔄 Загружаем оптимизированные пространства (детали: ${includeDetails})...`);
+                
+                const response = await fetch(`${API_URL}/get_user_spaces_optimized`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ 
+                        initData: tg.initData,
+                        includeDetails: includeDetails 
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки оптимизированных пространств');
+                }
+
+                const data = await response.json();
+                console.log(`✅ Оптимизированные пространства загружены:`, data.spaces);
+                
+                return data.spaces;
+                
+            } catch (error) {
+                console.error('❌ Ошибка загрузки оптимизированных пространств:', error);
+                
+                // Fallback на старый метод
+                try {
+                    const fallbackResponse = await fetch(`${API_URL}/get_user_spaces`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ initData: tg.initData })
+                    });
+                    
+                    if (fallbackResponse.ok) {
+                        const fallbackData = await fallbackResponse.json();
+                        return fallbackData.spaces;
+                    }
+                } catch (fallbackError) {
+                    console.error('❌ Fallback также не сработал:', fallbackError);
+                }
+                
+                return [];
+            }
+        }
+
+        async function loadSpaceDetails(spaceId) {
+            if (!spaceId) {
+                console.error('❌ Space ID не указан для загрузки деталей');
+                return null;
+            }
+
+            try {
+                console.log(`🔄 Загружаем детали пространства ${spaceId}...`);
+                
+                const response = await fetch(`${API_URL}/get_space_details`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ 
+                        initData: tg.initData,
+                        spaceId: spaceId 
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || 'Ошибка загрузки деталей пространства');
+                }
+
+                const data = await response.json();
+                console.log(`✅ Детали пространства ${spaceId} загружены:`, data);
+                
+                return data;
+                
+            } catch (error) {
+                console.error(`❌ Ошибка загрузки деталей пространства ${spaceId}:`, error);
+                
+                // Fallback: собираем данные из других источников
+                try {
+                    // Пробуем получить базовую информацию из кэша
+                    const cachedSpace = dataCache.spaces?.find(space => space.id === spaceId);
+                    if (cachedSpace) {
+                        return {
+                            name: cachedSpace.name,
+                            space_type: cachedSpace.space_type,
+                            member_count: 1, // Дефолтное значение
+                            today_expenses: 0,
+                            today_total: 0
+                        };
+                    }
+                } catch (fallbackError) {
+                    console.error('❌ Fallback также не сработал:', fallbackError);
+                }
+                
+                return null;
+            }
+        }
+
+        // ===== ОБНОВЛЕННАЯ ФУНКЦИЯ ДЛЯ БЫСТРОЙ ЗАГРУЗКИ ПРОСТРАНСТВ =====
+        async function loadQuickSpaces() {
+            console.log('🚀 Быстрая загрузка пространств...');
+            
+            try {
+                // Используем минимальную загрузку для быстрого отображения
+                const spaces = await loadSpacesMinimal();
+                
+                const container = document.getElementById('quickSpacesGrid');
+                if (!container) {
+                    console.error('❌ Контейнер quickSpacesGrid не найден');
+                    return;
+                }
+
+                if (!spaces || spaces.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🏠</div>
+                            <div>У вас пока нет пространств</div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = spaces.map(space => `
+                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                        onclick="selectSpace(${space.id})"
+                        data-space-id="${space.id}">
+                        <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                        <div class="space-name">${space.name}</div>
+                    </div>
+                `).join('');
+
+                console.log(`✅ Отображено ${spaces.length} пространств`);
+                
+            } catch (error) {
+                console.error('❌ Ошибка в loadQuickSpaces:', error);
+                const container = document.getElementById('quickSpacesGrid');
+                if (container) {
+                    container.innerHTML = '<div class="empty-state">Ошибка загрузки</div>';
+                }
+            }
+        }
+
+        // ===== ОБНОВЛЕННАЯ ФУНКЦИЯ SELECTSPACE =====
+        async function selectSpace(spaceId) {
+            console.log(`🎯 Выбираем пространство: ${spaceId}`);
+            
+            if (state.currentSpaceId === spaceId) {
+                console.log('⚠️ Пространство уже выбрано');
+                return;
+            }
+
+            // Мгновенное визуальное обновление
+            state.currentSpaceId = spaceId;
+            updateSpaceVisualSelection(spaceId);
+
+            // Показываем индикатор загрузки
+            showLoadingIndicator();
+
+            try {
+                // Параллельно загружаем детали пространства и KPI
+                const [spaceDetails, kpiData] = await Promise.all([
+                    loadSpaceDetails(spaceId),
+                    loadDashboardKPI(spaceId)
+                ]);
+
+                // Обновляем данные
+                currentSpaceData = spaceDetails;
+                
+                // Показываем KPI
+                document.getElementById('dashboardKPI').classList.remove('hidden');
+                document.getElementById('noSpaceSelected').classList.add('hidden');
+
+                console.log(`✅ Пространство ${spaceId} полностью загружено`);
+                
+            } catch (error) {
+                console.error(`❌ Ошибка загрузки пространства ${spaceId}:`, error);
+                showMessage('Ошибка загрузки данных пространства', 'error');
+            } finally {
+                hideLoadingIndicator();
+            }
+            
+            saveState();
+        }
+
+        
         function displaySpacesGrid(spaces, containerId, isQuick = false) {
             const container = document.getElementById(containerId);
             console.log(`🎯 Displaying ${spaces ? spaces.length : 0} spaces in ${containerId}`);
@@ -1283,44 +1504,7 @@
             loadSpacesForSelector('quickSpacesGrid', true);
         }
 
-        async function loadSpaces() {
-            console.log('🔄 Loading spaces...');
-            
-            try {
-                const response = await fetch(`${API_URL}/get_user_spaces`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: tg.initData })
-                });
-
-                console.log('📩 Spaces response status:', response.status);
-
-                if (!response.ok) {
-                    throw new Error('Ошибка загрузки пространств');
-                }
-                
-                const data = await response.json();
-                console.log('🏠 Loaded spaces:', data.spaces);
-                
-                // Отображаем пространства во всех контейнерах
-                displaySpacesGrid(data.spaces, 'spacesList', true);
-                displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
-                displaySpacesGrid(data.spaces, 'expenseSpacesGrid', true);
-                displaySpacesGrid(data.spaces, 'analyticsSpacesGrid', true);
-                
-                // Автовыбор первого пространства если нет выбранного
-                if (!state.currentSpaceId && data.spaces.length > 0) {
-                    console.log('🔍 Auto-selecting first space:', data.spaces[0].id);
-                    selectSpace(data.spaces[0].id);
-                }
-                
-                return data.spaces;
-                
-            } catch (error) {
-                console.error('❌ Error loading spaces:', error);
-                return [];
-            }
-        }
+        
 
         function updateSpaceSelectors(spaces) {
             const spaceSelectors = [
@@ -1412,8 +1596,7 @@
                 showMessage('🔄 Обновляем данные...');
                 
                 // Очищаем кэш пространств
-                dataCache.spaces = null;
-                dataCache.lastUpdate = null;
+                await loadSpacesMinimal()
                 
                 // Перезагружаем быстрые пространства
                 await loadQuickSpaces();
@@ -1721,12 +1904,8 @@
         async function showSpaceDetails(spaceId) {
             state.currentSpaceId = spaceId;
             try {
-                const [spacesResponse, membersResponse] = await Promise.all([
-                    fetch(`${API_URL}/get_user_spaces`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ initData: tg.initData })
-                    }),
+                const [spaceDetails, membersResponse] = await Promise.all([
+                    loadSpaceDetails(spaceId),
                     fetch(`${API_URL}/get_space_members`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -1737,14 +1916,13 @@
                     })
                 ]);
 
-                if (!spacesResponse.ok || !membersResponse.ok) {
-                    throw new Error('Ошибка загрузки данных пространства');
+                if (!membersResponse.ok) {
+                    throw new Error('Ошибка загрузки участников');
                 }
 
-                const spacesData = await spacesResponse.json();
                 const membersData = await membersResponse.json();
 
-                currentSpaceData = spacesData.spaces.find(s => s.id === spaceId);
+                currentSpaceData = spaceDetails; // Используем загруженные детали
                 if (!currentSpaceData) throw new Error('Пространство не найдено');
 
                 displaySpaceDetails(currentSpaceData, membersData.members);
@@ -1753,6 +1931,7 @@
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
+
 
         function displaySpaceDetails(space, members) {
             document.getElementById('currentSpaceName').textContent = space.name;
@@ -2671,57 +2850,7 @@
         }
         
         // Функция для загрузки быстрых пространств
-        function loadQuickSpaces() {
-            fetch(`${API_URL}/get_user_spaces`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ initData: tg.initData })
-            })
-            .then(response => response.json())
-            .then(data => {
-                const container = document.getElementById('quickSpacesGrid');
-                if (!data.spaces || data.spaces.length === 0) {
-                    container.innerHTML = '<div class="empty-state">Нет пространств</div>';
-                    return;
-                }
-
-                container.innerHTML = data.spaces.map(space => `
-                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                        onclick="selectQuickSpace(${space.id})"
-                        style="padding: 12px; min-height: 60px;">
-                        <div class="space-icon" style="font-size: 20px;">${getSpaceIcon(space.space_type)}</div>
-                        <div class="space-name" style="font-size: 12px;">${space.name}</div>
-                    </div>
-                `).join('');
-
-                // Показываем/скрываем KPI в зависимости от выбора
-                toggleKPIVisibility();
-            })
-            .catch(error => {
-                console.error('Error loading quick spaces:', error);
-            });
-        }
-
-        function selectQuickSpace(spaceId) {
-            state.currentSpaceId = spaceId;
-            saveState();
-            loadQuickSpaces(); // Перерисовываем иконки
-            loadDashboardKPI(); // Загружаем KPI
-        }
-
-        function toggleKPIVisibility() {
-            const kpiSection = document.getElementById('dashboardKPI');
-            const noSpaceSection = document.getElementById('noSpaceSelected');
-    
-            if (state.currentSpaceId) {
-                kpiSection.classList.remove('hidden');
-                noSpaceSection.classList.add('hidden');
-            } else {
-                kpiSection.classList.add('hidden');
-                noSpaceSection.classList.remove('hidden');
-            }
-        }
-
+        
         // Функция для загрузки последних трат
         async function loadRecentExpenses() {
             if (!state.currentSpaceId) return;
@@ -3080,7 +3209,7 @@
         
         // ===== INITIALIZE APP =====
         function initializeApp() {
-            loadSpaces();
+            loadSpacesMinimal();
             loadQuickSpaces();
             generateKeypad();
             handleStartParameters();
