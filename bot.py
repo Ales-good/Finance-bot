@@ -32,6 +32,54 @@ import traceback  # ← Добавьте если используете traceba
 import secrets
 import string
 
+from functools import lru_cache
+import time
+
+# ===== КЭШИРОВАНИЕ ДЛЯ УСКОРЕНИЯ =====
+class DataCache:
+    def __init__(self, ttl=300):
+        self._cache = {}
+        self._ttl = ttl
+    
+    def get(self, key):
+        if key in self._cache:
+            data, timestamp = self._cache[key]
+            if time.time() - timestamp < self._ttl:
+                return data
+        return None
+    
+    def set(self, key, data):
+        self._cache[key] = (data, time.time())
+
+cache = DataCache()
+
+# Кэшируем пространства пользователя
+@lru_cache(maxsize=100)
+def get_user_spaces_cached(user_id):
+    conn = get_db_connection()
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code,
+                              COUNT(DISTINCT sm.user_id) as member_count
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = ? AND fs.is_active = TRUE
+                       GROUP BY fs.id
+                       ORDER BY fs.space_type, fs.created_at DESC'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code,
+                              COUNT(DISTINCT sm.user_id) as member_count
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = %s AND fs.is_active = TRUE
+                       GROUP BY fs.id
+                       ORDER BY fs.space_type, fs.created_at DESC'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        return df.to_dict('records')
+    finally:
+        conn.close()
+
 # Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -337,45 +385,46 @@ def init_db():
     logger.info("✅ База данных инициализирована с обновленной таблицей бюджетов")
 
 # ВЫЗЫВАЕМ ОПТИМИЗАЦИЮ ПОСЛЕ СОЗДАНИЯ ТАБЛИЦ
-    optimize_database()
+    optimize_database_extended()
 
-def optimize_database():
-    """Создание индексов для улучшения производительности"""
+def optimize_database_extended():
+    """Расширенная оптимизация индексов"""
     conn = get_db_connection()
     
     try:
-        logger.info("🔧 Оптимизация базы данных...")
+        logger.info("🔧 Расширенная оптимизация базы данных...")
         
         if isinstance(conn, sqlite3.Connection):
-            # SQLite индексы
             indexes = [
-                'CREATE INDEX IF NOT EXISTS idx_expenses_space_date ON expenses(space_id, date)',
-                'CREATE INDEX IF NOT EXISTS idx_expenses_user_space ON expenses(user_id, space_id)',
-                'CREATE INDEX IF NOT EXISTS idx_members_space_user ON space_members(space_id, user_id)',
+                'CREATE INDEX IF NOT EXISTS idx_spaces_active ON financial_spaces(is_active)',
+                'CREATE INDEX IF NOT EXISTS idx_members_user ON space_members(user_id)',
+                'CREATE INDEX IF NOT EXISTS idx_members_space ON space_members(space_id)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_space_user_date ON expenses(space_id, user_id, date)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_date_space ON expenses(date, space_id)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_space_category ON expenses(space_id, category)',
+                'CREATE INDEX IF NOT EXISTS idx_budgets_month ON budgets(month_year)',
                 'CREATE INDEX IF NOT EXISTS idx_budgets_space_month ON budgets(space_id, month_year)',
-                'CREATE INDEX IF NOT EXISTS idx_spaces_invite_code ON financial_spaces(invite_code)',
-                'CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category)'
             ]
         else:
-            # PostgreSQL индексы
             indexes = [
-                'CREATE INDEX IF NOT EXISTS idx_expenses_space_date ON expenses(space_id, date)',
-                'CREATE INDEX IF NOT EXISTS idx_expenses_user_space ON expenses(user_id, space_id)',
-                'CREATE INDEX IF NOT EXISTS idx_members_space_user ON space_members(space_id, user_id)',
+                'CREATE INDEX IF NOT EXISTS idx_spaces_active ON financial_spaces(is_active)',
+                'CREATE INDEX IF NOT EXISTS idx_members_user ON space_members(user_id)',
+                'CREATE INDEX IF NOT EXISTS idx_members_space ON space_members(space_id)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_space_user_date ON expenses(space_id, user_id, date)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_date_space ON expenses(date, space_id)',
+                'CREATE INDEX IF NOT EXISTS idx_expenses_space_category ON expenses(space_id, category)',
+                'CREATE INDEX IF NOT EXISTS idx_budgets_month ON budgets(month_year)',
                 'CREATE INDEX IF NOT EXISTS idx_budgets_space_month ON budgets(space_id, month_year)',
-                'CREATE INDEX IF NOT EXISTS idx_spaces_invite_code ON financial_spaces(invite_code)',
-                'CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category)'
             ]
         
         for index_sql in indexes:
             try:
                 conn.execute(index_sql)
-                logger.info(f"✅ Создан индекс: {index_sql.split('ON ')[1]}")
             except Exception as e:
                 logger.warning(f"⚠️ Не удалось создать индекс: {e}")
         
         conn.commit()
-        logger.info("✅ База данных оптимизирована")
+        logger.info("✅ База данных оптимизирована с расширенными индексами")
         
     except Exception as e:
         logger.error(f"❌ Ошибка оптимизации базы данных: {e}")
@@ -839,6 +888,38 @@ def is_user_in_space(user_id, space_id):
     finally:
         conn.close()
 
+def is_user_in_space_fast(user_id, space_id):
+    """Быстрая проверка членства с кэшированием"""
+    cache_key = f"user_{user_id}_space_{space_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    
+    conn = get_db_connection()
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT 1 FROM space_members WHERE user_id = ? AND space_id = ? LIMIT 1'''
+            df = pd.read_sql_query(query, conn, params=(user_id, space_id))
+        else:
+            query = '''SELECT 1 FROM space_members WHERE user_id = %s AND space_id = %s LIMIT 1'''
+            df = pd.read_sql_query(query, conn, params=(user_id, space_id))
+        
+        result = not df.empty
+        cache.set(cache_key, result)
+        return result
+    finally:
+        conn.close()
+def invalidate_user_cache(user_id):
+    """Инвалидируем кэш пользователя при изменениях"""
+    keys_to_delete = []
+    for key in cache._cache.keys():
+        if key.startswith(f"user_spaces_{user_id}") or f"user_{user_id}_space" in key:
+            keys_to_delete.append(key)
+    
+    for key in keys_to_delete:
+        del cache._cache[key]
+    logger.info(f"🗑️ Инвалидирован кэш для пользователя {user_id}")
+
 def is_user_admin_in_space(user_id, space_id):
     """Проверяет, является ли пользователь админом в пространстве"""
     conn = get_db_connection()
@@ -1117,7 +1198,7 @@ def api_get_advanced_analytics():
         if not user_data:
             return jsonify({'error': 'User not found'}), 401
             
-        if space_id and not is_user_in_space(user_data['id'], space_id):
+        if space_id and not is_user_in_space_fast(user_data['id'], space_id):
             return jsonify({'error': 'Access denied'}), 403
         
         conn = get_db_connection()
@@ -1522,30 +1603,67 @@ def health_check():
         'dev_mode': DEV_MODE
     })
 
-@flask_app.route('/get_user_spaces', methods=['POST'])
-def api_get_user_spaces():
-    """API для получения пространств пользователя"""
+@flask_app.route('/get_user_spaces_optimized', methods=['POST'])
+def api_get_user_spaces_optimized():
+    """Оптимизированная версия получения пространств"""
     try:
         data = request.json
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-            
         init_data = data.get('initData')
         
-        logger.info(f"📦 Получен запрос get_user_spaces: {data.keys()}")
-        
         if not validate_webapp_data(init_data):
-            logger.warning("❌ Валидация WebApp данных не пройдена")
             return jsonify({'error': 'Invalid data'}), 401
             
         user_data = get_user_from_init_data(init_data)
         if not user_data:
-            logger.warning("❌ Не удалось извлечь данные пользователя")
             return jsonify({'error': 'User not found'}), 401
             
         user_id = user_data['id']
-        logger.info(f"👤 Получение пространств для пользователя: {user_id}")
+        cache_key = f"user_spaces_{user_id}"
         
+        # Пробуем получить из кэша
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            logger.info(f"✅ Данные из кэша для пользователя {user_id}")
+            return jsonify({'spaces': cached_data, 'cached': True})
+        
+        # Если нет в кэше - запрашиваем из БД
+        spaces_data = get_user_spaces_cached(user_id)
+        
+        # Сохраняем в кэш
+        cache.set(cache_key, spaces_data)
+        
+        logger.info(f"✅ Данные из БД для пользователя {user_id}")
+        return jsonify({'spaces': spaces_data, 'cached': False})
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_user_spaces_optimized: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@flask_app.route('/get_user_spaces_fast', methods=['POST'])
+def api_get_user_spaces_fast():
+    """Оптимизированная версия получения пространств с кэшированием"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        user_id = user_data['id']
+        cache_key = f"user_spaces_{user_id}"
+        
+        # Пробуем получить из кэша
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            logger.info(f"✅ Данные из кэша для пользователя {user_id}")
+            return jsonify({'spaces': cached_data, 'cached': True})
+        
+        # Если нет в кэше - запрашиваем из БД
         conn = get_db_connection()
         
         if isinstance(conn, sqlite3.Connection):
@@ -1580,11 +1698,77 @@ def api_get_user_spaces():
                 'member_count': int(row['member_count']) if row['member_count'] else 1
             })
         
-        logger.info(f"✅ Найдено пространств: {len(spaces)}")
-        return jsonify({'spaces': spaces})
+        # Сохраняем в кэш
+        cache.set(cache_key, spaces)
+        
+        logger.info(f"✅ Данные из БД для пользователя {user_id}")
+        return jsonify({'spaces': spaces, 'cached': False})
         
     except Exception as e:
-        logger.error(f"❌ API Error in get_user_spaces: {e}")
+        logger.error(f"❌ API Error in get_user_spaces_fast: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@flask_app.route('/get_space_overview', methods=['POST'])
+def api_get_space_overview():
+    """Пакетная загрузка основных данных пространства"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if not is_user_in_space_fast(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        cache_key = f"space_overview_{space_id}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return jsonify(cached_data)
+        
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            query = '''
+                SELECT 
+                    (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE space_id = ? AND date >= DATE('now', '-30 days')) as month_spent,
+                    (SELECT COUNT(*) FROM expenses WHERE space_id = ? AND date >= DATE('now', '-30 days')) as month_count,
+                    (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE space_id = ?) as total_spent,
+                    (SELECT amount FROM budgets WHERE space_id = ? AND month_year = strftime('%Y-%m', 'now') LIMIT 1) as budget,
+                    (SELECT COUNT(*) FROM space_members WHERE space_id = ?) as member_count
+            '''
+            df = pd.read_sql_query(query, conn, params=(space_id, space_id, space_id, space_id, space_id))
+        else:
+            query = '''
+                SELECT 
+                    (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE space_id = %s AND date >= CURRENT_DATE - INTERVAL '30 days') as month_spent,
+                    (SELECT COUNT(*) FROM expenses WHERE space_id = %s AND date >= CURRENT_DATE - INTERVAL '30 days') as month_count,
+                    (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE space_id = %s) as total_spent,
+                    (SELECT amount FROM budgets WHERE space_id = %s AND month_year = TO_CHAR(CURRENT_DATE, 'YYYY-MM') LIMIT 1) as budget,
+                    (SELECT COUNT(*) FROM space_members WHERE space_id = %s) as member_count
+            '''
+            df = pd.read_sql_query(query, conn, params=(space_id, space_id, space_id, space_id, space_id))
+        
+        conn.close()
+        
+        result = {
+            'month_spent': float(df.iloc[0]['month_spent']),
+            'month_count': int(df.iloc[0]['month_count']),
+            'total_spent': float(df.iloc[0]['total_spent']),
+            'budget': float(df.iloc[0]['budget']) if df.iloc[0]['budget'] else 0,
+            'member_count': int(df.iloc[0]['member_count'])
+        }
+        
+        cache.set(cache_key, result)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_space_overview: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @flask_app.route('/debug_user_membership', methods=['POST'])
@@ -1669,7 +1853,7 @@ def api_get_space_members():
             return jsonify({'error': 'User not found'}), 401
             
         # Проверяем, что пользователь состоит в пространстве
-        if not is_user_in_space(user_data['id'], space_id):
+        if not is_user_in_space_fast(user_data['id'], space_id):
             return jsonify({'error': 'Access denied'}), 403
         
         conn = get_db_connection()
@@ -1817,6 +2001,24 @@ def api_create_space():
                           'owner'))
             
             conn.commit()
+            invalidate_user_cache(user_data['id'])
+            logger.info(f"✅ Пространство создано: {name} (ID: {space_id})")
+            def invalidate_user_cache(user_id):
+                """Инвалидируем кэш пользователя при изменениях"""
+                cache_keys = [
+                    f"user_spaces_{user_id}",
+                    f"user_{user_id}_space_*"
+                ]
+                # Упрощенная инвалидация - в продакшене использовать Redis
+                for key in list(cache._cache.keys()):
+                    if key.startswith(f"user_spaces_{user_id}") or key.startswith(f"user_{user_id}_space"):
+                        del cache._cache[key]
+
+            # Добавить вызов после изменений:
+            # - После создания пространства
+            # - После добавления траты  
+            # - После изменения бюджета
+            # - После присоединения к пространству
             logger.info(f"✅ Пространство создано: {name} (ID: {space_id})")
             
             return jsonify({
@@ -1965,7 +2167,7 @@ def api_add_expense():
             return jsonify({'error': 'Missing required fields'}), 400
         
         # Проверяем, что пользователь состоит в пространстве
-        if not is_user_in_space(user_data['id'], space_id):
+        if not is_user_in_space_fast(user_data['id'], space_id):
             return jsonify({'error': 'Access denied'}), 403
         
         # Добавляем трату
@@ -1973,7 +2175,7 @@ def api_add_expense():
             user_data['id'], user_data['first_name'],
             float(amount), category, description, int(space_id), currency
         )
-        
+        invalidate_user_cache(user_data['id'])
         return jsonify({'success': True})
             
     except Exception as e:
@@ -2004,12 +2206,13 @@ def api_set_budget():
             return jsonify({'error': 'Missing required fields'}), 400
         
         # Проверяем, что пользователь состоит в пространстве
-        if not is_user_in_space(user_data['id'], space_id):
+        if not is_user_in_space_fast(user_data['id'], space_id):
             return jsonify({'error': 'Access denied'}), 403
         
         # Используем новую функцию для общего бюджета пространства
         success = set_space_budget(space_id, float(amount), currency)
-        
+        if success:
+            invalidate_user_cache(user_data['id'])
         return jsonify({'success': success})
             
     except Exception as e:
@@ -2035,7 +2238,7 @@ def api_get_analytics():
             return jsonify({'error': 'User not found'}), 401
             
         # Проверяем, что пользователь состоит в пространстве
-        if not is_user_in_space(user_data['id'], space_id):
+        if not is_user_in_space_fast(user_data['id'], space_id):
             return jsonify({'error': 'Access denied'}), 403
         
         conn = get_db_connection()
@@ -2157,7 +2360,7 @@ def api_get_space_chart_data():
         if not user_data:
             return jsonify({'error': 'User not found'}), 401
             
-        if not is_user_in_space(user_data['id'], space_id):
+        if not is_user_in_space_fast(user_data['id'], space_id):
             return jsonify({'error': 'Access denied'}), 403
         
         conn = get_db_connection()
@@ -2266,7 +2469,7 @@ def api_get_user_breakdown():
         if not user_data:
             return jsonify({'error': 'User not found'}), 401
             
-        if not is_user_in_space(user_data['id'], space_id):
+        if not is_user_in_space_fast(user_data['id'], space_id):
             return jsonify({'error': 'Access denied'}), 403
         
         conn = get_db_connection()
@@ -2392,6 +2595,7 @@ def api_join_space():
                      (space_id, user_data['id'], user_data['first_name'], 'member'))
         
         conn.commit()
+        invalidate_user_cache(user_data['id'])
         conn.close()
         
         logger.info(f"✅ User {user_data['id']} joined space {space_id}")
@@ -2475,7 +2679,8 @@ def api_remove_member():
             return jsonify({'error': 'Нельзя удалить самого себя'}), 400
         
         success, message = remove_member_from_space(space_id, target_user_id, user_data['id'])
-        
+        if success:
+            invalidate_user_cache(user_data['id'])
         return jsonify({'success': success, 'message': message})
         
     except Exception as e:
