@@ -960,7 +960,7 @@
         let dataCache = {
             spaces: null,
             lastUpdate: null,
-            cacheDuration: 60000 // 1 минута
+            cacheDuration: 5000 // 5сек
         };
 
         async function loadSpacesWithCache() {
@@ -1131,7 +1131,16 @@
                     targetTab.classList.add('active');
                 }
             }
-
+            // Автоматически обновляем пространства при переключении вкладок
+            setTimeout(() => {
+                if (tabName === 'expenses') {
+                    loadSpacesForSelector('expenseSpacesGrid', true);
+                } else if (tabName === 'analytics') {
+                    loadSpacesForSelector('analyticsSpacesGrid', true);
+                } else if (tabName === 'spaces') {
+                    loadSpacesForSelector('spacesList', true);
+                }
+            }, 100);
             // ДОБАВЬТЕ ЭТОТ КОД - загрузка контента для конкретных вкладок
             console.log('Switching to tab:', tabName);
             if (tabName === 'expenses') {
@@ -1274,7 +1283,15 @@
             
             console.log(`✅ Displayed ${spaces.length} spaces in ${containerId}`);
         }
-
+        async function loadSpacesForSelector(containerId, isQuick = false) {
+            try {
+                // Используем кэшированные данные, но с возможностью обновления
+                const spaces = await loadSpacesWithCache();
+                displaySpacesGrid(spaces, containerId, isQuick);
+            } catch (error) {
+                console.error('Ошибка загрузки пространств для селектора:', error);
+            }
+        }
         function loadSpacesForSelector(containerId, isQuick = false) {
             fetch(`${API_URL}/get_user_spaces`, {
                 method: 'POST',
@@ -1380,7 +1397,32 @@
             // ОБНОВЛЯЕМ ДАШБОРД ПРИ СМЕНЕ ПРОСТРАНСТВА
             refreshDashboard();
         }
-
+        async function refreshAllSpaces() {
+            console.log('🔄 Принудительное обновление всех пространств...');
+            
+            // Очищаем кэш
+            dataCache.spaces = null;
+            dataCache.lastUpdate = null;
+            
+            try {
+                // Загружаем свежие данные
+                const spaces = await loadSpacesWithCache();
+                
+                // Обновляем все контейнеры
+                const updatePromises = [
+                    displaySpacesGrid(spaces, 'spacesList', true),
+                    displaySpacesGrid(spaces, 'quickSpacesGrid', true),
+                    displaySpacesGrid(spaces, 'expenseSpacesGrid', true),
+                    displaySpacesGrid(spaces, 'analyticsSpacesGrid', true)
+                ];
+                
+                await Promise.all(updatePromises);
+                console.log('✅ Все пространства обновлены');
+                
+            } catch (error) {
+                console.error('❌ Ошибка обновления пространств:', error);
+            }
+        }
         // ===== Добавим временную диагностическую функцию =====
         async function debugSpaces() {
             console.log('=== 🐛 DEBUG SPACES ===');
@@ -1661,8 +1703,25 @@
                 document.getElementById('spaceName').value = '';
                 document.getElementById('spaceDescription').value = '';
                 
-                // Перезагружаем пространства
-                await loadSpaces();
+                // ОЧИСТКА КЭША И ПЕРЕЗАГРУЗКА ВСЕХ ПРОСТРАНСТВ
+                dataCache.spaces = null;
+                dataCache.lastUpdate = null;
+                
+                // Перезагружаем пространства во ВСЕХ вкладках
+                await Promise.all([
+                    loadSpaces(),
+                    loadQuickSpaces(),
+                    loadSpacesForSelector('expenseSpacesGrid', true),
+                    loadSpacesForSelector('analyticsSpacesGrid', true)
+                ]);
+                
+                // Автовыбор созданного пространства
+                if (data.space_id) {
+                    setTimeout(() => {
+                        selectSpace(data.space_id);
+                        showMessage(`✅ Пространство "${name}" выбрано!`);
+                    }, 500);
+                }
                 
             } catch (error) {
                 console.error('❌ Create space error:', error);
