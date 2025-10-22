@@ -3316,6 +3316,110 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"❌ Ошибка обработки фото: {e}")
         await update.message.reply_text("❌ Произошла ошибка при обработке чека")
 
+
+# Добавьте этот код в ваш bot.py файл, где находятся другие handlers
+
+@bot.message_handler(commands=['get_simple_chart_data'])
+def handle_get_simple_chart_data(message):
+    """Обработчик для упрощенных данных графика"""
+    try:
+        # Для Telegram бота данные приходят в другом формате
+        # Вам нужно извлечь параметры из сообщения
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "❌ Неверный формат запроса. Используйте: /get_simple_chart_data space_id")
+            return
+        
+        space_id = parts[1]
+        user_id = message.from_user.id
+        
+        logger.info(f"📊 Запрос упрощенных данных графика от user_id: {user_id}, space_id: {space_id}")
+        
+        # Проверяем доступ пользователя к пространству
+        if not is_user_member_of_space(user_id, space_id):
+            bot.reply_to(message, "❌ Доступ запрещен к этому пространству")
+            return
+        
+        # Получаем данные
+        chart_data = get_simple_chart_data_from_db(space_id, period=7)
+        
+        # Отправляем данные пользователю
+        if chart_data:
+            # Форматируем ответ
+            response = format_chart_response(chart_data)
+            bot.reply_to(message, response)
+        else:
+            bot.reply_to(message, "📊 Нет данных для отображения графика")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка в handle_get_simple_chart_data: {str(e)}")
+        bot.reply_to(message, "❌ Ошибка при загрузке данных графика")
+
+def get_simple_chart_data_from_db(space_id, period=7):
+    """Получает упрощенные данные для графика из базы"""
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        
+        if isinstance(conn, sqlite3.Connection):
+            # SQLite
+            c.execute('''
+                SELECT 
+                    DATE(created_at) as date,
+                    user_name,
+                    SUM(amount) as total_amount
+                FROM expenses 
+                WHERE space_id = ? 
+                AND created_at >= datetime('now', '-' || ? || ' days')
+                GROUP BY DATE(created_at), user_name
+                ORDER BY date
+            ''', (space_id, period))
+        else:
+            # PostgreSQL
+            c.execute('''
+                SELECT 
+                    DATE(created_at) as date,
+                    user_name,
+                    SUM(amount) as total_amount
+                FROM expenses 
+                WHERE space_id = %s 
+                AND created_at >= NOW() - INTERVAL '%s days'
+                GROUP BY DATE(created_at), user_name
+                ORDER BY date
+            ''', (space_id, period))
+        
+        data = c.fetchall()
+        conn.close()
+        
+        return data
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения данных графика: {str(e)}")
+        return None
+
+def format_chart_response(data):
+    """Форматирует данные для ответа"""
+    if not data:
+        return "📊 Нет данных за последние 7 дней"
+    
+    # Группируем по пользователям
+    user_data = {}
+    for date, user_name, amount in data:
+        if user_name not in user_data:
+            user_data[user_name] = []
+        user_data[user_name].append(f"{date}: {amount} руб.")
+    
+    # Формируем ответ
+    response = "📊 **Статистика трат за 7 дней:**\n\n"
+    
+    for user_name, expenses in user_data.items():
+        response += f"👤 **{user_name}:**\n"
+        for expense in expenses[-5:]:  # Последние 5 записей
+            response += f"  {expense}\n"
+        response += "\n"
+    
+    return response
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка голосовых сообщений"""
     user = update.effective_user
