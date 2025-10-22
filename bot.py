@@ -1907,12 +1907,9 @@ def generate_invite_code(length=8):
     alphabet = alphabet.replace('0', '').replace('O', '').replace('1', '').replace('I', '')
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 def generate_unique_invite_code(length=8, max_attempts=10):
-    """Генерация гарантированно уникального кода приглашения"""
-    conn = get_db_connection()
-    
     for attempt in range(max_attempts):
         code = generate_invite_code(length)
-        
+        conn = get_db_connection()
         try:
             if isinstance(conn, sqlite3.Connection):
                 query = "SELECT id FROM financial_spaces WHERE invite_code = ?"
@@ -1923,14 +1920,14 @@ def generate_unique_invite_code(length=8, max_attempts=10):
             
             if df.empty:
                 return code
-                
         except Exception as e:
-            logger.warning(f"⚠️ Error checking invite code uniqueness: {e}")
-            return code  # В случае ошибки возвращаем сгенерированный код
+            logger.warning(f"⚠️ Error checking invite code: {e}")
+            return code  # При ошибке возвращаем код
+        finally:
+            conn.close()
     
-    # Если не удалось сгенерировать уникальный код
-    logger.error("❌ Failed to generate unique invite code")
-    return generate_invite_code(length)  # Возвращаем любой код
+    # Фолбэк
+    return generate_invite_code(length)
 
 def generate_invite_code(length=8):
     """Генерация безопасного уникального кода приглашения"""
@@ -1939,6 +1936,76 @@ def generate_invite_code(length=8):
     alphabet = alphabet.replace('0', '').replace('O', '').replace('1', '').replace('I', '')
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
+def generate_unique_invite_code_improved(length=8, max_attempts=10):
+    """Улучшенная генерация уникального кода приглашения"""
+    for attempt in range(max_attempts):
+        code = generate_invite_code(length)
+        if not code:
+            continue
+            
+        conn = get_db_connection()
+        try:
+            if isinstance(conn, sqlite3.Connection):
+                query = "SELECT id FROM financial_spaces WHERE invite_code = ?"
+                df = pd.read_sql_query(query, conn, params=(code,))
+            else:
+                query = "SELECT id FROM financial_spaces WHERE invite_code = %s"
+                df = pd.read_sql_query(query, conn, params=(code,))
+            
+            if df.empty:
+                logger.info(f"✅ Уникальный код сгенерирован: {code}")
+                return code
+            else:
+                logger.debug(f"🔄 Код {code} уже существует, пробуем снова...")
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка проверки кода {code}: {e}")
+            # При ошибке считаем код валидным
+            return code
+        finally:
+            if conn:
+                conn.close()
+    
+    # Фолбэк - генерируем код с timestamp для гарантии уникальности
+    fallback_code = f"{generate_invite_code(length-4)}_{int(time.time()) % 10000:04d}"
+    logger.warning(f"⚠️ Используем фолбэк код: {fallback_code}")
+    return fallback_code
+
+def invalidate_user_cache_safe(user_id):
+    """Безопасная инвалидация кэша пользователя"""
+    try:
+        keys_to_delete = []
+        for key in list(cache._cache.keys()):
+            if (key.startswith(f"user_spaces_{user_id}") or 
+                f"user_{user_id}_space" in key or
+                key.startswith(f"space_overview_")):  # Также инвалидируем обзоры пространств
+                keys_to_delete.append(key)
+        
+        for key in keys_to_delete:
+            try:
+                del cache._cache[key]
+                logger.debug(f"🗑️ Удален ключ кэша: {key}")
+            except KeyError:
+                pass
+                
+        logger.info(f"✅ Инвалидирован кэш для пользователя {user_id}")
+    except Exception as e:
+        logger.warning(f"⚠️ Ошибка инвалидации кэша: {e}")
+
+def generate_invite_code(length=8):
+    """Генерация безопасного кода приглашения"""
+    try:
+        alphabet = string.ascii_uppercase + string.digits
+        # Исключаем похожие символы: 0, O, 1, I
+        alphabet = alphabet.replace('0', '').replace('O', '').replace('1', '').replace('I', '')
+        if not alphabet:
+            alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # фолбэк алфавит
+        
+        return ''.join(secrets.choice(alphabet) for _ in range(length))
+    except Exception as e:
+        logger.error(f"❌ Ошибка генерации кода: {e}")
+        return "INV" + str(int(time.time()))[-5:]  # крайний фолбэк
+    
 @flask_app.route('/create_space', methods=['POST'])
 def api_create_space():
     """API для создания пространства"""
@@ -1960,12 +2027,25 @@ def api_create_space():
             
         if not name:
             return jsonify({'error': 'Name is required'}), 400
-        
+        logger.info(f"🔧 Создание пространства: пользователь {user_data['id']}")
         conn = get_db_connection()
         
         try:
-            # Генерируем уникальный код приглашения
-            invite_code = generate_unique_invite_code()
+            # Генерируем уникальный код приглашения с улучшенной обработкой ошибок
+            invite_code = generate_unique_invite_code_improved()
+            logger.info(f"🔑 Сгенерирован код: {invite_code}")
+            if not invite_code:
+                logger.error("❌ Не удалось сгенерировать уникальный код приглашения")
+                return jsonify({'error': 'Не удалось создать пространство'}), 500
+            
+            # Формируем имя пользователя с проверкой
+            first_name = user_data.get('first_name', 'User')
+            last_name = user_data.get('last_name', '')
+            user_name = f"{first_name} {last_name}".strip()
+            if not user_name or user_name.isspace():
+                user_name = "User"
+            
+            logger.info(f"🔑 Сгенерирован код: {invite_code}, пользователь: {user_name}")
             
             if isinstance(conn, sqlite3.Connection):
                 # SQLite
@@ -1980,9 +2060,7 @@ def api_create_space():
                 c.execute('''INSERT INTO space_members 
                             (space_id, user_id, user_name, role) 
                             VALUES (?, ?, ?, ?)''',
-                         (space_id, user_data['id'], 
-                          f"{user_data.get('first_name', 'User')} {user_data.get('last_name', '')}".strip(), 
-                          'owner'))
+                         (space_id, user_data['id'], user_name, 'owner'))
             else:
                 # PostgreSQL
                 c = conn.cursor()
@@ -1996,29 +2074,13 @@ def api_create_space():
                 c.execute('''INSERT INTO space_members 
                             (space_id, user_id, user_name, role) 
                             VALUES (%s, %s, %s, %s)''',
-                         (space_id, user_data['id'], 
-                          f"{user_data.get('first_name', 'User')} {user_data.get('last_name', '')}".strip(), 
-                          'owner'))
+                         (space_id, user_data['id'], user_name, 'owner'))
             
             conn.commit()
-            invalidate_user_cache(user_data['id'])
-            logger.info(f"✅ Пространство создано: {name} (ID: {space_id})")
-            def invalidate_user_cache(user_id):
-                """Инвалидируем кэш пользователя при изменениях"""
-                cache_keys = [
-                    f"user_spaces_{user_id}",
-                    f"user_{user_id}_space_*"
-                ]
-                # Упрощенная инвалидация - в продакшене использовать Redis
-                for key in list(cache._cache.keys()):
-                    if key.startswith(f"user_spaces_{user_id}") or key.startswith(f"user_{user_id}_space"):
-                        del cache._cache[key]
-
-            # Добавить вызов после изменений:
-            # - После создания пространства
-            # - После добавления траты  
-            # - После изменения бюджета
-            # - После присоединения к пространству
+            
+            # Инвалидируем кэш с улучшенной обработкой
+            invalidate_user_cache_safe(user_data['id'])
+            
             logger.info(f"✅ Пространство создано: {name} (ID: {space_id})")
             
             return jsonify({
@@ -2029,15 +2091,19 @@ def api_create_space():
             })
             
         except Exception as e:
-            conn.rollback()
+            if conn:
+                conn.rollback()
             logger.error(f"❌ Database error in create_space: {e}")
-            return jsonify({'error': 'Database error'}), 500
+            logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+            return jsonify({'error': f'Database error: {str(e)}'}), 500
         finally:
-            conn.close()
+            if conn:
+                conn.close()
             
     except Exception as e:
         logger.error(f"❌ API Error in create_space: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 
 @flask_app.route('/delete_space', methods=['POST'])
