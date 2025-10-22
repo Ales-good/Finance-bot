@@ -1898,7 +1898,73 @@ def api_get_space_members():
         logger.error(f"❌ API Error in get_space_members: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
-
+@flask_app.route('/get_user_spaces', methods=['POST'])
+def api_get_user_spaces():
+    """API для получения пространств пользователя (совместимость с веб-приложением)"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        user_id = user_data['id']
+        cache_key = f"user_spaces_{user_id}"
+        
+        # Пробуем получить из кэша
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            logger.info(f"✅ Данные из кэша для пользователя {user_id}")
+            return jsonify({'spaces': cached_data, 'cached': True})
+        
+        # Если нет в кэше - запрашиваем из БД
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code,
+                              COUNT(DISTINCT sm.user_id) as member_count
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = ? AND fs.is_active = TRUE
+                       GROUP BY fs.id
+                       ORDER BY fs.space_type, fs.created_at DESC'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code,
+                              COUNT(DISTINCT sm.user_id) as member_count
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = %s AND fs.is_active = TRUE
+                       GROUP BY fs.id
+                       ORDER BY fs.space_type, fs.created_at DESC'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        
+        conn.close()
+        
+        spaces = []
+        for _, row in df.iterrows():
+            spaces.append({
+                'id': int(row['id']),
+                'name': row['name'],
+                'description': row['description'],
+                'space_type': row['space_type'],
+                'invite_code': row['invite_code'],
+                'member_count': int(row['member_count']) if row['member_count'] else 1
+            })
+        
+        # Сохраняем в кэш
+        cache.set(cache_key, spaces)
+        
+        logger.info(f"✅ Данные из БД для пользователя {user_id}, найдено пространств: {len(spaces)}")
+        return jsonify({'spaces': spaces, 'cached': False})
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_user_spaces: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 def generate_invite_code(length=8):
     """Генерация безопасного уникального кода приглашения"""
@@ -2861,6 +2927,47 @@ async def handle_invite_start(update: Update, context: ContextTypes.DEFAULT_TYPE
             conn.close()
     else:
         await start(update, context)
+
+@flask_app.route('/debug_user_spaces', methods=['POST'])
+def debug_user_spaces():
+    """Диагностика пространств пользователя"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        user_id = user_data['id']
+        
+        conn = get_db_connection()
+        
+        # Проверяем все пространства пользователя
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT fs.id, fs.name, fs.space_type, fs.is_active, sm.role
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = ?'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            query = '''SELECT fs.id, fs.name, fs.space_type, fs.is_active, sm.role
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = %s'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        
+        conn.close()
+        
+        return jsonify({
+            'user_id': user_id,
+            'spaces': df.to_dict('records'),
+            'total_spaces': len(df)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Debug error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка данных из веб-приложения"""
