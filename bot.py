@@ -3319,25 +3319,24 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Добавьте этот код в ваш bot.py файл, где находятся другие handlers
 
-@bot.message_handler(commands=['get_simple_chart_data'])
-def handle_get_simple_chart_data(message):
-    """Обработчик для упрощенных данных графика"""
+# ДОБАВЬТЕ ЭТО ВМЕСТО УДАЛЕННОГО КОДА (в раздел handlers)
+async def handle_simple_chart_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /get_simple_chart_data"""
     try:
-        # Для Telegram бота данные приходят в другом формате
-        # Вам нужно извлечь параметры из сообщения
-        parts = message.text.split()
-        if len(parts) < 2:
-            bot.reply_to(message, "❌ Неверный формат запроса. Используйте: /get_simple_chart_data space_id")
+        user_id = update.effective_user.id
+        args = context.args
+        
+        if not args:
+            await update.message.reply_text("❌ Неверный формат запроса. Используйте: /get_simple_chart_data space_id")
             return
         
-        space_id = parts[1]
-        user_id = message.from_user.id
+        space_id = args[0]
         
         logger.info(f"📊 Запрос упрощенных данных графика от user_id: {user_id}, space_id: {space_id}")
         
         # Проверяем доступ пользователя к пространству
         if not is_user_member_of_space(user_id, space_id):
-            bot.reply_to(message, "❌ Доступ запрещен к этому пространству")
+            await update.message.reply_text("❌ Доступ запрещен к этому пространству")
             return
         
         # Получаем данные
@@ -3345,15 +3344,17 @@ def handle_get_simple_chart_data(message):
         
         # Отправляем данные пользователю
         if chart_data:
-            # Форматируем ответ
             response = format_chart_response(chart_data)
-            bot.reply_to(message, response)
+            await update.message.reply_text(response)
         else:
-            bot.reply_to(message, "📊 Нет данных для отображения графика")
+            await update.message.reply_text("📊 Нет данных для отображения графика")
             
     except Exception as e:
-        logger.error(f"❌ Ошибка в handle_get_simple_chart_data: {str(e)}")
-        bot.reply_to(message, "❌ Ошибка при загрузке данных графика")
+        logger.error(f"❌ Ошибка в handle_simple_chart_data: {str(e)}")
+        await update.message.reply_text("❌ Ошибка при загрузке данных графика")
+
+# И добавьте хендлер в main() функцию:
+# application.add_handler(CommandHandler("get_simple_chart_data", handle_simple_chart_data))
 
 def get_simple_chart_data_from_db(space_id, period=7):
     """Получает упрощенные данные для графика из базы"""
