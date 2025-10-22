@@ -1180,6 +1180,155 @@ def get_user_budget(user_id, space_id):
     finally:
         conn.close()
 
+@flask_app.route('/get_spaces_minimal', methods=['POST'])
+def api_get_spaces_minimal():
+    """СУПЕР-БЫСТРАЯ загрузка только ID и названий пространств (как во вкладке Траты)"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        user_id = user_data['id']
+        
+        # Ключ кэша для минимальных данных
+        cache_key = f"spaces_minimal_{user_id}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            logger.info(f"✅ Минимальные данные из кэша для пользователя {user_id}")
+            return jsonify({'spaces': cached_data, 'cached': True})
+        
+        # Быстрый запрос ТОЛЬКО основных данных
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT fs.id, fs.name, fs.space_type
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = ? AND fs.is_active = TRUE
+                       ORDER BY 
+                         CASE fs.space_type 
+                           WHEN 'personal' THEN 1 
+                           ELSE 2 
+                         END, 
+                         fs.name'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            query = '''SELECT fs.id, fs.name, fs.space_type
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = %s AND fs.is_active = TRUE
+                       ORDER BY 
+                         CASE fs.space_type 
+                           WHEN 'personal' THEN 1 
+                           ELSE 2 
+                         END, 
+                         fs.name'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        
+        conn.close()
+        
+        spaces = []
+        for _, row in df.iterrows():
+            spaces.append({
+                'id': int(row['id']),
+                'name': row['name'],
+                'space_type': row['space_type']
+            })
+        
+        # Кэшируем на 30 секунд
+        cache.set(cache_key, spaces, ttl=30)
+        
+        logger.info(f"✅ Минимальные данные загружены для пользователя {user_id}: {len(spaces)} пространств")
+        return jsonify({
+            'spaces': spaces, 
+            'cached': False
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_spaces_minimal: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@flask_app.route('/get_space_details', methods=['POST'])
+def api_get_space_details():
+    """Загрузка ДОПОЛНИТЕЛЬНЫХ деталей пространства (по требованию)"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if not is_user_in_space_fast(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        # Кэшируем детали пространства
+        cache_key = f"space_details_{space_id}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return jsonify(cached_data)
+        
+        conn = get_db_connection()
+        
+        # Получаем детали пространства
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT 
+                         fs.name, fs.description, fs.space_type, fs.invite_code,
+                         COUNT(DISTINCT sm.user_id) as member_count,
+                         (SELECT COUNT(*) FROM expenses WHERE space_id = fs.id AND DATE(date) = DATE('now')) as today_expenses,
+                         (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE space_id = fs.id AND DATE(date) = DATE('now')) as today_total
+                       FROM financial_spaces fs
+                       LEFT JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE fs.id = ?
+                       GROUP BY fs.id, fs.name, fs.description, fs.space_type, fs.invite_code'''
+            df = pd.read_sql_query(query, conn, params=(space_id,))
+        else:
+            query = '''SELECT 
+                         fs.name, fs.description, fs.space_type, fs.invite_code,
+                         COUNT(DISTINCT sm.user_id) as member_count,
+                         (SELECT COUNT(*) FROM expenses WHERE space_id = fs.id AND DATE(date) = CURRENT_DATE) as today_expenses,
+                         (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE space_id = fs.id AND DATE(date) = CURRENT_DATE) as today_total
+                       FROM financial_spaces fs
+                       LEFT JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE fs.id = %s
+                       GROUP BY fs.id, fs.name, fs.description, fs.space_type, fs.invite_code'''
+            df = pd.read_sql_query(query, conn, params=(space_id,))
+        
+        conn.close()
+        
+        if df.empty:
+            return jsonify({'error': 'Space not found'}), 404
+        
+        row = df.iloc[0]
+        result = {
+            'name': row['name'],
+            'description': row['description'],
+            'space_type': row['space_type'],
+            'invite_code': row['invite_code'],
+            'member_count': int(row['member_count']),
+            'today_expenses': int(row['today_expenses']),
+            'today_total': float(row['today_total'])
+        }
+        
+        # Кэшируем на 60 секунд
+        cache.set(cache_key, result, ttl=60)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_space_details: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
 # ===== НОВЫЕ API ДЛЯ РАСШИРЕННОЙ АНАЛИТИКИ =====
 @flask_app.route('/get_advanced_analytics', methods=['POST'])
 def api_get_advanced_analytics():
@@ -1959,10 +2108,11 @@ def api_get_space_members():
 
 @flask_app.route('/get_user_spaces', methods=['POST'])
 def api_get_user_spaces():
+    """Улучшенная версия - использует быструю загрузку с опциональными деталями"""
     try:
         data = request.json
         init_data = data.get('initData')
-        force_refresh = data.get('forceRefresh', False)
+        include_details = data.get('includeDetails', False)  # Новый параметр
         
         if not validate_webapp_data(init_data):
             return jsonify({'error': 'Invalid data'}), 401
@@ -1973,14 +2123,14 @@ def api_get_user_spaces():
             
         user_id = user_data['id']
         
-        # ВСЕГДА принудительно обновляем кэш для актуальности
+        # Всегда инвалидируем кэш для актуальности
         invalidate_user_cache_safe(user_id)
         
-        # Упрощенный запрос только нужных данных
+        # Сначала загружаем минимальные данные БЫСТРО
         conn = get_db_connection()
         
         if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code
+            query = '''SELECT fs.id, fs.name, fs.space_type
                        FROM financial_spaces fs
                        JOIN space_members sm ON fs.id = sm.space_id
                        WHERE sm.user_id = ? AND fs.is_active = TRUE
@@ -1989,11 +2139,10 @@ def api_get_user_spaces():
                            WHEN 'personal' THEN 1 
                            ELSE 2 
                          END, 
-                         fs.created_at DESC
-                       LIMIT 20'''  # Ограничение на случай многих пространств
+                         fs.name'''
             df = pd.read_sql_query(query, conn, params=(user_id,))
         else:
-            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code
+            query = '''SELECT fs.id, fs.name, fs.space_type
                        FROM financial_spaces fs
                        JOIN space_members sm ON fs.id = sm.space_id
                        WHERE sm.user_id = %s AND fs.is_active = TRUE
@@ -2002,31 +2151,35 @@ def api_get_user_spaces():
                            WHEN 'personal' THEN 1 
                            ELSE 2 
                          END, 
-                         fs.created_at DESC
-                       LIMIT 20'''
+                         fs.name'''
             df = pd.read_sql_query(query, conn, params=(user_id,))
-        
-        conn.close()
         
         spaces = []
         for _, row in df.iterrows():
-            # Получаем количество участников отдельным быстрым запросом
-            member_count = get_space_member_count_fast(row['id'])
-            
-            spaces.append({
+            space_data = {
                 'id': int(row['id']),
                 'name': row['name'],
-                'description': row['description'],
-                'space_type': row['space_type'],
-                'invite_code': row['invite_code'],
-                'member_count': member_count
-            })
+                'space_type': row['space_type']
+            }
+            
+            # Детали загружаем только если явно запрошены
+            if include_details:
+                # Быстрая загрузка количества участников
+                member_count = get_space_member_count_fast(row['id'])
+                space_data['member_count'] = member_count
+                
+                # Можно добавить другие детали по необходимости
+                # но избегайте тяжелых запросов
+                
+            spaces.append(space_data)
         
-        logger.info(f"✅ Пространства загружены для пользователя {user_id}: {len(spaces)}")
+        conn.close()
+        
+        logger.info(f"✅ Улучшенная загрузка пространств для пользователя {user_id}: {len(spaces)}")
         return jsonify({
             'spaces': spaces, 
             'cached': False,
-            'refreshed': True
+            'minimal': not include_details  # Показываем тип загрузки
         })
         
     except Exception as e:
@@ -2050,7 +2203,28 @@ def get_space_member_count_fast(space_id):
     finally:
         conn.close()
 
-
+def get_user_spaces_super_fast(user_id):
+    """Сверхбыстрое получение только ID пространств пользователя"""
+    cache_key = f"user_spaces_ids_{user_id}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+    
+    conn = get_db_connection()
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT space_id FROM space_members WHERE user_id = ?'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            query = '''SELECT space_id FROM space_members WHERE user_id = %s'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        
+        space_ids = [int(row['space_id']) for _, row in df.iterrows()]
+        cache.set(cache_key, space_ids, ttl=60)
+        return space_ids
+    finally:
+        conn.close()
+        
 @flask_app.route('/refresh_spaces_instantly', methods=['POST'])
 def api_refresh_spaces_instantly():
     """Мгновенное обновление пространств без кэша"""
