@@ -2439,7 +2439,7 @@ def api_set_budget():
         logger.error(f"❌ API Error in set_budget: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
-@app.route('/get_simple_chart_data', methods=['POST'])
+@flask_app.route('/get_simple_chart_data', methods=['POST'])
 def get_simple_chart_data():
     """Упрощенные данные для графика (только 7 дней)"""
     try:
