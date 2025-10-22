@@ -1707,7 +1707,66 @@ def api_get_user_spaces_fast():
     except Exception as e:
         logger.error(f"❌ API Error in get_user_spaces_fast: {e}")
         return jsonify({'error': 'Internal server error'}), 500
-
+@flask_app.route('/refresh_user_spaces', methods=['POST'])
+def api_refresh_user_spaces():
+    """Принудительное обновление списка пространств пользователя"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        user_id = user_data['id']
+        
+        # Принудительно инвалидируем кэш
+        invalidate_user_cache_safe(user_id)
+        
+        # Получаем свежие данные из БД
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code,
+                              COUNT(DISTINCT sm.user_id) as member_count
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = ? AND fs.is_active = TRUE
+                       GROUP BY fs.id
+                       ORDER BY fs.space_type, fs.created_at DESC'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code,
+                              COUNT(DISTINCT sm.user_id) as member_count
+                       FROM financial_spaces fs
+                       JOIN space_members sm ON fs.id = sm.space_id
+                       WHERE sm.user_id = %s AND fs.is_active = TRUE
+                       GROUP BY fs.id
+                       ORDER BY fs.space_type, fs.created_at DESC'''
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+        
+        conn.close()
+        
+        spaces = []
+        for _, row in df.iterrows():
+            spaces.append({
+                'id': int(row['id']),
+                'name': row['name'],
+                'description': row['description'],
+                'space_type': row['space_type'],
+                'invite_code': row['invite_code'],
+                'member_count': int(row['member_count']) if row['member_count'] else 1
+            })
+        
+        logger.info(f"🔄 Принудительно обновлены пространства для пользователя {user_id}, найдено: {len(spaces)}")
+        return jsonify({'spaces': spaces, 'refreshed': True})
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in refresh_user_spaces: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 @flask_app.route('/get_space_overview', methods=['POST'])
 def api_get_space_overview():
     """Пакетная загрузка основных данных пространства"""
@@ -1900,10 +1959,11 @@ def api_get_space_members():
 
 @flask_app.route('/get_user_spaces', methods=['POST'])
 def api_get_user_spaces():
-    """API для получения пространств пользователя (совместимость с веб-приложением)"""
+    """API для получения пространств пользователя"""
     try:
         data = request.json
         init_data = data.get('initData')
+        force_refresh = data.get('forceRefresh', False)  # ← НОВЫЙ ПАРАМЕТР
         
         if not validate_webapp_data(init_data):
             return jsonify({'error': 'Invalid data'}), 401
@@ -1915,13 +1975,19 @@ def api_get_user_spaces():
         user_id = user_data['id']
         cache_key = f"user_spaces_{user_id}"
         
-        # Пробуем получить из кэша
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            logger.info(f"✅ Данные из кэша для пользователя {user_id}")
-            return jsonify({'spaces': cached_data, 'cached': True})
+        # Если запрошено принудительное обновление - очищаем кэш
+        if force_refresh:
+            invalidate_user_cache_safe(user_id)
+            logger.info(f"🔄 Принудительное обновление для пользователя {user_id}")
         
-        # Если нет в кэше - запрашиваем из БД
+        # Пробуем получить из кэша (только если не force_refresh)
+        if not force_refresh:
+            cached_data = cache.get(cache_key)
+            if cached_data is not None:
+                logger.info(f"✅ Данные из кэша для пользователя {user_id}")
+                return jsonify({'spaces': cached_data, 'cached': True})
+        
+        # Получаем свежие данные из БД
         conn = get_db_connection()
         
         if isinstance(conn, sqlite3.Connection):
@@ -1960,7 +2026,11 @@ def api_get_user_spaces():
         cache.set(cache_key, spaces)
         
         logger.info(f"✅ Данные из БД для пользователя {user_id}, найдено пространств: {len(spaces)}")
-        return jsonify({'spaces': spaces, 'cached': False})
+        return jsonify({
+            'spaces': spaces, 
+            'cached': False,
+            'refreshed': force_refresh
+        })
         
     except Exception as e:
         logger.error(f"❌ API Error in get_user_spaces: {e}")
@@ -2044,17 +2114,25 @@ def invalidate_user_cache_safe(user_id):
         for key in list(cache._cache.keys()):
             if (key.startswith(f"user_spaces_{user_id}") or 
                 f"user_{user_id}_space" in key or
-                key.startswith(f"space_overview_")):  # Также инвалидируем обзоры пространств
+                key.startswith("space_overview_") or
+                key.startswith("user_spaces")):  # ← ДОБАВИТЬ ЭТО
                 keys_to_delete.append(key)
         
+        deleted_count = 0
         for key in keys_to_delete:
             try:
                 del cache._cache[key]
+                deleted_count += 1
                 logger.debug(f"🗑️ Удален ключ кэша: {key}")
             except KeyError:
                 pass
                 
-        logger.info(f"✅ Инвалидирован кэш для пользователя {user_id}")
+        logger.info(f"✅ Инвалидирован кэш для пользователя {user_id}, удалено ключей: {deleted_count}")
+        
+        # Также инвалидируем lru_cache
+        get_user_spaces_cached.cache_clear()
+        logger.info(f"✅ Очищен lru_cache для пользователя {user_id}")
+        
     except Exception as e:
         logger.warning(f"⚠️ Ошибка инвалидации кэша: {e}")
 
@@ -2093,6 +2171,7 @@ def api_create_space():
             
         if not name:
             return jsonify({'error': 'Name is required'}), 400
+        
         logger.info(f"🔧 Создание пространства: пользователь {user_data['id']}")
         conn = get_db_connection()
         
@@ -2149,11 +2228,20 @@ def api_create_space():
             
             logger.info(f"✅ Пространство создано: {name} (ID: {space_id})")
             
+            # ВОЗВРАЩАЕМ ПОЛНЫЕ ДАННЫЕ О НОВОМ ПРОСТРАНСТВЕ
             return jsonify({
                 'success': True,
                 'space_id': space_id,
                 'invite_code': invite_code,
-                'message': f'Пространство "{name}" создано!'
+                'message': f'Пространство "{name}" создано!',
+                'new_space': {
+                    'id': space_id,
+                    'name': name,
+                    'description': description,
+                    'space_type': space_type,
+                    'invite_code': invite_code,
+                    'member_count': 1
+                }
             })
             
         except Exception as e:
