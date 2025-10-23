@@ -2241,7 +2241,56 @@ def api_remove_member():
     except Exception as e:
         logger.error(f"❌ API Error in remove_member: {e}")
         return jsonify({'error': 'Internal server error'}), 500
-
+    
+@flask_app.route('/delete_user_category', methods=['POST'])
+def api_delete_user_category():
+    """Удаление пользовательской категории"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        category_name = data.get('categoryName')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if not category_name:
+            return jsonify({'error': 'Category name is required'}), 400
+        
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            # Удаляем категорию только если она пользовательская и принадлежит этому пользователю
+            result = conn.execute('''DELETE FROM user_categories 
+                                   WHERE user_id = ? AND (space_id = ? OR space_id = 0) 
+                                   AND category_name = ? AND is_custom = TRUE''',
+                                (user_data['id'], space_id if space_id else 0, category_name))
+            
+            deleted_count = result.rowcount
+        else:
+            cursor = conn.cursor()
+            cursor.execute('''DELETE FROM user_categories 
+                           WHERE user_id = %s AND (space_id = %s OR space_id = 0) 
+                           AND category_name = %s AND is_custom = TRUE''',
+                         (user_data['id'], space_id if space_id else 0, category_name))
+            
+            deleted_count = cursor.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        if deleted_count > 0:
+            return jsonify({'success': True, 'message': 'Категория удалена'})
+        else:
+            return jsonify({'error': 'Категория не найдена или нельзя удалить стандартную категорию'}), 404
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in delete_user_category: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 # ===== TELEGRAM BOT HANDLERS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
