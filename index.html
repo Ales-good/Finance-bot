@@ -815,7 +815,30 @@
                         <!-- Categories will be loaded here -->
                     </div>
                 </div>
+                <!-- КНОПКА ДОБАВЛЕНИЯ НОВОЙ КАТЕГОРИИ -->
+                <button class="btn btn-outline" onclick="showAddCategoryForm()" style="width: auto; margin-top: 8px; padding: 8px 16px;">
+                    ➕ Создать категорию
+                </button>
+            </div>
 
+            <!-- ФОРМА СОЗДАНИЯ КАТЕГОРИИ -->
+            <div id="addCategoryForm" class="card hidden" style="margin-top: 12px;">
+                <h4>➕ Создать категорию</h4>
+                <div class="form-group">
+                    <label>Название категории:</label>
+                    <input type="text" id="newCategoryName" placeholder="Например: Такси">
+                </div>
+                <div class="form-group">
+                    <label>Иконка:</label>
+                    <div class="categories-grid" id="iconSelector">
+                        <!-- Иконки будут загружены скриптом -->
+                    </div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-success" onclick="createCustomCategory()">Создать</button>
+                    <button class="btn btn-secondary" onclick="hideAddCategoryForm()">Отмена</button>
+                </div>
+            </div>    
                 <div class="form-group">
                     <label>Описание (комментарий):</label>
                     <input type="text" id="expenseDescription" placeholder="Краткое описание траты">
@@ -1819,42 +1842,144 @@
             loadCategories();
         }
 
-        function loadCategories() {
+        // Функции для работы с категориями
+        function showAddCategoryForm() {
+            document.getElementById('addCategoryForm').classList.remove('hidden');
+            loadIconsForCategory();
+        }
+
+        function hideAddCategoryForm() {
+            document.getElementById('addCategoryForm').classList.add('hidden');
+            document.getElementById('newCategoryName').value = '';
+        }
+
+        function loadIconsForCategory() {
+            const icons = ['🚗', '🚕', '🚲', '✈️', '🎁', '🎉', '🏠', '🏥', '💊', '🍔', '☕', '🎬', '🛍️', '📚', '💻', '📱', '💎', '👕', '👟', '🎮'];
+            
+            const container = document.getElementById('iconSelector');
+            container.innerHTML = icons.map(icon => `
+                <div class="category-item" onclick="selectCategoryIcon('${icon}')">
+                    <div class="category-icon">${icon}</div>
+                </div>
+            `).join('');
+        }
+
+        let selectedIcon = '📁'; // Иконка по умолчанию
+
+        function selectCategoryIcon(icon) {
+            selectedIcon = icon;
+            document.querySelectorAll('#iconSelector .category-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.category-item').classList.add('active');
+        }
+
+        async function createCustomCategory() {
+            const categoryName = document.getElementById('newCategoryName').value.trim();
+            const spaceId = state.currentSpaceId;
+
+            if (!categoryName) {
+                showMessage('Введите название категории', 'error');
+                return;
+            }
+
+            if (!spaceId) {
+                showMessage('Выберите пространство', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/add_user_category`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        categoryName: categoryName,
+                        categoryIcon: selectedIcon
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка создания категории');
+                }
+
+                showMessage(`✅ Категория "${categoryName}" создана!`);
+                hideAddCategoryForm();
+                
+                // Перезагружаем категории
+                loadCategories();
+                
+            } catch (error) {
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        // ОБНОВЛЕННАЯ ФУНКЦИЯ loadCategories
+        async function loadCategories() {
             console.log('=== loadCategories() called ===');
             
             const container = document.getElementById('categoriesGrid');
-            console.log('Categories container:', container);
-
+            
             if (!container) {
                 console.error('❌ categoriesGrid container NOT FOUND!');
                 return;
             }
 
-            console.log('✅ categoriesGrid container found');
+            try {
+                // Сначала загружаем стандартные категории
+                const defaultCategories = [
+                    { name: 'Продукты', icon: '🛒', isCustom: false },
+                    { name: 'Кафе', icon: '☕', isCustom: false },
+                    { name: 'Транспорт', icon: '🚗', isCustom: false },
+                    { name: 'Дом', icon: '🏠', isCustom: false },
+                    { name: 'Одежда', icon: '👕', isCustom: false },
+                    { name: 'Здоровье', icon: '🏥', isCustom: false },
+                    { name: 'Развлечения', icon: '🎬', isCustom: false },
+                    { name: 'Подписки', icon: '📱', isCustom: false },
+                    { name: 'Образование', icon: '📚', isCustom: false },
+                    { name: 'Другое', icon: '❓', isCustom: false }
+                ];
 
-            const categories = [
-                { name: 'Продукты', icon: '🛒' },
-                { name: 'Кафе', icon: '☕' },
-                { name: 'Транспорт', icon: '🚗' },
-                { name: 'Дом', icon: '🏠' },
-                { name: 'Одежда', icon: '👕' },
-                { name: 'Здоровье', icon: '🏥' },
-                { name: 'Развлечения', icon: '🎬' },
-                { name: 'Подписки', icon: '📱' },
-                { name: 'Образование', icon: '📚' },
-                { name: 'Другое', icon: '❓' }
-            ];
+                // Затем загружаем пользовательские категории с сервера
+                let customCategories = [];
+                try {
+                    const response = await fetch(`${API_URL}/get_user_categories`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId
+                        })
+                    });
 
-            console.log('Categories to load:', categories);
+                    if (response.ok) {
+                        const data = await response.json();
+                        customCategories = data.categories || [];
+                    }
+                } catch (error) {
+                    console.error('Ошибка загрузки пользовательских категорий:', error);
+                }
 
-            container.innerHTML = categories.map(cat => `
-                <div class="category-item" onclick="selectCategory('${cat.name}')">
-                    <div class="category-icon">${cat.icon}</div>
-                    <div class="category-name">${cat.name}</div>
-                </div>
-            `).join('');
+                // Объединяем категории
+                const allCategories = [...defaultCategories, ...customCategories];
 
-            console.log('✅ Categories HTML generated');
+                console.log('Categories to load:', allCategories);
+
+                container.innerHTML = allCategories.map(cat => `
+                    <div class="category-item" onclick="selectCategory('${cat.name}')" data-category-name="${cat.name}">
+                        <div class="category-icon">${cat.icon}</div>
+                        <div class="category-name">${cat.name}</div>
+                        ${cat.isCustom ? '<div style="font-size: 8px; color: #666; margin-top: 2px;">пользовательская</div>' : ''}
+                    </div>
+                `).join('');
+
+                console.log('✅ Categories HTML generated');
+
+            } catch (error) {
+                console.error('❌ Error loading categories:', error);
+            }
         }
 
         function selectCategory(category) {
@@ -1903,6 +2028,12 @@
             }
 
             try {
+                // Показываем индикатор загрузки
+                const saveButton = document.querySelector('.btn-success[onclick="addExpense()"]');
+                const originalText = saveButton.textContent;
+                saveButton.textContent = '⏳ Сохраняем...';
+                saveButton.disabled = true;
+
                 const response = await fetch(`${API_URL}/add_expense`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1922,7 +2053,7 @@
                 }
         
                 // УЛУЧШЕННОЕ ПОДТВЕРЖДЕНИЕ
-                showMessage(`✅ Трата добавлена! ${amount} ${CURRENCIES[state.currentCurrency].symbol} - ${category}${description ? ' - ' + description : ''}`);
+                showExpenseConfirmation(amount, category, description);
         
                 // Сбрасываем форму
                 clearAmount();
@@ -1933,12 +2064,64 @@
         
                 // Мгновенно обновляем дашборд
                 loadDashboardKPI();
-        
+
             } catch (error) {
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            } finally {
+                // Восстанавливаем кнопку
+                const saveButton = document.querySelector('.btn-success[onclick="addExpense()"]');
+                saveButton.textContent = '💾 Сохранить трату';
+                saveButton.disabled = false;
             }
         }
 
+        // НОВАЯ ФУНКЦИЯ: Красивое подтверждение
+        function showExpenseConfirmation(amount, category, description) {
+            const modalHtml = `
+                <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+                    <div class="card" style="max-width: 300px; margin: 20px; text-align: center; animation: scaleIn 0.3s ease;">
+                        <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
+                        <h3 style="color: #28a745; margin-bottom: 16px;">Трата добавлена!</h3>
+                        <div style="text-align: left; background: var(--border-color); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                            <div><strong>💸 Сумма:</strong> ${amount} ${CURRENCIES[state.currentCurrency].symbol}</div>
+                            <div><strong>📂 Категория:</strong> ${category}</div>
+                            ${description ? `<div><strong>📝 Описание:</strong> ${description}</div>` : ''}
+                        </div>
+                        <button class="btn btn-success" onclick="closeExpenseConfirmation()" style="width: 100%;">Продолжить</button>
+                    </div>
+                </div>
+            `;
+
+            const modal = document.createElement('div');
+            modal.id = 'expenseConfirmationModal';
+            modal.innerHTML = modalHtml;
+            document.body.appendChild(modal);
+        }
+
+        function closeExpenseConfirmation() {
+            const modal = document.getElementById('expenseConfirmationModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        // Добавьте эту анимацию в CSS
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes scaleIn {
+                from {
+                    opacity: 0;
+                    transform: scale(0.8);
+                }
+                to {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        
         // ===== BUDGET MANAGEMENT =====
         let budgetCurrency = 'RUB';
 
