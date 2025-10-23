@@ -1180,155 +1180,6 @@ def get_user_budget(user_id, space_id):
     finally:
         conn.close()
 
-@flask_app.route('/get_spaces_minimal', methods=['POST'])
-def api_get_spaces_minimal():
-    """СУПЕР-БЫСТРАЯ загрузка только ID и названий пространств (как во вкладке Траты)"""
-    try:
-        data = request.json
-        init_data = data.get('initData')
-        
-        if not validate_webapp_data(init_data):
-            return jsonify({'error': 'Invalid data'}), 401
-            
-        user_data = get_user_from_init_data(init_data)
-        if not user_data:
-            return jsonify({'error': 'User not found'}), 401
-            
-        user_id = user_data['id']
-        
-        # Ключ кэша для минимальных данных
-        cache_key = f"spaces_minimal_{user_id}"
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            logger.info(f"✅ Минимальные данные из кэша для пользователя {user_id}")
-            return jsonify({'spaces': cached_data, 'cached': True})
-        
-        # Быстрый запрос ТОЛЬКО основных данных
-        conn = get_db_connection()
-        
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT fs.id, fs.name, fs.space_type
-                       FROM financial_spaces fs
-                       JOIN space_members sm ON fs.id = sm.space_id
-                       WHERE sm.user_id = ? AND fs.is_active = TRUE
-                       ORDER BY 
-                         CASE fs.space_type 
-                           WHEN 'personal' THEN 1 
-                           ELSE 2 
-                         END, 
-                         fs.name'''
-            df = pd.read_sql_query(query, conn, params=(user_id,))
-        else:
-            query = '''SELECT fs.id, fs.name, fs.space_type
-                       FROM financial_spaces fs
-                       JOIN space_members sm ON fs.id = sm.space_id
-                       WHERE sm.user_id = %s AND fs.is_active = TRUE
-                       ORDER BY 
-                         CASE fs.space_type 
-                           WHEN 'personal' THEN 1 
-                           ELSE 2 
-                         END, 
-                         fs.name'''
-            df = pd.read_sql_query(query, conn, params=(user_id,))
-        
-        conn.close()
-        
-        spaces = []
-        for _, row in df.iterrows():
-            spaces.append({
-                'id': int(row['id']),
-                'name': row['name'],
-                'space_type': row['space_type']
-            })
-        
-        # Кэшируем на 30 секунд
-        cache.set(cache_key, spaces, ttl=30)
-        
-        logger.info(f"✅ Минимальные данные загружены для пользователя {user_id}: {len(spaces)} пространств")
-        return jsonify({
-            'spaces': spaces, 
-            'cached': False
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ API Error in get_spaces_minimal: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@flask_app.route('/get_space_details', methods=['POST'])
-def api_get_space_details():
-    """Загрузка ДОПОЛНИТЕЛЬНЫХ деталей пространства (по требованию)"""
-    try:
-        data = request.json
-        init_data = data.get('initData')
-        space_id = data.get('spaceId')
-        
-        if not validate_webapp_data(init_data):
-            return jsonify({'error': 'Invalid data'}), 401
-            
-        user_data = get_user_from_init_data(init_data)
-        if not user_data:
-            return jsonify({'error': 'User not found'}), 401
-            
-        if not is_user_in_space_fast(user_data['id'], space_id):
-            return jsonify({'error': 'Access denied'}), 403
-        
-        # Кэшируем детали пространства
-        cache_key = f"space_details_{space_id}"
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            return jsonify(cached_data)
-        
-        conn = get_db_connection()
-        
-        # Получаем детали пространства
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT 
-                         fs.name, fs.description, fs.space_type, fs.invite_code,
-                         COUNT(DISTINCT sm.user_id) as member_count,
-                         (SELECT COUNT(*) FROM expenses WHERE space_id = fs.id AND DATE(date) = DATE('now')) as today_expenses,
-                         (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE space_id = fs.id AND DATE(date) = DATE('now')) as today_total
-                       FROM financial_spaces fs
-                       LEFT JOIN space_members sm ON fs.id = sm.space_id
-                       WHERE fs.id = ?
-                       GROUP BY fs.id, fs.name, fs.description, fs.space_type, fs.invite_code'''
-            df = pd.read_sql_query(query, conn, params=(space_id,))
-        else:
-            query = '''SELECT 
-                         fs.name, fs.description, fs.space_type, fs.invite_code,
-                         COUNT(DISTINCT sm.user_id) as member_count,
-                         (SELECT COUNT(*) FROM expenses WHERE space_id = fs.id AND DATE(date) = CURRENT_DATE) as today_expenses,
-                         (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE space_id = fs.id AND DATE(date) = CURRENT_DATE) as today_total
-                       FROM financial_spaces fs
-                       LEFT JOIN space_members sm ON fs.id = sm.space_id
-                       WHERE fs.id = %s
-                       GROUP BY fs.id, fs.name, fs.description, fs.space_type, fs.invite_code'''
-            df = pd.read_sql_query(query, conn, params=(space_id,))
-        
-        conn.close()
-        
-        if df.empty:
-            return jsonify({'error': 'Space not found'}), 404
-        
-        row = df.iloc[0]
-        result = {
-            'name': row['name'],
-            'description': row['description'],
-            'space_type': row['space_type'],
-            'invite_code': row['invite_code'],
-            'member_count': int(row['member_count']),
-            'today_expenses': int(row['today_expenses']),
-            'today_total': float(row['today_total'])
-        }
-        
-        # Кэшируем на 60 секунд
-        cache.set(cache_key, result, ttl=60)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"❌ API Error in get_space_details: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
 # ===== НОВЫЕ API ДЛЯ РАСШИРЕННОЙ АНАЛИТИКИ =====
 @flask_app.route('/get_advanced_analytics', methods=['POST'])
 def api_get_advanced_analytics():
@@ -2108,11 +1959,11 @@ def api_get_space_members():
 
 @flask_app.route('/get_user_spaces', methods=['POST'])
 def api_get_user_spaces():
-    """Улучшенная версия - использует быструю загрузку с опциональными деталями"""
+    """API для получения пространств пользователя"""
     try:
         data = request.json
         init_data = data.get('initData')
-        include_details = data.get('includeDetails', False)  # Новый параметр
+        force_refresh = data.get('forceRefresh', False)  # ← НОВЫЙ ПАРАМЕТР
         
         if not validate_webapp_data(init_data):
             return jsonify({'error': 'Invalid data'}), 401
@@ -2122,142 +1973,40 @@ def api_get_user_spaces():
             return jsonify({'error': 'User not found'}), 401
             
         user_id = user_data['id']
+        cache_key = f"user_spaces_{user_id}"
         
-        # Всегда инвалидируем кэш для актуальности
-        invalidate_user_cache_safe(user_id)
+        # Если запрошено принудительное обновление - очищаем кэш
+        if force_refresh:
+            invalidate_user_cache_safe(user_id)
+            logger.info(f"🔄 Принудительное обновление для пользователя {user_id}")
         
-        # Сначала загружаем минимальные данные БЫСТРО
+        # Пробуем получить из кэша (только если не force_refresh)
+        if not force_refresh:
+            cached_data = cache.get(cache_key)
+            if cached_data is not None:
+                logger.info(f"✅ Данные из кэша для пользователя {user_id}")
+                return jsonify({'spaces': cached_data, 'cached': True})
+        
+        # Получаем свежие данные из БД
         conn = get_db_connection()
         
         if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT fs.id, fs.name, fs.space_type
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code,
+                              COUNT(DISTINCT sm.user_id) as member_count
                        FROM financial_spaces fs
                        JOIN space_members sm ON fs.id = sm.space_id
                        WHERE sm.user_id = ? AND fs.is_active = TRUE
-                       ORDER BY 
-                         CASE fs.space_type 
-                           WHEN 'personal' THEN 1 
-                           ELSE 2 
-                         END, 
-                         fs.name'''
+                       GROUP BY fs.id
+                       ORDER BY fs.space_type, fs.created_at DESC'''
             df = pd.read_sql_query(query, conn, params=(user_id,))
         else:
-            query = '''SELECT fs.id, fs.name, fs.space_type
+            query = '''SELECT fs.id, fs.name, fs.description, fs.space_type, fs.invite_code,
+                              COUNT(DISTINCT sm.user_id) as member_count
                        FROM financial_spaces fs
                        JOIN space_members sm ON fs.id = sm.space_id
                        WHERE sm.user_id = %s AND fs.is_active = TRUE
-                       ORDER BY 
-                         CASE fs.space_type 
-                           WHEN 'personal' THEN 1 
-                           ELSE 2 
-                         END, 
-                         fs.name'''
-            df = pd.read_sql_query(query, conn, params=(user_id,))
-        
-        spaces = []
-        for _, row in df.iterrows():
-            space_data = {
-                'id': int(row['id']),
-                'name': row['name'],
-                'space_type': row['space_type']
-            }
-            
-            # Детали загружаем только если явно запрошены
-            if include_details:
-                # Быстрая загрузка количества участников
-                member_count = get_space_member_count_fast(row['id'])
-                space_data['member_count'] = member_count
-                
-                # Можно добавить другие детали по необходимости
-                # но избегайте тяжелых запросов
-                
-            spaces.append(space_data)
-        
-        conn.close()
-        
-        logger.info(f"✅ Улучшенная загрузка пространств для пользователя {user_id}: {len(spaces)}")
-        return jsonify({
-            'spaces': spaces, 
-            'cached': False,
-            'minimal': not include_details  # Показываем тип загрузки
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ API Error in get_user_spaces: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-def get_space_member_count_fast(space_id):
-    """Быстрое получение количества участников"""
-    conn = get_db_connection()
-    try:
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT COUNT(*) as count FROM space_members WHERE space_id = ?'''
-            df = pd.read_sql_query(query, conn, params=(space_id,))
-        else:
-            query = '''SELECT COUNT(*) as count FROM space_members WHERE space_id = %s'''
-            df = pd.read_sql_query(query, conn, params=(space_id,))
-        
-        return int(df.iloc[0]['count']) if not df.empty else 1
-    except:
-        return 1
-    finally:
-        conn.close()
-
-def get_user_spaces_super_fast(user_id):
-    """Сверхбыстрое получение только ID пространств пользователя"""
-    cache_key = f"user_spaces_ids_{user_id}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-    
-    conn = get_db_connection()
-    try:
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT space_id FROM space_members WHERE user_id = ?'''
-            df = pd.read_sql_query(query, conn, params=(user_id,))
-        else:
-            query = '''SELECT space_id FROM space_members WHERE user_id = %s'''
-            df = pd.read_sql_query(query, conn, params=(user_id,))
-        
-        space_ids = [int(row['space_id']) for _, row in df.iterrows()]
-        cache.set(cache_key, space_ids, ttl=60)
-        return space_ids
-    finally:
-        conn.close()
-        
-@flask_app.route('/refresh_spaces_instantly', methods=['POST'])
-def api_refresh_spaces_instantly():
-    """Мгновенное обновление пространств без кэша"""
-    try:
-        data = request.json
-        init_data = data.get('initData')
-        
-        if not validate_webapp_data(init_data):
-            return jsonify({'error': 'Invalid data'}), 401
-            
-        user_data = get_user_from_init_data(init_data)
-        if not user_data:
-            return jsonify({'error': 'User not found'}), 401
-            
-        user_id = user_data['id']
-        
-        # Полная очистка кэша
-        invalidate_user_cache_safe(user_id)
-        
-        # Быстрый запрос только основных данных
-        conn = get_db_connection()
-        
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT id, name, space_type FROM financial_spaces fs
-                       WHERE id IN (SELECT space_id FROM space_members WHERE user_id = ?)
-                       AND is_active = TRUE
-                       ORDER BY space_type, name'''
-            df = pd.read_sql_query(query, conn, params=(user_id,))
-        else:
-            query = '''SELECT id, name, space_type FROM financial_spaces fs
-                       WHERE id IN (SELECT space_id FROM space_members WHERE user_id = %s)
-                       AND is_active = TRUE
-                       ORDER BY space_type, name'''
+                       GROUP BY fs.id
+                       ORDER BY fs.space_type, fs.created_at DESC'''
             df = pd.read_sql_query(query, conn, params=(user_id,))
         
         conn.close()
@@ -2267,18 +2016,25 @@ def api_refresh_spaces_instantly():
             spaces.append({
                 'id': int(row['id']),
                 'name': row['name'],
-                'space_type': row['space_type']
+                'description': row['description'],
+                'space_type': row['space_type'],
+                'invite_code': row['invite_code'],
+                'member_count': int(row['member_count']) if row['member_count'] else 1
             })
         
+        # Сохраняем в кэш
+        cache.set(cache_key, spaces)
+        
+        logger.info(f"✅ Данные из БД для пользователя {user_id}, найдено пространств: {len(spaces)}")
         return jsonify({
-            'success': True,
-            'spaces': spaces,
-            'refreshed_at': datetime.now().isoformat()
+            'spaces': spaces, 
+            'cached': False,
+            'refreshed': force_refresh
         })
         
     except Exception as e:
-        logger.error(f"❌ Error in refresh_spaces_instantly: {e}")
-        return jsonify({'error': 'Refresh failed'}), 500
+        logger.error(f"❌ API Error in get_user_spaces: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 def generate_invite_code(length=8):
     """Генерация безопасного уникального кода приглашения"""
@@ -2352,27 +2108,30 @@ def generate_unique_invite_code_improved(length=8, max_attempts=10):
     return fallback_code
 
 def invalidate_user_cache_safe(user_id):
-    """Безопасная и полная инвалидация кэша"""
+    """Безопасная инвалидация кэша пользователя"""
     try:
-        # Очищаем все ключи связанные с пользователем
         keys_to_delete = []
         for key in list(cache._cache.keys()):
-            if (f"user_{user_id}" in key or 
-                "user_spaces" in key or
-                "space_overview" in key or
-                "fast_analytics" in key):
+            if (key.startswith(f"user_spaces_{user_id}") or 
+                f"user_{user_id}_space" in key or
+                key.startswith("space_overview_") or
+                key.startswith("user_spaces")):  # ← ДОБАВИТЬ ЭТО
                 keys_to_delete.append(key)
         
+        deleted_count = 0
         for key in keys_to_delete:
             try:
                 del cache._cache[key]
+                deleted_count += 1
+                logger.debug(f"🗑️ Удален ключ кэша: {key}")
             except KeyError:
                 pass
                 
-        # Очищаем lru_cache
-        get_user_spaces_cached.cache_clear()
+        logger.info(f"✅ Инвалидирован кэш для пользователя {user_id}, удалено ключей: {deleted_count}")
         
-        logger.info(f"✅ Полная очистка кэша для пользователя {user_id}")
+        # Также инвалидируем lru_cache
+        get_user_spaces_cached.cache_clear()
+        logger.info(f"✅ Очищен lru_cache для пользователя {user_id}")
         
     except Exception as e:
         logger.warning(f"⚠️ Ошибка инвалидации кэша: {e}")
@@ -2599,67 +2358,7 @@ def is_space_owner(user_id, space_id):
     finally:
         conn.close()
 
-@flask_app.route('/add_expense_fast', methods=['POST'])
-def api_add_expense_fast():
-    """Быстрое добавление траты с мгновенным ответом"""
-    try:
-        data = request.json
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-            
-        init_data = data.get('initData')
-        amount = data.get('amount')
-        category = data.get('category')
-        description = data.get('description', '')
-        space_id = data.get('spaceId')
-        currency = data.get('currency', 'RUB')
-        
-        logger.info(f"💰 Быстрое добавление траты: {amount} {currency}")
-        
-        if not validate_webapp_data(init_data):
-            return jsonify({'error': 'Invalid data'}), 401
-            
-        user_data = get_user_from_init_data(init_data)
-        if not user_data:
-            return jsonify({'error': 'User not found'}), 401
-            
-        if not amount or not category or not space_id:
-            return jsonify({'error': 'Missing required fields'}), 400
-        
-        # Быстрая проверка доступа
-        if not is_user_in_space_fast(user_data['id'], space_id):
-            return jsonify({'error': 'Access denied'}), 403
-        
-        # Быстрое добавление в базу
-        conn = get_db_connection()
-        try:
-            if isinstance(conn, sqlite3.Connection):
-                conn.execute('''INSERT INTO expenses (user_id, user_name, amount, category, description, space_id, currency)
-                             VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                          (user_data['id'], user_data['first_name'], float(amount), category, description, int(space_id), currency))
-            else:
-                conn.cursor().execute('''INSERT INTO expenses (user_id, user_name, amount, category, description, space_id, currency)
-                                     VALUES (%s, %s, %s, %s, %s, %s, %s)''',
-                                  (user_data['id'], user_data['first_name'], float(amount), category, description, int(space_id), currency))
-            conn.commit()
-        finally:
-            conn.close()
-        
-        # Мгновенная инвалидация кэша
-        invalidate_user_cache_safe(user_data['id'])
-        
-        # Немедленный ответ
-        return jsonify({
-            'success': True,
-            'message': 'Трата успешно добавлена!',
-            'expense_id': 'new',  # Для фронтенда
-            'timestamp': datetime.now().isoformat()
-        })
-            
-    except Exception as e:
-        logger.error(f"❌ API Error in add_expense_fast: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-    
+
 @flask_app.route('/add_expense', methods=['POST'])
 def api_add_expense():
     """API для добавления траты"""
@@ -2740,246 +2439,6 @@ def api_set_budget():
         logger.error(f"❌ API Error in set_budget: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
-@flask_app.route('/get_simple_chart_data', methods=['POST'])
-def get_simple_chart_data():
-    """Упрощенные данные для графика (только 7 дней)"""
-    try:
-        data = request.get_json()
-        init_data = data.get('initData')
-        space_id = data.get('spaceId')
-        period = data.get('period', 7)  # По умолчанию 7 дней
-        
-        # Валидация данных
-        if not init_data or not space_id:
-            return jsonify({'error': 'Missing required parameters'}), 400
-        
-        # Проверяем доступ пользователя к пространству
-        user_id = get_user_id_from_init_data(init_data)
-        if not is_user_member_of_space(user_id, space_id):
-            return jsonify({'error': 'Access denied'}), 403
-        
-        logger.info(f"📊 Запрос упрощенных данных графика для space_id: {space_id}, период: {period} дней")
-        
-        # Простой запрос к базе данных - только основные данные за последние 7 дней
-        conn = get_db_connection()
-        c = conn.cursor()
-        
-        if isinstance(conn, sqlite3.Connection):
-            # SQLite
-            c.execute('''
-                SELECT 
-                    DATE(created_at) as date,
-                    SUM(amount) as total_amount,
-                    COUNT(*) as expense_count
-                FROM expenses 
-                WHERE space_id = ? 
-                AND created_at >= datetime('now', '-' || ? || ' days')
-                GROUP BY DATE(created_at)
-                ORDER BY date
-            ''', (space_id, period))
-        else:
-            # PostgreSQL
-            c.execute('''
-                SELECT 
-                    DATE(created_at) as date,
-                    SUM(amount) as total_amount,
-                    COUNT(*) as expense_count
-                FROM expenses 
-                WHERE space_id = %s 
-                AND created_at >= NOW() - INTERVAL '%s days'
-                GROUP BY DATE(created_at)
-                ORDER BY date
-            ''', (space_id, period))
-        
-        daily_data = c.fetchall()
-        
-        # Получаем данные по пользователям для графика
-        if isinstance(conn, sqlite3.Connection):
-            c.execute('''
-                SELECT 
-                    DATE(created_at) as date,
-                    user_name,
-                    SUM(amount) as user_total
-                FROM expenses 
-                WHERE space_id = ? 
-                AND created_at >= datetime('now', '-' || ? || ' days')
-                GROUP BY DATE(created_at), user_name
-                ORDER BY date, user_name
-            ''', (space_id, period))
-        else:
-            c.execute('''
-                SELECT 
-                    DATE(created_at) as date,
-                    user_name,
-                    SUM(amount) as user_total
-                FROM expenses 
-                WHERE space_id = %s 
-                AND created_at >= NOW() - INTERVAL '%s days'
-                GROUP BY DATE(created_at), user_name
-                ORDER BY date, user_name
-            ''', (space_id, period))
-        
-        user_data = c.fetchall()
-        conn.close()
-        
-        # Формируем данные для графика
-        result = format_simple_chart_data(daily_data, user_data, period)
-        
-        logger.info(f"✅ Упрощенные данные загружены: {len(daily_data)} дней, {len(user_data)} записей по пользователям")
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка в get_simple_chart_data: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-def format_simple_chart_data(daily_data, user_data, period):
-    """Форматируем данные для упрощенного графика"""
-    
-    # Создаем список дат за указанный период
-    dates = []
-    for i in range(period):
-        date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
-        dates.append(date)
-    dates.reverse()  # Чтобы шли от старых к новым
-    
-    # Подготавливаем данные по дням
-    daily_totals = {row[0]: row[1] for row in daily_data}
-    
-    # Подготавливаем данные по пользователям
-    user_totals = {}
-    for row in user_data:
-        date, user_name, amount = row
-        if user_name not in user_totals:
-            user_totals[user_name] = {}
-        user_totals[user_name][date] = amount
-    
-    # Формируем datasets для Chart.js
-    datasets = []
-    
-    # Цвета для пользователей
-    colors = ['#007aff', '#ff2d55', '#34c759', '#ff9500', '#5856d6', '#ff3b30']
-    
-    # Добавляем каждого пользователя
-    for i, (user_name, user_data) in enumerate(user_totals.items()):
-        user_values = []
-        for date in dates:
-            user_values.append(user_data.get(date, 0))
-        
-        datasets.append({
-            'label': user_name,
-            'data': user_values,
-            'borderColor': colors[i % len(colors)],
-            'backgroundColor': colors[i % len(colors)] + '20',  # Добавляем прозрачность
-            'tension': 0.4,
-            'fill': True
-        })
-    
-    # Если нет данных пользователей, добавляем общие траты
-    if not datasets:
-        total_values = []
-        for date in dates:
-            total_values.append(daily_totals.get(date, 0))
-        
-        datasets.append({
-            'label': 'Общие траты',
-            'data': total_values,
-            'borderColor': '#007aff',
-            'backgroundColor': 'rgba(0, 122, 255, 0.1)',
-            'tension': 0.4,
-            'fill': True
-        })
-    
-    # Форматируем даты для отображения
-    display_dates = []
-    for date in dates:
-        date_obj = datetime.strptime(date, '%Y-%m-%d')
-        display_dates.append(date_obj.strftime('%d.%m'))
-    
-    return {
-        'labels': display_dates,
-        'datasets': datasets
-    }
-
-def is_user_member_of_space(user_id, space_id):
-    """Проверяет, является ли пользователь участником пространства"""
-    try:
-        conn = get_db_connection()
-        c = conn.cursor()
-        
-        if isinstance(conn, sqlite3.Connection):
-            c.execute('SELECT 1 FROM space_members WHERE user_id = ? AND space_id = ?', (user_id, space_id))
-        else:
-            c.execute('SELECT 1 FROM space_members WHERE user_id = %s AND space_id = %s', (user_id, space_id))
-        
-        result = c.fetchone() is not None
-        conn.close()
-        return result
-        
-    except Exception as e:
-        logger.error(f"Ошибка проверки членства: {str(e)}")
-        return False
-@flask_app.route('/get_fast_analytics', methods=['POST'])
-def api_get_fast_analytics():
-    """Быстрая аналитика с минимальными данными"""
-    try:
-        data = request.json
-        init_data = data.get('initData')
-        space_id = data.get('spaceId')
-        
-        if not validate_webapp_data(init_data):
-            return jsonify({'error': 'Invalid data'}), 401
-            
-        user_data = get_user_from_init_data(init_data)
-        if not user_data:
-            return jsonify({'error': 'User not found'}), 401
-            
-        if not is_user_in_space_fast(user_data['id'], space_id):
-            return jsonify({'error': 'Access denied'}), 403
-        
-        # Кэшируем на короткое время
-        cache_key = f"fast_analytics_{space_id}"
-        cached = cache.get(cache_key)
-        if cached:
-            return jsonify(cached)
-        
-        conn = get_db_connection()
-        
-        # Только основные метрики
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT 
-                         COUNT(*) as total_count,
-                         COALESCE(SUM(amount), 0) as total_spent,
-                         (SELECT amount FROM budgets WHERE space_id = ? AND month_year = strftime('%Y-%m', 'now') LIMIT 1) as budget
-                       FROM expenses 
-                       WHERE space_id = ? AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')'''
-            df = pd.read_sql_query(query, conn, params=(space_id, space_id))
-        else:
-            query = '''SELECT 
-                         COUNT(*) as total_count,
-                         COALESCE(SUM(amount), 0) as total_spent,
-                         (SELECT amount FROM budgets WHERE space_id = %s AND month_year = TO_CHAR(CURRENT_DATE, 'YYYY-MM') LIMIT 1) as budget
-                       FROM expenses 
-                       WHERE space_id = %s AND DATE_TRUNC('month', date) = DATE_TRUNC('month', CURRENT_DATE)'''
-            df = pd.read_sql_query(query, conn, params=(space_id, space_id))
-        
-        conn.close()
-        
-        result = {
-            'total_count': int(df.iloc[0]['total_count']) if not df.empty else 0,
-            'total_spent': float(df.iloc[0]['total_spent']) if not df.empty else 0,
-            'budget': float(df.iloc[0]['budget']) if df.iloc[0]['budget'] else 0,
-            'currency': 'RUB'
-        }
-        
-        # Кэшируем на 30 секунд
-        cache.set(cache_key, result)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"❌ API Error in get_fast_analytics: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-    
 @flask_app.route('/get_analytics', methods=['POST'])
 def api_get_analytics():
     """API для получения аналитики"""
@@ -3677,111 +3136,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"❌ Ошибка обработки фото: {e}")
         await update.message.reply_text("❌ Произошла ошибка при обработке чека")
-
-
-# Добавьте этот код в ваш bot.py файл, где находятся другие handlers
-
-# ДОБАВЬТЕ ЭТО ВМЕСТО УДАЛЕННОГО КОДА (в раздел handlers)
-async def handle_simple_chart_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /get_simple_chart_data"""
-    try:
-        user_id = update.effective_user.id
-        args = context.args
-        
-        if not args:
-            await update.message.reply_text("❌ Неверный формат запроса. Используйте: /get_simple_chart_data space_id")
-            return
-        
-        space_id = args[0]
-        
-        logger.info(f"📊 Запрос упрощенных данных графика от user_id: {user_id}, space_id: {space_id}")
-        
-        # Проверяем доступ пользователя к пространству
-        if not is_user_member_of_space(user_id, space_id):
-            await update.message.reply_text("❌ Доступ запрещен к этому пространству")
-            return
-        
-        # Получаем данные
-        chart_data = get_simple_chart_data_from_db(space_id, period=7)
-        
-        # Отправляем данные пользователю
-        if chart_data:
-            response = format_chart_response(chart_data)
-            await update.message.reply_text(response)
-        else:
-            await update.message.reply_text("📊 Нет данных для отображения графика")
-            
-    except Exception as e:
-        logger.error(f"❌ Ошибка в handle_simple_chart_data: {str(e)}")
-        await update.message.reply_text("❌ Ошибка при загрузке данных графика")
-
-# И добавьте хендлер в main() функцию:
-# application.add_handler(CommandHandler("get_simple_chart_data", handle_simple_chart_data))
-
-def get_simple_chart_data_from_db(space_id, period=7):
-    """Получает упрощенные данные для графика из базы"""
-    try:
-        conn = get_db_connection()
-        c = conn.cursor()
-        
-        if isinstance(conn, sqlite3.Connection):
-            # SQLite
-            c.execute('''
-                SELECT 
-                    DATE(created_at) as date,
-                    user_name,
-                    SUM(amount) as total_amount
-                FROM expenses 
-                WHERE space_id = ? 
-                AND created_at >= datetime('now', '-' || ? || ' days')
-                GROUP BY DATE(created_at), user_name
-                ORDER BY date
-            ''', (space_id, period))
-        else:
-            # PostgreSQL
-            c.execute('''
-                SELECT 
-                    DATE(created_at) as date,
-                    user_name,
-                    SUM(amount) as total_amount
-                FROM expenses 
-                WHERE space_id = %s 
-                AND created_at >= NOW() - INTERVAL '%s days'
-                GROUP BY DATE(created_at), user_name
-                ORDER BY date
-            ''', (space_id, period))
-        
-        data = c.fetchall()
-        conn.close()
-        
-        return data
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка получения данных графика: {str(e)}")
-        return None
-
-def format_chart_response(data):
-    """Форматирует данные для ответа"""
-    if not data:
-        return "📊 Нет данных за последние 7 дней"
-    
-    # Группируем по пользователям
-    user_data = {}
-    for date, user_name, amount in data:
-        if user_name not in user_data:
-            user_data[user_name] = []
-        user_data[user_name].append(f"{date}: {amount} руб.")
-    
-    # Формируем ответ
-    response = "📊 **Статистика трат за 7 дней:**\n\n"
-    
-    for user_name, expenses in user_data.items():
-        response += f"👤 **{user_name}:**\n"
-        for expense in expenses[-5:]:  # Последние 5 записей
-            response += f"  {expense}\n"
-        response += "\n"
-    
-    return response
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка голосовых сообщений"""
