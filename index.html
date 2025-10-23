@@ -899,17 +899,24 @@
         <div class="card" style="margin-top: 16px;">
             <h3>📊 Статистика пространства</h3>
             
-            <!-- Упрощенный график -->
+            <!-- Линейный график с бюджетом и участниками -->
             <div style="margin: 15px 0;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <h4 style="margin: 0;">📈 Динамика трат</h4>
-                    <select id="userChartFilter" onchange="updateSimpleChart()" style="padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary);">
+                    <h4 style="margin: 0;">📈 Динамика трат vs Бюджет</h4>
+                    <select id="userChartFilter" onchange="updateUsersChart()" style="padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary);">
                         <option value="all">Все участники</option>
                         <!-- Опции будут добавлены скриптом -->
                     </select>
                 </div>
-                <div style="height: 200px;">
-                    <canvas id="simpleChart"></canvas>
+                <div style="height: 250px;">
+                    <canvas id="usersChart"></canvas>
+                </div>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 12px;">
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 12px; height: 3px; background: #dc3545; margin-right: 6px;"></div>
+                        <span>Бюджет</span>
+                    </div>
+                    <!-- Легенда будет добавлена скриптом -->
                 </div>
             </div>
             
@@ -948,38 +955,42 @@
         tg.enableClosingConfirmation();
 
         // ===== STATE MANAGEMENT =====
-        // ===== CACHE CONFIGURATION =====
-        const CACHE_CONFIG = {
-            spaces: 60000,    // 1 минута
-            analytics: 30000, // 30 секунд
-            kpi: 15000       // 15 секунд
-        };
 
-        let cache = {
-            spaces: { data: null, timestamp: 0 },
-            analytics: { data: null, timestamp: 0 },
-            kpi: { data: null, timestamp: 0 }
-        };
-
-        function getCachedData(key) {
-            const item = cache[key];
-            if (item && Date.now() - item.timestamp < CACHE_CONFIG[key]) {
-                return item.data;
-            }
-            return null;
-        }
-
-        function setCachedData(key, data) {
-            cache[key] = { data, timestamp: Date.now() };
-        }
         // Добавьте в state management
         let dataCache = {
             spaces: null,
             lastUpdate: null,
-            cacheDuration: 60000 // 1 минута
+            cacheDuration: 5000 // 5сек
         };
 
-        
+        async function loadSpacesWithCache() {
+            const now = Date.now();
+    
+            if (dataCache.spaces && dataCache.lastUpdate && 
+                (now - dataCache.lastUpdate) < dataCache.cacheDuration) {
+                console.log('📦 Используем кэшированные пространства');
+                return dataCache.spaces;
+            }
+    
+            try {
+                const response = await fetch(`${API_URL}/get_user_spaces`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    dataCache.spaces = data.spaces;
+                    dataCache.lastUpdate = Date.now();
+                    return data.spaces;
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки пространств:', error);
+            }
+    
+            return [];
+        }
 
         let state = {
             currentSpaceId: null,
@@ -991,22 +1002,6 @@
 
         let userData = tg.initDataUnsafe.user;
         let currentSpaceData = null;
-        
-        //Добавьте debounce для частых операций:
-        function debounce(func, wait) {
-            let timeout;
-            return function executedFunction(...args) {
-                const later = () => {
-                    clearTimeout(timeout);
-                    func(...args);
-                };
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
-        }
-
-        // Используйте для частых операций
-        const optimizedRefresh = debounce(refreshDashboard, 1000);
 
         // ===== CURRENCY CONFIG =====
         const CURRENCIES = {
@@ -1136,7 +1131,16 @@
                     targetTab.classList.add('active');
                 }
             }
-
+            // Автоматически обновляем пространства при переключении вкладок
+            setTimeout(() => {
+                if (tabName === 'expenses') {
+                    loadSpacesForSelector('expenseSpacesGrid', true);
+                } else if (tabName === 'analytics') {
+                    loadSpacesForSelector('analyticsSpacesGrid', true);
+                } else if (tabName === 'spaces') {
+                    loadSpacesForSelector('spacesList', true);
+                }
+            }, 100);
             // ДОБАВЬТЕ ЭТОТ КОД - загрузка контента для конкретных вкладок
             console.log('Switching to tab:', tabName);
             if (tabName === 'expenses') {
@@ -1243,254 +1247,6 @@
         }
 
         // ===== SPACES MANAGEMENT =====
-
-        // ===== OPTIMIZED SPACES MANAGEMENT =====
-        async function loadSpacesMinimal() {
-            try {
-                const now = Date.now();
-                
-                // Проверяем кэш
-                if (dataCache.spaces && dataCache.lastUpdate && 
-                    (now - dataCache.lastUpdate) < dataCache.cacheDuration) {
-                    console.log('📦 Используем кэшированные пространства');
-                    return dataCache.spaces;
-                }
-
-                console.log('🔄 Загружаем минимальные данные пространств...');
-                const response = await fetch(`${API_URL}/get_spaces_minimal`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: tg.initData })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Ошибка загрузки пространств');
-                }
-
-                const data = await response.json();
-                console.log('✅ Минимальные пространства загружены:', data.spaces);
-                
-                // Обновляем кэш
-                dataCache.spaces = data.spaces;
-                dataCache.lastUpdate = Date.now();
-                
-                return data.spaces;
-                
-            } catch (error) {
-                console.error('❌ Ошибка загрузки минимальных пространств:', error);
-                
-                // Пробуем загрузить через старый endpoint как fallback
-                try {
-                    const fallbackResponse = await fetch(`${API_URL}/get_user_spaces`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ initData: tg.initData })
-                    });
-                    
-                    if (fallbackResponse.ok) {
-                        const fallbackData = await fallbackResponse.json();
-                        const minimalSpaces = fallbackData.spaces.map(space => ({
-                            id: space.id,
-                            name: space.name,
-                            space_type: space.space_type
-                        }));
-                        
-                        dataCache.spaces = minimalSpaces;
-                        dataCache.lastUpdate = Date.now();
-                        return minimalSpaces;
-                    }
-                } catch (fallbackError) {
-                    console.error('❌ Fallback также не сработал:', fallbackError);
-                }
-                
-                return [];
-            }
-        }
-
-        async function loadSpacesOptimized(includeDetails = false) {
-            try {
-                console.log(`🔄 Загружаем оптимизированные пространства (детали: ${includeDetails})...`);
-                
-                const response = await fetch(`${API_URL}/get_user_spaces_optimized`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ 
-                        initData: tg.initData,
-                        includeDetails: includeDetails 
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Ошибка загрузки оптимизированных пространств');
-                }
-
-                const data = await response.json();
-                console.log(`✅ Оптимизированные пространства загружены:`, data.spaces);
-                
-                return data.spaces;
-                
-            } catch (error) {
-                console.error('❌ Ошибка загрузки оптимизированных пространств:', error);
-                
-                // Fallback на старый метод
-                try {
-                    const fallbackResponse = await fetch(`${API_URL}/get_user_spaces`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ initData: tg.initData })
-                    });
-                    
-                    if (fallbackResponse.ok) {
-                        const fallbackData = await fallbackResponse.json();
-                        return fallbackData.spaces;
-                    }
-                } catch (fallbackError) {
-                    console.error('❌ Fallback также не сработал:', fallbackError);
-                }
-                
-                return [];
-            }
-        }
-
-        async function loadSpaceDetails(spaceId) {
-            if (!spaceId) {
-                console.error('❌ Space ID не указан для загрузки деталей');
-                return null;
-            }
-
-            try {
-                console.log(`🔄 Загружаем детали пространства ${spaceId}...`);
-                
-                const response = await fetch(`${API_URL}/get_space_details`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ 
-                        initData: tg.initData,
-                        spaceId: spaceId 
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Ошибка загрузки деталей пространства');
-                }
-
-                const data = await response.json();
-                console.log(`✅ Детали пространства ${spaceId} загружены:`, data);
-                
-                return data;
-                
-            } catch (error) {
-                console.error(`❌ Ошибка загрузки деталей пространства ${spaceId}:`, error);
-                
-                // Fallback: собираем данные из других источников
-                try {
-                    // Пробуем получить базовую информацию из кэша
-                    const cachedSpace = dataCache.spaces?.find(space => space.id === spaceId);
-                    if (cachedSpace) {
-                        return {
-                            name: cachedSpace.name,
-                            space_type: cachedSpace.space_type,
-                            member_count: 1, // Дефолтное значение
-                            today_expenses: 0,
-                            today_total: 0
-                        };
-                    }
-                } catch (fallbackError) {
-                    console.error('❌ Fallback также не сработал:', fallbackError);
-                }
-                
-                return null;
-            }
-        }
-
-        // ===== ОБНОВЛЕННАЯ ФУНКЦИЯ ДЛЯ БЫСТРОЙ ЗАГРУЗКИ ПРОСТРАНСТВ =====
-        async function loadQuickSpaces() {
-            console.log('🚀 Быстрая загрузка пространств...');
-            
-            try {
-                // Используем минимальную загрузку для быстрого отображения
-                const spaces = await loadSpacesMinimal();
-                
-                const container = document.getElementById('quickSpacesGrid');
-                if (!container) {
-                    console.error('❌ Контейнер quickSpacesGrid не найден');
-                    return;
-                }
-
-                if (!spaces || spaces.length === 0) {
-                    container.innerHTML = `
-                        <div class="empty-state">
-                            <div class="empty-state-icon">🏠</div>
-                            <div>У вас пока нет пространств</div>
-                        </div>
-                    `;
-                    return;
-                }
-
-                container.innerHTML = spaces.map(space => `
-                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                        onclick="selectSpace(${space.id})"
-                        data-space-id="${space.id}">
-                        <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
-                        <div class="space-name">${space.name}</div>
-                    </div>
-                `).join('');
-
-                console.log(`✅ Отображено ${spaces.length} пространств`);
-                
-            } catch (error) {
-                console.error('❌ Ошибка в loadQuickSpaces:', error);
-                const container = document.getElementById('quickSpacesGrid');
-                if (container) {
-                    container.innerHTML = '<div class="empty-state">Ошибка загрузки</div>';
-                }
-            }
-        }
-
-        // ===== ОБНОВЛЕННАЯ ФУНКЦИЯ SELECTSPACE =====
-        async function selectSpace(spaceId) {
-            console.log(`🎯 Выбираем пространство: ${spaceId}`);
-            
-            if (state.currentSpaceId === spaceId) {
-                console.log('⚠️ Пространство уже выбрано');
-                return;
-            }
-
-            // Мгновенное визуальное обновление
-            state.currentSpaceId = spaceId;
-            updateSpaceVisualSelection(spaceId);
-
-            // Показываем индикатор загрузки
-            showLoadingIndicator();
-
-            try {
-                // Параллельно загружаем детали пространства и KPI
-                const [spaceDetails, kpiData] = await Promise.all([
-                    loadSpaceDetails(spaceId),
-                    loadDashboardKPI(spaceId)
-                ]);
-
-                // Обновляем данные
-                currentSpaceData = spaceDetails;
-                
-                // Показываем KPI
-                document.getElementById('dashboardKPI').classList.remove('hidden');
-                document.getElementById('noSpaceSelected').classList.add('hidden');
-
-                console.log(`✅ Пространство ${spaceId} полностью загружено`);
-                
-            } catch (error) {
-                console.error(`❌ Ошибка загрузки пространства ${spaceId}:`, error);
-                showMessage('Ошибка загрузки данных пространства', 'error');
-            } finally {
-                hideLoadingIndicator();
-            }
-            
-            saveState();
-        }
-
-        
         function displaySpacesGrid(spaces, containerId, isQuick = false) {
             const container = document.getElementById(containerId);
             console.log(`🎯 Displaying ${spaces ? spaces.length : 0} spaces in ${containerId}`);
@@ -1527,7 +1283,15 @@
             
             console.log(`✅ Displayed ${spaces.length} spaces in ${containerId}`);
         }
-
+        async function loadSpacesForSelector(containerId, isQuick = false) {
+            try {
+                // Используем кэшированные данные, но с возможностью обновления
+                const spaces = await loadSpacesWithCache();
+                displaySpacesGrid(spaces, containerId, isQuick);
+            } catch (error) {
+                console.error('Ошибка загрузки пространств для селектора:', error);
+            }
+        }
         function loadSpacesForSelector(containerId, isQuick = false) {
             fetch(`${API_URL}/get_user_spaces`, {
                 method: 'POST',
@@ -1543,7 +1307,44 @@
             loadSpacesForSelector('quickSpacesGrid', true);
         }
 
-        
+        async function loadSpaces() {
+            console.log('🔄 Loading spaces...');
+            
+            try {
+                const response = await fetch(`${API_URL}/get_user_spaces`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: tg.initData })
+                });
+
+                console.log('📩 Spaces response status:', response.status);
+
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки пространств');
+                }
+                
+                const data = await response.json();
+                console.log('🏠 Loaded spaces:', data.spaces);
+                
+                // Отображаем пространства во всех контейнерах
+                displaySpacesGrid(data.spaces, 'spacesList', true);
+                displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
+                displaySpacesGrid(data.spaces, 'expenseSpacesGrid', true);
+                displaySpacesGrid(data.spaces, 'analyticsSpacesGrid', true);
+                
+                // Автовыбор первого пространства если нет выбранного
+                if (!state.currentSpaceId && data.spaces.length > 0) {
+                    console.log('🔍 Auto-selecting first space:', data.spaces[0].id);
+                    selectSpace(data.spaces[0].id);
+                }
+                
+                return data.spaces;
+                
+            } catch (error) {
+                console.error('❌ Error loading spaces:', error);
+                return [];
+            }
+        }
 
         function updateSpaceSelectors(spaces) {
             const spaceSelectors = [
@@ -1596,7 +1397,32 @@
             // ОБНОВЛЯЕМ ДАШБОРД ПРИ СМЕНЕ ПРОСТРАНСТВА
             refreshDashboard();
         }
-
+        async function refreshAllSpaces() {
+            console.log('🔄 Принудительное обновление всех пространств...');
+            
+            // Очищаем кэш
+            dataCache.spaces = null;
+            dataCache.lastUpdate = null;
+            
+            try {
+                // Загружаем свежие данные
+                const spaces = await loadSpacesWithCache();
+                
+                // Обновляем все контейнеры
+                const updatePromises = [
+                    displaySpacesGrid(spaces, 'spacesList', true),
+                    displaySpacesGrid(spaces, 'quickSpacesGrid', true),
+                    displaySpacesGrid(spaces, 'expenseSpacesGrid', true),
+                    displaySpacesGrid(spaces, 'analyticsSpacesGrid', true)
+                ];
+                
+                await Promise.all(updatePromises);
+                console.log('✅ Все пространства обновлены');
+                
+            } catch (error) {
+                console.error('❌ Ошибка обновления пространств:', error);
+            }
+        }
         // ===== Добавим временную диагностическую функцию =====
         async function debugSpaces() {
             console.log('=== 🐛 DEBUG SPACES ===');
@@ -1635,7 +1461,8 @@
                 showMessage('🔄 Обновляем данные...');
                 
                 // Очищаем кэш пространств
-                await loadSpacesMinimal()
+                dataCache.spaces = null;
+                dataCache.lastUpdate = null;
                 
                 // Перезагружаем быстрые пространства
                 await loadQuickSpaces();
@@ -1760,7 +1587,7 @@
             if (!spaceId) return 0;
 
             try {
-                const response = await fetch(`${API_URL}/get_fast_analytics`, {
+                const response = await fetch(`${API_URL}/get_analytics`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -1876,8 +1703,25 @@
                 document.getElementById('spaceName').value = '';
                 document.getElementById('spaceDescription').value = '';
                 
-                // Перезагружаем пространства
-                await loadSpaces();
+                // ОЧИСТКА КЭША И ПЕРЕЗАГРУЗКА ВСЕХ ПРОСТРАНСТВ
+                dataCache.spaces = null;
+                dataCache.lastUpdate = null;
+                
+                // Перезагружаем пространства во ВСЕХ вкладках
+                await Promise.all([
+                    loadSpaces(),
+                    loadQuickSpaces(),
+                    loadSpacesForSelector('expenseSpacesGrid', true),
+                    loadSpacesForSelector('analyticsSpacesGrid', true)
+                ]);
+                
+                // Автовыбор созданного пространства
+                if (data.space_id) {
+                    setTimeout(() => {
+                        selectSpace(data.space_id);
+                        showMessage(`✅ Пространство "${name}" выбрано!`);
+                    }, 500);
+                }
                 
             } catch (error) {
                 console.error('❌ Create space error:', error);
@@ -1943,8 +1787,12 @@
         async function showSpaceDetails(spaceId) {
             state.currentSpaceId = spaceId;
             try {
-                const [spaceDetails, membersResponse] = await Promise.all([
-                    loadSpaceDetails(spaceId),
+                const [spacesResponse, membersResponse] = await Promise.all([
+                    fetch(`${API_URL}/get_user_spaces`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ initData: tg.initData })
+                    }),
                     fetch(`${API_URL}/get_space_members`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -1955,13 +1803,14 @@
                     })
                 ]);
 
-                if (!membersResponse.ok) {
-                    throw new Error('Ошибка загрузки участников');
+                if (!spacesResponse.ok || !membersResponse.ok) {
+                    throw new Error('Ошибка загрузки данных пространства');
                 }
 
+                const spacesData = await spacesResponse.json();
                 const membersData = await membersResponse.json();
 
-                currentSpaceData = spaceDetails; // Используем загруженные детали
+                currentSpaceData = spacesData.spaces.find(s => s.id === spaceId);
                 if (!currentSpaceData) throw new Error('Пространство не найдено');
 
                 displaySpaceDetails(currentSpaceData, membersData.members);
@@ -1970,7 +1819,6 @@
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
-
 
         function displaySpaceDetails(space, members) {
             document.getElementById('currentSpaceName').textContent = space.name;
@@ -2222,7 +2070,7 @@
             }
 
             try {
-                const response = await fetch(`${API_URL}/add_expense_fast`, {
+                const response = await fetch(`${API_URL}/add_expense`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -2338,7 +2186,7 @@
                     document.getElementById('todaySpent').textContent = `${todaySpent.toFixed(0)}`;
                     
                     // Бюджет
-                    const budgetResponse = await fetch(`${API_URL}/get_fast_analytics`, {
+                    const budgetResponse = await fetch(`${API_URL}/get_analytics`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -2889,7 +2737,57 @@
         }
         
         // Функция для загрузки быстрых пространств
-        
+        function loadQuickSpaces() {
+            fetch(`${API_URL}/get_user_spaces`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('quickSpacesGrid');
+                if (!data.spaces || data.spaces.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Нет пространств</div>';
+                    return;
+                }
+
+                container.innerHTML = data.spaces.map(space => `
+                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                        onclick="selectQuickSpace(${space.id})"
+                        style="padding: 12px; min-height: 60px;">
+                        <div class="space-icon" style="font-size: 20px;">${getSpaceIcon(space.space_type)}</div>
+                        <div class="space-name" style="font-size: 12px;">${space.name}</div>
+                    </div>
+                `).join('');
+
+                // Показываем/скрываем KPI в зависимости от выбора
+                toggleKPIVisibility();
+            })
+            .catch(error => {
+                console.error('Error loading quick spaces:', error);
+            });
+        }
+
+        function selectQuickSpace(spaceId) {
+            state.currentSpaceId = spaceId;
+            saveState();
+            loadQuickSpaces(); // Перерисовываем иконки
+            loadDashboardKPI(); // Загружаем KPI
+        }
+
+        function toggleKPIVisibility() {
+            const kpiSection = document.getElementById('dashboardKPI');
+            const noSpaceSection = document.getElementById('noSpaceSelected');
+    
+            if (state.currentSpaceId) {
+                kpiSection.classList.remove('hidden');
+                noSpaceSection.classList.add('hidden');
+            } else {
+                kpiSection.classList.add('hidden');
+                noSpaceSection.classList.remove('hidden');
+            }
+        }
+
         // Функция для загрузки последних трат
         async function loadRecentExpenses() {
             if (!state.currentSpaceId) return;
@@ -3012,84 +2910,136 @@
         // ===== Удаление пространства =====
         
 
-        // ===== УПРОЩЕННЫЙ ГРАФИК =====
-        let simpleChart = null;
+        // ===== ОБНОВЛЕННЫЙ JavaScript для линейного графика =====
+        let usersChart = null;
+        let chartData = null;
 
-        async function loadSimpleChartData(spaceId) {
+        async function loadSpaceChartData(spaceId) {
             if (!spaceId) return;
             
             try {
-                const response = await fetch(`${API_URL}/get_simple_chart_data`, {
+                const response = await fetch(`${API_URL}/get_space_chart_data`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
                         spaceId: spaceId,
-                        period: 7 // Только 7 дней для производительности
+                        period: state.analyticsPeriod
                     })
                 });
 
                 if (!response.ok) {
                     console.error('Ошибка загрузки данных графика');
-                    // Используем демо-данные если сервер не отвечает
-                    renderSimpleChart(getDemoChartData());
                     return;
                 }
 
-                const data = await response.json();
-                renderSimpleChart(data);
+                chartData = await response.json();
+                renderUsersChart();
+                updateChartFilter();
                 
             } catch (error) {
-                console.error('Error loading chart data:', error);
-                // Используем демо-данные в случае ошибки
-                renderSimpleChart(getDemoChartData());
+                console.error('Error loading space chart data:', error);
             }
         }
 
-        function getDemoChartData() {
-            // Демо-данные для графика
-            return {
-                labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
-                datasets: [
-                    {
-                        label: '👤 Вы',
-                        data: [800, 1200, 900, 1500, 1100, 1800, 1300],
-                        borderColor: '#007aff',
-                        backgroundColor: 'rgba(0, 122, 255, 0.1)',
-                        tension: 0.4,
-                        fill: true
-                    }
-                ]
-            };
-        }
-
-        function renderSimpleChart(chartData) {
-            const ctx = document.getElementById('simpleChart').getContext('2d');
+        function renderUsersChart(selectedUser = 'all') {
+            const ctx = document.getElementById('usersChart').getContext('2d');
             
             // Удаляем старый график если есть
-            if (simpleChart) {
-                simpleChart.destroy();
+            if (usersChart) {
+                usersChart.destroy();
             }
             
-            simpleChart = new Chart(ctx, {
+            if (!chartData || !chartData.dates || chartData.dates.length === 0) {
+                ctx.font = '14px Arial';
+                ctx.fillStyle = '#666';
+                ctx.textAlign = 'center';
+                ctx.fillText('Нет данных для графика', 200, 100);
+                return;
+            }
+            
+            const datasets = [];
+            
+            // Добавляем линию бюджета
+            if (chartData.budget > 0) {
+                datasets.push({
+                    label: `Бюджет (${chartData.budget.toFixed(0)} ${chartData.currency})`,
+                    data: chartData.budget_data,
+                    borderColor: '#dc3545',
+                    backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                    borderWidth: 3,
+                    borderDash: [5, 5],
+                    fill: false,
+                    tension: 0.4
+                });
+            }
+            
+            // Цвета для пользователей
+            const userColors = [
+                '#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe',
+                '#00f2fe', '#43e97b', '#38f9d7', '#ff9a9e', '#fecfef'
+            ];
+            
+            // Добавляем линии пользователей
+            if (selectedUser === 'all') {
+                // Показываем всех пользователей
+                chartData.users.forEach((user, index) => {
+                    const color = userColors[index % userColors.length];
+                    datasets.push({
+                        label: user,
+                        data: chartData.cumulative_data[user],
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.4
+                    });
+                });
+            } else {
+                // Показываем только выбранного пользователя
+                const userIndex = chartData.users.indexOf(selectedUser);
+                const color = userColors[userIndex % userColors.length];
+                datasets.push({
+                    label: selectedUser,
+                    data: chartData.cumulative_data[selectedUser],
+                    borderColor: color,
+                    backgroundColor: color + '20',
+                    borderWidth: 3,
+                    fill: false,
+                    tension: 0.4
+                });
+            }
+            
+            usersChart = new Chart(ctx, {
                 type: 'line',
-                data: chartData,
+                data: {
+                    labels: chartData.dates,
+                    datasets: datasets
+                },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            display: true,
-                            position: 'bottom',
-                            labels: {
-                                usePointStyle: true,
-                                padding: 15
+                            display: false // Скрываем стандартную легенду, т.к. у нас своя
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.raw.toFixed(0)} ${chartData.currency}`;
+                                }
                             }
                         }
                     },
                     scales: {
                         y: {
                             beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: `Сумма (${chartData.currency})`
+                            },
                             grid: {
                                 color: 'rgba(0,0,0,0.1)'
                             }
@@ -3099,17 +3049,92 @@
                                 display: false
                             }
                         }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'nearest'
                     }
                 }
             });
+            
+            // Обновляем кастомную легенду
+            updateCustomLegend(selectedUser);
         }
 
-        function updateSimpleChart() {
-            // Простая функция обновления графика
-            loadSimpleChartData(state.currentSpaceId);
+        function updateChartFilter() {
+            const filter = document.getElementById('userChartFilter');
+            if (!filter || !chartData) return;
+            
+            // Сохраняем текущее значение
+            const currentValue = filter.value;
+            
+            // Очищаем опции
+            filter.innerHTML = '<option value="all">Все участники</option>';
+            
+            // Добавляем опции для каждого пользователя
+            chartData.users.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user;
+                option.textContent = user;
+                filter.appendChild(option);
+            });
+            
+            // Восстанавливаем выбранное значение
+            filter.value = currentValue;
         }
 
-        // Обновите функцию loadAnalytics чтобы использовать упрощенный график
+        function updateUsersChart() {
+            const filter = document.getElementById('userChartFilter');
+            const selectedUser = filter ? filter.value : 'all';
+            renderUsersChart(selectedUser);
+        }
+
+        function updateCustomLegend(selectedUser) {
+            const legendContainer = document.querySelector('#usersChart').closest('.card').querySelector('.dashboard-stats + div');
+            if (!legendContainer || !chartData) return;
+            
+            let legendHTML = '';
+            
+            // Легенда для бюджета
+            if (chartData.budget > 0) {
+                legendHTML += `
+                    <div style="display: flex; align-items: center; margin-right: 12px;">
+                        <div style="width: 12px; height: 3px; background: #dc3545; margin-right: 6px;"></div>
+                        <span>Бюджет</span>
+                    </div>
+                `;
+            }
+            
+            // Легенда для пользователей
+            const userColors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe'];
+            
+            if (selectedUser === 'all') {
+                // Показываем всех пользователей в легенде
+                chartData.users.forEach((user, index) => {
+                    const color = userColors[index % userColors.length];
+                    legendHTML += `
+                        <div style="display: flex; align-items: center; margin-right: 12px;">
+                            <div style="width: 12px; height: 2px; background: ${color}; margin-right: 6px;"></div>
+                            <span>${user}</span>
+                        </div>
+                    `;
+                });
+            } else {
+                // Показываем только выбранного пользователя
+                const userIndex = chartData.users.indexOf(selectedUser);
+                const color = userColors[userIndex % userColors.length];
+                legendHTML += `
+                    <div style="display: flex; align-items: center; margin-right: 12px;">
+                        <div style="width: 12px; height: 2px; background: ${color}; margin-right: 6px;"></div>
+                        <span>${selectedUser}</span>
+                    </div>
+                `;
+            }
+            
+            legendContainer.innerHTML = legendHTML;
+        }
+
+        // Обновите функцию loadAnalytics чтобы загружать данные графика
         async function loadAnalytics() {
             if (!state.currentSpaceId) {
                 document.getElementById('categoriesAnalytics').innerHTML = '<div class="empty-state">Выберите пространство</div>';
@@ -3119,8 +3144,8 @@
             try {
                 showLoading('categoriesAnalytics');
                 
-                // Загружаем только основные данные (без сложной аналитики)
-                const [analyticsResponse, usersResponse] = await Promise.all([
+                // Загружаем все данные параллельно
+                const [analyticsResponse, usersResponse, chartResponse] = await Promise.all([
                     fetch(`${API_URL}/get_advanced_analytics`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -3131,6 +3156,15 @@
                         })
                     }),
                     fetch(`${API_URL}/get_user_breakdown`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            spaceId: state.currentSpaceId,
+                            period: state.analyticsPeriod
+                        })
+                    }),
+                    fetch(`${API_URL}/get_space_chart_data`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -3152,15 +3186,18 @@
                     updateSpaceStats(usersData.users);
                 }
                 
-                // Загружаем УПРОЩЕННЫЙ график
-                loadSimpleChartData(state.currentSpaceId);
+                // Загружаем данные для графика
+                if (chartResponse.ok) {
+                    chartData = await chartResponse.json();
+                    renderUsersChart();
+                    updateChartFilter();
+                }
                 
             } catch (error) {
                 document.getElementById('categoriesAnalytics').innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
             }
         }
 
-        // Упрощенная функция обновления статистики
         function updateSpaceStats(users) {
             if (!users || users.length === 0) return;
             
@@ -3171,42 +3208,19 @@
             document.getElementById('totalUsers').textContent = totalUsers;
             document.getElementById('avgPerUser').textContent = avgPerUser.toFixed(0);
             
-            // Обновляем сегодняшние траты (демо-данные)
-            document.getElementById('todaySpentStats').textContent = '1,250';
-            
             // Обновляем оставшийся бюджет
             updateBudgetProgress(totalSpent);
         }
 
         function updateBudgetProgress(totalSpent = 0) {
             const budgetElement = document.getElementById('budgetLeft');
-            // Упрощенная логика бюджета
-            const budget = 30000; // Демо-бюджет
-            const remaining = budget - totalSpent;
-            
-            if (budget > 0) {
-                budgetElement.textContent = `${remaining.toFixed(0)}`;
-                budgetElement.style.color = remaining < 0 ? '#dc3545' : remaining < budget * 0.2 ? '#ffc107' : '#28a745';
+            if (chartData && chartData.budget > 0) {
+                const remaining = chartData.budget - totalSpent;
+                budgetElement.textContent = `${remaining.toFixed(0)} ${chartData.currency}`;
+                budgetElement.style.color = remaining < 0 ? '#dc3545' : remaining < chartData.budget * 0.2 ? '#ffc107' : '#28a745';
             } else {
                 budgetElement.textContent = '∞';
                 budgetElement.style.color = '';
-            }
-        }
-
-        // Обновите функцию initializeApp для загрузки упрощенного графика
-        function initializeApp() {
-            loadSpaces();
-            loadQuickSpaces();
-            generateKeypad();
-            handleStartParameters();
-            
-            // Загружаем пространства для всех вкладок
-            loadSpacesForSelector('expenseSpacesGrid', true);
-            loadSpacesForSelector('analyticsSpacesGrid', true);
-            
-            // Инициализируем упрощенный график если аналитика открыта
-            if (document.getElementById('analytics').classList.contains('active')) {
-                loadSimpleChartData(state.currentSpaceId);
             }
         }
 
@@ -3245,8 +3259,19 @@
                 showMessage('❌ Не удалось скопировать ссылку', 'error');
             });
         }
-        
-       
+
+        // ===== INITIALIZE APP =====
+        function initializeApp() {
+            loadSpaces();
+            loadQuickSpaces();
+            generateKeypad();
+            handleStartParameters();
+            
+            // Загружаем пространства для всех вкладок
+            loadSpacesForSelector('expenseSpacesGrid', true);
+            loadSpacesForSelector('analyticsSpacesGrid', true);
+        }
+
         // ===== CHARTS =====
                 let analyticsChart = null;
 
