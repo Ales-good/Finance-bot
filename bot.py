@@ -2293,67 +2293,6 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"❌ Ошибка обработки данных веб-приложения: {e}")
         await update.message.reply_text("❌ Произошла ошибка при обработке данных")
 
-@flask_app.route('/get_user_categories', methods=['POST'])
-def api_get_user_categories():
-    """Получение категорий пользователя"""
-    try:
-        data = request.json
-        init_data = data.get('initData')
-        space_id = data.get('spaceId')
-        
-        if not validate_webapp_data(init_data):
-            return jsonify({'error': 'Invalid data'}), 401
-            
-        user_data = get_user_from_init_data(init_data)
-        if not user_data:
-            return jsonify({'error': 'User not found'}), 401
-        
-        conn = get_db_connection()
-        
-        # Получаем стандартные категории
-        if isinstance(conn, sqlite3.Connection):
-            default_query = '''SELECT category_name, category_icon FROM user_categories 
-                             WHERE is_custom = FALSE'''
-            default_df = pd.read_sql_query(default_query, conn)
-            
-            # Получаем пользовательские категории
-            custom_query = '''SELECT category_name, category_icon FROM user_categories 
-                            WHERE user_id = ? AND (space_id = ? OR space_id = 0) AND is_custom = TRUE'''
-            custom_df = pd.read_sql_query(custom_query, conn, params=(user_data['id'], space_id if space_id else 0))
-        else:
-            default_query = '''SELECT category_name, category_icon FROM user_categories 
-                             WHERE is_custom = FALSE'''
-            default_df = pd.read_sql_query(default_query, conn)
-            
-            custom_query = '''SELECT category_name, category_icon FROM user_categories 
-                            WHERE user_id = %s AND (space_id = %s OR space_id = 0) AND is_custom = TRUE'''
-            custom_df = pd.read_sql_query(custom_query, conn, params=(user_data['id'], space_id if space_id else 0))
-        
-        conn.close()
-        
-        categories = []
-        
-        # Добавляем стандартные категории
-        for _, row in default_df.iterrows():
-            categories.append({
-                'name': row['category_name'],
-                'icon': row['category_icon'],
-                'isCustom': False
-            })
-        
-        # Добавляем пользовательские категории
-        for _, row in custom_df.iterrows():
-            categories.append({
-                'name': row['category_name'],
-                'icon': row['category_icon'],
-                'isCustom': True
-            })
-        
-        return jsonify({'categories': categories})
-        
-    except Exception as e:
-        logger.error(f"❌ API Error in get_user_categories: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
 
 @flask_app.route('/add_user_category', methods=['POST'])
 def api_add_user_category():
