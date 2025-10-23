@@ -167,163 +167,186 @@ def init_db():
     """Инициализация базы данных"""
     conn = get_db_connection()
     
-    if isinstance(conn, sqlite3.Connection):
-        # SQLite
-        c = conn.cursor()
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            # SQLite
+            c = conn.cursor()
+            
+            # Таблица финансовых пространств
+            c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          name TEXT NOT NULL,
+                          description TEXT,
+                          space_type TEXT DEFAULT 'personal',
+                          created_by INTEGER,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          invite_code TEXT UNIQUE,
+                          is_active BOOLEAN DEFAULT TRUE)''')
+            
+            # Таблица участников пространств
+            c.execute('''CREATE TABLE IF NOT EXISTS space_members
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          space_id INTEGER,
+                          user_id INTEGER,
+                          user_name TEXT,
+                          role TEXT DEFAULT 'member',
+                          joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+            # Таблица расходов
+            c.execute('''CREATE TABLE IF NOT EXISTS expenses
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          user_id INTEGER, 
+                          user_name TEXT,
+                          space_id INTEGER,
+                          amount REAL, 
+                          category TEXT, 
+                          description TEXT, 
+                          date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          currency TEXT DEFAULT 'RUB',
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+            # Таблица бюджетов
+            c.execute('''CREATE TABLE IF NOT EXISTS budgets
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          user_id INTEGER,
+                          space_id INTEGER,
+                          amount REAL,
+                          month_year TEXT,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          currency TEXT DEFAULT 'RUB',
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+            # Таблица уведомлений о бюджете
+            c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          user_id INTEGER,
+                          space_id INTEGER,
+                          budget_amount REAL,
+                          spent_amount REAL,
+                          percentage REAL,
+                          alert_type TEXT,
+                          sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+            # Таблица категорий пользователя
+            c.execute('''CREATE TABLE IF NOT EXISTS user_categories
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          user_id INTEGER,
+                          space_id INTEGER,
+                          category_name TEXT,
+                          category_icon TEXT,
+                          is_custom BOOLEAN DEFAULT TRUE,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+        else:
+            # PostgreSQL
+            c = conn.cursor()
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
+                         (id SERIAL PRIMARY KEY,
+                          name TEXT NOT NULL,
+                          description TEXT,
+                          space_type TEXT DEFAULT 'personal',
+                          created_by BIGINT,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          invite_code TEXT UNIQUE,
+                          is_active BOOLEAN DEFAULT TRUE)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS space_members
+                         (id SERIAL PRIMARY KEY,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          user_id BIGINT,
+                          user_name TEXT,
+                          role TEXT DEFAULT 'member',
+                          joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS expenses
+                         (id SERIAL PRIMARY KEY,
+                          user_id BIGINT, 
+                          user_name TEXT,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          amount REAL, 
+                          category TEXT, 
+                          description TEXT, 
+                          date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          currency TEXT DEFAULT 'RUB')''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS budgets
+                         (id SERIAL PRIMARY KEY,
+                          user_id BIGINT,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          amount REAL,
+                          month_year TEXT,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          currency TEXT DEFAULT 'RUB')''')
+            
+            # Таблица уведомлений о бюджете
+            c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
+                         (id SERIAL PRIMARY KEY,
+                          user_id BIGINT,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          budget_amount REAL,
+                          spent_amount REAL,
+                          percentage REAL,
+                          alert_type TEXT,
+                          sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            
+            # Таблица категорий пользователя
+            c.execute('''CREATE TABLE IF NOT EXISTS user_categories
+                         (id SERIAL PRIMARY KEY,
+                          user_id BIGINT,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          category_name TEXT,
+                          category_icon TEXT,
+                          is_custom BOOLEAN DEFAULT TRUE,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         
-        # Таблица финансовых пространств
-        c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      name TEXT NOT NULL,
-                      description TEXT,
-                      space_type TEXT DEFAULT 'personal',
-                      created_by INTEGER,
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      invite_code TEXT UNIQUE,
-                      is_active BOOLEAN DEFAULT TRUE)''')
+        # Проверяем создание таблицы финансовых пространств
+        if isinstance(conn, sqlite3.Connection):
+            c.execute('''SELECT name FROM sqlite_master WHERE type='table' AND name='financial_spaces' ''')
+            table_exists = c.fetchone() is not None
+        else:
+            c.execute('''SELECT table_name FROM information_schema.tables WHERE table_name = 'financial_spaces' ''')
+            table_exists = c.fetchone() is not None
+            
+        if not table_exists:
+            logger.error("❌ Таблица financial_spaces не создана!")
+        else:
+            logger.info("✅ Таблица financial_spaces существует")
         
-        # Таблица участников пространств
-        c.execute('''CREATE TABLE IF NOT EXISTS space_members
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      space_id INTEGER,
-                      user_id INTEGER,
-                      user_name TEXT,
-                      role TEXT DEFAULT 'member',
-                      joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+        # Добавляем стандартные категории если их нет
+        default_categories = [
+            ('Продукты', '🛒'),
+            ('Кафе', '☕'),
+            ('Транспорт', '🚗'),
+            ('Дом', '🏠'),
+            ('Одежда', '👕'),
+            ('Здоровье', '🏥'),
+            ('Развлечения', '🎬'),
+            ('Подписки', '📱'),
+            ('Образование', '📚'),
+            ('Другое', '❓')
+        ]
         
-        # Таблица расходов
-        c.execute('''CREATE TABLE IF NOT EXISTS expenses
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      user_id INTEGER, 
-                      user_name TEXT,
-                      space_id INTEGER,
-                      amount REAL, 
-                      category TEXT, 
-                      description TEXT, 
-                      date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      currency TEXT DEFAULT 'RUB',
-                      FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+        for category_name, icon in default_categories:
+            c.execute('''INSERT OR IGNORE INTO user_categories 
+                         (user_id, space_id, category_name, category_icon, is_custom) 
+                         VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
         
-        # Таблица бюджетов
-        c.execute('''CREATE TABLE IF NOT EXISTS budgets
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      user_id INTEGER,
-                      space_id INTEGER,
-                      amount REAL,
-                      month_year TEXT,
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      currency TEXT DEFAULT 'RUB',
-                      FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+        conn.commit()
+        logger.info("✅ База данных инициализирована с новыми таблицами")
         
-        # НОВАЯ: Таблица уведомлений о бюджете
-        c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      user_id INTEGER,
-                      space_id INTEGER,
-                      budget_amount REAL,
-                      spent_amount REAL,
-                      percentage REAL,
-                      alert_type TEXT,
-                      sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
-        
-        # НОВАЯ: Таблица категорий пользователя
-        c.execute('''CREATE TABLE IF NOT EXISTS user_categories
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      user_id INTEGER,
-                      space_id INTEGER,
-                      category_name TEXT,
-                      category_icon TEXT,
-                      is_custom BOOLEAN DEFAULT TRUE,
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
-        
-    else:
-        # PostgreSQL
-        c = conn.cursor()
-        
-        c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
-                     (id SERIAL PRIMARY KEY,
-                      name TEXT NOT NULL,
-                      description TEXT,
-                      space_type TEXT DEFAULT 'personal',
-                      created_by BIGINT,
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      invite_code TEXT UNIQUE,
-                      is_active BOOLEAN DEFAULT TRUE)''')
-        
-        c.execute('''CREATE TABLE IF NOT EXISTS space_members
-                     (id SERIAL PRIMARY KEY,
-                      space_id INTEGER REFERENCES financial_spaces(id),
-                      user_id BIGINT,
-                      user_name TEXT,
-                      role TEXT DEFAULT 'member',
-                      joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        
-        c.execute('''CREATE TABLE IF NOT EXISTS expenses
-                     (id SERIAL PRIMARY KEY,
-                      user_id BIGINT, 
-                      user_name TEXT,
-                      space_id INTEGER REFERENCES financial_spaces(id),
-                      amount REAL, 
-                      category TEXT, 
-                      description TEXT, 
-                      date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      currency TEXT DEFAULT 'RUB')''')
-        
-        c.execute('''CREATE TABLE IF NOT EXISTS budgets
-                     (id SERIAL PRIMARY KEY,
-                      user_id BIGINT,
-                      space_id INTEGER REFERENCES financial_spaces(id),
-                      amount REAL,
-                      month_year TEXT,
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      currency TEXT DEFAULT 'RUB')''')
-        
-        # НОВАЯ: Таблица уведомлений о бюджете
-        c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
-                     (id SERIAL PRIMARY KEY,
-                      user_id BIGINT,
-                      space_id INTEGER REFERENCES financial_spaces(id),
-                      budget_amount REAL,
-                      spent_amount REAL,
-                      percentage REAL,
-                      alert_type TEXT,
-                      sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        
-        # НОВАЯ: Таблица категорий пользователя
-        c.execute('''CREATE TABLE IF NOT EXISTS user_categories
-                     (id SERIAL PRIMARY KEY,
-                      user_id BIGINT,
-                      space_id INTEGER REFERENCES financial_spaces(id),
-                      category_name TEXT,
-                      category_icon TEXT,
-                      is_custom BOOLEAN DEFAULT TRUE,
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    
-    # Добавляем стандартные категории если их нет
-    default_categories = [
-        ('Продукты', '🛒'),
-        ('Кафе', '☕'),
-        ('Транспорт', '🚗'),
-        ('Дом', '🏠'),
-        ('Одежда', '👕'),
-        ('Здоровье', '🏥'),
-        ('Развлечения', '🎬'),
-        ('Подписки', '📱'),
-        ('Образование', '📚'),
-        ('Другое', '❓')
-    ]
-    
-    for category_name, icon in default_categories:
-        c.execute('''INSERT OR IGNORE INTO user_categories 
-                     (user_id, space_id, category_name, category_icon, is_custom) 
-                     VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
-    
-    conn.commit()
-    conn.close()
-    logger.info("✅ База данных инициализирована с новыми таблицами")
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации базы данных: {e}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
 
 # ===== НОВЫЕ ФУНКЦИИ ДЛЯ УВЕДОМЛЕНИЙ =====
 async def check_budget_alerts():
@@ -838,15 +861,16 @@ def create_personal_space(user_id, user_name):
         conn.close()
 
 def create_financial_space(name, description, space_type, created_by, created_by_name):
-    """Создание нового финансового пространства"""
-    conn = get_db_connection()
-    
+    """Создание нового финансового пространства с улучшенной обработкой ошибок"""
+    conn = None
     try:
+        conn = get_db_connection()
         invite_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
         
         logger.info(f"🔧 Создание пространства: {name}, тип: {space_type}, created_by: {created_by}")
         
         if isinstance(conn, sqlite3.Connection):
+            # SQLite
             c = conn.cursor()
             c.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
                          VALUES (?, ?, ?, ?, ?)''', 
@@ -854,8 +878,11 @@ def create_financial_space(name, description, space_type, created_by, created_by
             space_id = c.lastrowid
             
             c.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
-                         VALUES (?, ?, ?, ?)''', (space_id, created_by, created_by_name, 'owner'))
+                         VALUES (?, ?, ?, ?)''', 
+                     (space_id, created_by, created_by_name, 'owner'))
+            
         else:
+            # PostgreSQL
             c = conn.cursor()
             c.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
                          VALUES (%s, %s, %s, %s, %s) RETURNING id''', 
@@ -863,19 +890,25 @@ def create_financial_space(name, description, space_type, created_by, created_by
             space_id = c.fetchone()[0]
             
             c.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
-                         VALUES (%s, %s, %s, %s)''', (space_id, created_by, created_by_name, 'owner'))
+                         VALUES (%s, %s, %s, %s)''', 
+                     (space_id, created_by, created_by_name, 'owner'))
         
         conn.commit()
-        logger.info(f"✅ Пространство успешно создано: ID {space_id}")
+        logger.info(f"✅ Пространство успешно создано: ID {space_id}, код: {invite_code}")
         return space_id, invite_code
         
     except Exception as e:
         logger.error(f"❌ Ошибка создания пространства: {e}")
         import traceback
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        
         if conn:
             conn.rollback()
+            
+        # Детальная диагностика
+        logger.error(f"🔍 Детали ошибки: name={name}, type={space_type}, user={created_by}")
         return None, None
+        
     finally:
         if conn:
             conn.close()
@@ -1679,7 +1712,11 @@ def api_create_space():
             })
         else:
             logger.error("❌ Ошибка создания пространства - функция вернула None")
-            return jsonify({'error': 'Failed to create space - check database connection'}), 500
+            # Детальная диагностика
+            return jsonify({
+                'error': 'Failed to create space - database error',
+                'details': 'Check database connection and logs'
+            }), 500
             
     except Exception as e:
         logger.error(f"❌ API Error in create_space: {e}")
