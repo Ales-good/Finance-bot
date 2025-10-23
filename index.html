@@ -622,6 +622,7 @@
                 <button class="tab" onclick="showTab('spaces')">👥</button>
                 <button class="tab" onclick="showTab('expenses')">💸</button>
                 <button class="tab" onclick="showTab('analytics')">📊</button>
+                <button class="tab" onclick="showTab('expensesList')">📝</button>
             </div>
 
 
@@ -693,6 +694,7 @@
                 <button class="tab active">👥</button>
                 <button class="tab" onclick="showTab('expenses')">💸</button>
                 <button class="tab" onclick="showTab('analytics')">📊</button>
+                <button class="tab" onclick="showTab('expensesList')">📝</button>
             </div>
             <div class="card">
                 <h2>Мои пространства</h2>
@@ -771,6 +773,7 @@
                 <button class="tab" onclick="showTab('spaces')">👥</button>
                 <button class="tab active">💸</button>
                 <button class="tab" onclick="showTab('analytics')">📊</button>
+                <button class="tab" onclick="showTab('expensesList')">📝</button>
             </div>
     
             <div class="card">
@@ -853,6 +856,7 @@
                 <button class="tab" onclick="showTab('spaces')">👥</button>
                 <button class="tab" onclick="showTab('expenses')">💸</button>
                 <button class="tab active">📊</button>
+                <button class="tab" onclick="showTab('expensesList')">📝</button>
             </div>
             <div class="card">
                 <h2>📊 Аналитика</h2>
@@ -917,6 +921,44 @@
 
         <div id="message" class="hidden"></div>
     </div>
+
+        <!-- Expenses List Tab -->
+        <div id="expensesList" class="tab-content">
+            <div class="tabs">
+                <button class="tab" onclick="showTab('dashboard')">🏠</button>
+                <button class="tab" onclick="showTab('spaces')">👥</button>
+                <button class="tab" onclick="showTab('expenses')">💸</button>
+                <button class="tab" onclick="showTab('analytics')">📊</button>
+                <button class="tab active">📝</button>
+            </div>
+            
+            <div class="card">
+                <h2>📝 История трат</h2>
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <div class="analytics-filters">
+                        <div class="filter-btn active" data-period="7" onclick="setExpensesPeriod(7)">7 дней</div>
+                        <div class="filter-btn" data-period="30" onclick="setExpensesPeriod(30)">30 дней</div>
+                        <div class="filter-btn" data-period="90" onclick="setExpensesPeriod(90)">3 месяца</div>
+                    </div>
+                    <button class="btn btn-outline" onclick="refreshExpensesList()" style="width: auto; padding: 8px 16px;">
+                        🔄 Обновить
+                    </button>
+                </div>
+
+                <div class="form-group">
+                    <label>Пространство:</label>
+                    <div id="expensesListSpacesGrid" class="spaces-grid quick-grid">
+                        <!-- Spaces will be loaded here -->
+                    </div>
+                </div>
+
+                <div id="expensesListContainer">
+                    <!-- Список трат будет загружен здесь -->
+                </div>
+            </div>
+        </div>
+
 
         <script>
         // === АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ ===
@@ -2622,27 +2664,29 @@
                 expenseItem.style.borderRadius = '8px';
                 expenseItem.style.border = '1px solid var(--border-color)';
 
-                const date = new Date(expense.created_at);
+                const date = new Date(expense.date || expense.created_at);
                 const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 
-                // ВАЖНО: Добавляем отображение описания
-                const description = expense.description || 'Без описания';
-        
+                // ВАЖНО: Добавляем отображение описания с улучшенным форматированием
+                const description = expense.description ? 
+                    `<div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px; margin-top: 4px; font-style: italic;">
+                        💬 "${expense.description}"
+                    </div>` : 
+                    '<div style="font-size: 12px; color: var(--text-muted); padding-left: 26px; margin-top: 4px;">Без комментария</div>';
+
                 expenseItem.innerHTML = `
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; margin-bottom: 4px;">
                             <div style="font-size: 18px; margin-right: 8px;">${getCategoryIcon(expense.category)}</div>
                             <div>
                                 <div style="font-weight: 700; font-size: 14px;">${expense.category}</div>
-                                <div style="font-size: 11px; color: var(--text-muted);">${formattedDate}</div>
+                                <div style="font-size: 11px; color: var(--text-muted);">${formattedDate} • ${expense.user_name || ''}</div>
                             </div>
                         </div>
-                        <div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px;">
-                            ${description}
-                        </div>
+                        ${description}
                     </div>
                     <div style="text-align: right; min-width: 80px;">
-                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount} ${expense.currency_symbol || ''}</div>
+                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount} ${expense.currency || ''}</div>
                     </div>
                 `;
                 container.appendChild(expenseItem);
@@ -2783,6 +2827,121 @@
             }
         }
         
+        
+        // ===== ANALYTICS вкладка трат с комментами =====
+        let expensesListPeriod = 30;
+
+        function setExpensesPeriod(period) {
+            expensesListPeriod = period;
+            document.querySelectorAll('#expensesList .filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.period == period);
+            });
+            loadExpensesList();
+        }
+
+        async function loadExpensesList() {
+            if (!state.currentSpaceId) {
+                document.getElementById('expensesListContainer').innerHTML = '<div class="empty-state">Выберите пространство</div>';
+                return;
+            }
+
+            try {
+                showLoading('expensesListContainer');
+                
+                const response = await fetch(`${API_URL}/get_expenses_list`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        period: expensesListPeriod
+                    })
+                });
+
+                if (!response.ok) throw new Error('Ошибка загрузки списка трат');
+
+                const data = await response.json();
+                displayExpensesList(data.expenses);
+                
+            } catch (error) {
+                document.getElementById('expensesListContainer').innerHTML = 
+                    `<div class="message error">Ошибка: ${error.message}</div>`;
+            }
+        }
+
+        function displayExpensesList(expenses) {
+            const container = document.getElementById('expensesListContainer');
+            
+            if (!expenses || expenses.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📝</div>
+                        <div>Нет трат за выбранный период</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = expenses.map(expense => {
+                const date = new Date(expense.date);
+                const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                
+                const descriptionHtml = expense.description ? 
+                    `<div style="font-size: 14px; color: var(--text-secondary); margin-top: 8px; padding: 8px; background: var(--border-color); border-radius: 6px; border-left: 3px solid #667eea;">
+                        <strong>💬 Комментарий:</strong> ${expense.description}
+                    </div>` : 
+                    `<div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                        Без комментария
+                    </div>`;
+
+                return `
+                    <div class="expense-item" style="background: var(--card-bg); padding: 16px; margin-bottom: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <div style="font-size: 24px;">${getCategoryIcon(expense.category)}</div>
+                                <div>
+                                    <div style="font-weight: 700; font-size: 16px;">${expense.category}</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">
+                                        ${formattedDate} • ${expense.user_name}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="font-weight: 700; color: #dc3545; font-size: 18px;">
+                                    ${expense.amount} ${expense.currency}
+                                </div>
+                            </div>
+                        </div>
+                        ${descriptionHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function refreshExpensesList() {
+            if (!state.currentSpaceId) {
+                showMessage('Выберите пространство для обновления', 'error');
+                return;
+            }
+
+            try {
+                showMessage('🔄 Обновляем список трат...');
+                await loadExpensesList();
+                showMessage('✅ Список трат обновлен!');
+            } catch (error) {
+                showMessage('❌ Ошибка при обновлении списка трат', 'error');
+            }
+        }
+
+        // Обновите функцию showTab для загрузки данных при переходе на вкладку
+        function showTab(tabName) {
+            // ... существующий код ...
+            
+            if (tabName === 'expensesList') {
+                loadSpacesForSelector('expensesListSpacesGrid', true);
+                loadExpensesList();
+            }
+        }
         // Функция для загрузки быстрых пространств
         function loadQuickSpaces() {
             fetch(`${API_URL}/get_user_spaces`, {
