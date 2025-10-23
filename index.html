@@ -2935,11 +2935,55 @@
 
         // Обновите функцию showTab для загрузки данных при переходе на вкладку
         function showTab(tabName) {
-            // ... существующий код ...
+            console.log('🔄 Switching to tab:', tabName);
             
-            if (tabName === 'expensesList') {
-                loadSpacesForSelector('expensesListSpacesGrid', true);
-                loadExpensesList();
+            // Скрываем все вкладки
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Убираем активный класс со всех табов
+            document.querySelectorAll('.tabs .tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Показываем нужную вкладку
+            const targetTab = document.getElementById(tabName);
+            if (targetTab) {
+                targetTab.classList.add('active');
+                
+                // Активируем соответствующий таб в текущей вкладке
+                const currentTabs = targetTab.querySelector('.tabs');
+                if (currentTabs) {
+                    const tabs = currentTabs.querySelectorAll('.tab');
+                    tabs.forEach((tab, index) => {
+                        // Простая логика: первый таб = dashboard, второй = spaces, и т.д.
+                        const targetIndex = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'].indexOf(tabName);
+                        if (index === targetIndex) {
+                            tab.classList.add('active');
+                        }
+                    });
+                }
+                
+                // Загружаем контент для конкретных вкладок
+                console.log('Loading tab content for:', tabName);
+                switch(tabName) {
+                    case 'expenses':
+                        console.log('Loading expenses tab...');
+                        loadExpensesTab();
+                        break;
+                    case 'analytics':
+                        loadAnalytics();
+                        break;
+                    case 'expensesList':
+                        loadExpensesList();
+                        break;
+                    case 'spaces':
+                        loadSpaces();
+                        break;
+                }
+            } else {
+                console.error('❌ Tab not found:', tabName);
             }
         }
         // Функция для загрузки быстрых пространств
