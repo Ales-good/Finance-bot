@@ -749,12 +749,7 @@
                     <button class="btn btn-danger" onclick="leaveSpace()">🚪 Покинуть пространство</button>
                     <button class="btn btn-danger" onclick="deleteSpace()">🗑️ Удалить пространство</button>
                     <button class="btn btn-secondary" onclick="hideSpaceDetails()">← Назад</button>
-                    <button class="btn btn-outline" onclick="debugSpaces()" style="background: red; color: white; margin-top: 10px;">
-                    🐛 Диагностика пространств
-                    </button>
-                    <button class="btn btn-outline" onclick="debugMembership()" style="background: purple; color: white; margin-top: 10px;">
-                    🐛 Диагностика членства
-                    </button>
+                    
                 </div>
             </div>
 
@@ -1602,43 +1597,67 @@
         }
 
         async function createSpace() {
-            const name = document.getElementById('spaceName').value.trim();
-            const type = document.getElementById('spaceType').value;
-            const description = document.getElementById('spaceDescription').value.trim();
+                const name = document.getElementById('spaceName').value.trim();
+                const type = document.getElementById('spaceType').value;
+                const description = document.getElementById('spaceDescription').value.trim();
 
-            if (!name) {
-                showMessage('Введите название пространства', 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_URL}/create_space`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        name: name,
-                        type: type,
-                        description: description
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка создания пространства');
+                if (!name) {
+                    showMessage('Введите название пространства', 'error');
+                    return;
                 }
-                
-                const data = await response.json();
-                showMessage(`Пространство "${name}" создано! Код: ${data.invite_code}`);
-                hideCreateSpaceForm();
-                loadSpaces();
-                
-                document.getElementById('spaceName').value = '';
-                document.getElementById('spaceDescription').value = '';
-            } catch (error) {
-                showMessage(`Ошибка: ${error.message}`, 'error');
+
+                try {
+                    // Показываем индикатор загрузки
+                    const createButton = document.querySelector('.btn[onclick="createSpace()"]');
+                    const originalText = createButton.textContent;
+                    createButton.textContent = '⏳ Создаем...';
+                    createButton.disabled = true;
+
+                    const response = await fetch(`${API_URL}/create_space`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            initData: tg.initData,
+                            name: name,
+                            type: type,
+                            description: description
+                        })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Ошибка создания пространства');
+                    }
+                    
+                    if (data.success) {
+                        showMessage(`✅ Пространство "${name}" создано! Код приглашения: ${data.invite_code}`);
+                        hideCreateSpaceForm();
+                        
+                        // Очищаем форму
+                        document.getElementById('spaceName').value = '';
+                        document.getElementById('spaceDescription').value = '';
+                        
+                        // Перезагружаем пространства с задержкой для обновления БД
+                        setTimeout(() => {
+                            loadSpaces();
+                            loadQuickSpaces();
+                        }, 1000);
+                        
+                    } else {
+                        throw new Error(data.error || 'Неизвестная ошибка');
+                    }
+                    
+                } catch (error) {
+                    console.error('❌ Create space error:', error);
+                    showMessage(`❌ Ошибка: ${error.message}`, 'error');
+                } finally {
+                    // Восстанавливаем кнопку
+                    const createButton = document.querySelector('.btn[onclick="createSpace()"]');
+                    createButton.textContent = originalText || 'Создать';
+                    createButton.disabled = false;
+                }
             }
-        }
 
         async function showSpaceDetails(spaceId) {
             state.currentSpaceId = spaceId;
@@ -1832,6 +1851,35 @@
                 console.error('❌ Error leaving space:', error);
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
+        }
+        //Добавьте диагностическую функцию
+        async function testDatabaseConnection() {
+            try {
+                showMessage('🔍 Проверяем соединение с базой данных...');
+                
+                const response = await fetch(`${API_URL}/`);
+                if (response.ok) {
+                    showMessage('✅ Соединение с сервером установлено');
+                } else {
+                    throw new Error('Сервер не отвечает');
+                }
+            } catch (error) {
+                showMessage(`❌ Ошибка соединения: ${error.message}`, 'error');
+            }
+        }
+
+        // Вызовите эту функцию при загрузке приложения
+        // Добавьте в функцию initializeApp():
+        function initializeApp() {
+            loadSpaces();
+            loadQuickSpaces();
+            generateKeypad();
+            handleStartParameters();
+            testDatabaseConnection(); // Добавьте эту строку
+            
+            // Загружаем пространства для всех вкладок
+            loadSpacesForSelector('expenseSpacesGrid', true);
+            loadSpacesForSelector('analyticsSpacesGrid', true);
         }
 
         // ===== EXPENSES TAB =====
