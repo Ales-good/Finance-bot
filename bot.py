@@ -1329,7 +1329,7 @@ def api_add_user_category():
 
 @flask_app.route('/export_to_excel', methods=['POST'])
 def api_export_to_excel():
-    """Экспорт данных в Excel с отправкой через бота"""
+    """Экспорт данных в Excel с комментариями"""
     logger.info("🎯 START EXPORT TO EXCEL")
     
     try:
@@ -1345,7 +1345,7 @@ def api_export_to_excel():
         if not user_data:
             return jsonify({'error': 'User not found'}), 401
         
-        # Получаем данные из БД
+        # Получаем данные из БД с комментариями
         conn = get_db_connection()
         
         if isinstance(conn, sqlite3.Connection):
@@ -1370,15 +1370,20 @@ def api_export_to_excel():
         if df.empty:
             return jsonify({'error': 'Нет данных для экспорта'}), 404
         
-        # Создаем Excel
+        # Создаем Excel с комментариями
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Основной лист с тратами
             df.to_excel(writer, sheet_name='Траты', index=False)
             
+            # Статистика с учетом комментариев
+            total_with_comments = len(df[df['description'].notna() & (df['description'] != '')])
+            
             summary_data = {
-                'Метрика': ['Всего трат', 'Сумма расходов', 'Средний чек', 'Период'],
+                'Метрика': ['Всего трат', 'Трат с комментариями', 'Сумма расходов', 'Средний чек', 'Период'],
                 'Значение': [
                     len(df),
+                    f"{total_with_comments} ({total_with_comments/len(df)*100:.1f}%)",
                     f"{df['amount'].sum():.2f} ₽",
                     f"{df['amount'].mean():.2f} ₽",
                     f"Последние {period} дней"
@@ -1386,17 +1391,32 @@ def api_export_to_excel():
             }
             summary_df = pd.DataFrame(summary_data)
             summary_df.to_excel(writer, sheet_name='Сводка', index=False)
+            
+            # Дополнительный лист с аналитикой комментариев
+            if total_with_comments > 0:
+                comments_analysis = df[df['description'].notna() & (df['description'] != '')].copy()
+                if not comments_analysis.empty:
+                    comments_analysis['description_length'] = comments_analysis['description'].str.len()
+                    comments_stats = {
+                        'Метрика': ['Средняя длина комментария', 'Макс. длина комментария', 'Мин. длина комментария'],
+                        'Значение': [
+                            f"{comments_analysis['description_length'].mean():.1f} симв.",
+                            f"{comments_analysis['description_length'].max()} симв.",
+                            f"{comments_analysis['description_length'].min()} симв."
+                        ]
+                    }
+                    comments_df = pd.DataFrame(comments_stats)
+                    comments_df.to_excel(writer, sheet_name='Комментарии', index=False)
         
         excel_data = output.getvalue()
-        logger.info(f"✅ Excel created, size: {len(excel_data)} bytes")
+        logger.info(f"✅ Excel created with comments, size: {len(excel_data)} bytes")
         
         # Сохраняем файл временно
-        import tempfile
         with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as temp_file:
             temp_file.write(excel_data)
             temp_path = temp_file.name
         
-        # Отправляем файл через Telegram Bot (синхронно)
+        # Отправляем файл через Telegram Bot
         try:
             from telegram import Bot
             import asyncio
@@ -1408,7 +1428,6 @@ def api_export_to_excel():
             # Используем синхронную отправку
             with open(temp_path, 'rb') as file:
                 # Создаем event loop для синхронной отправки
-                import asyncio
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
@@ -1418,7 +1437,7 @@ def api_export_to_excel():
                             chat_id=user_id,
                             document=file,
                             filename=filename,
-                            caption=f"📊 Финансовый отчет\n💼 Пространство ID: {space_id}\n📅 Период: {period} дней\n📈 Записей: {len(df)}"
+                            caption=f"📊 Финансовый отчет\n💼 Пространство ID: {space_id}\n📅 Период: {period} дней\n📈 Записей: {len(df)}\n💬 Трат с комментариями: {total_with_comments}"
                         )
                     )
                     logger.info(f"✅ File sent via Telegram bot to user {user_id}")
@@ -1430,7 +1449,13 @@ def api_export_to_excel():
                     return jsonify({
                         'success': True,
                         'message': 'Файл отправлен в чат с ботом! Проверьте Telegram.',
-                        'sent_via_bot': True
+                        'sent_via_bot': True,
+                        'stats': {
+                            'total_expenses': len(df),
+                            'expenses_with_comments': total_with_comments,
+                            'total_amount': df['amount'].sum(),
+                            'period_days': period
+                        }
                     })
                     
                 finally:
@@ -1452,7 +1477,13 @@ def api_export_to_excel():
                 'message': 'Файл готов к скачиванию',
                 'download_url': f'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{excel_b64}',
                 'filename': f"finance_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                'sent_via_bot': False
+                'sent_via_bot': False,
+                'stats': {
+                    'total_expenses': len(df),
+                    'expenses_with_comments': total_with_comments,
+                    'total_amount': df['amount'].sum(),
+                    'period_days': period
+                }
             })
         
     except Exception as e:
@@ -1461,6 +1492,61 @@ def api_export_to_excel():
         logger.error(f"🔍 Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
+
+@flask_app.route('/get_expenses_list', methods=['POST'])
+def api_get_expenses_list():
+    """Получение списка трат с комментариями"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        period = data.get('period', 30)
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if space_id and not is_user_in_space(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name
+                      FROM expenses e
+                      WHERE e.space_id = ? AND e.date >= DATE('now', ?)
+                      ORDER BY e.date DESC'''
+            df = pd.read_sql_query(query, conn, params=(space_id, f'-{period} days'))
+        else:
+            query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name
+                      FROM expenses e
+                      WHERE e.space_id = %s AND e.date >= CURRENT_DATE - INTERVAL '%s days'
+                      ORDER BY e.date DESC'''
+            df = pd.read_sql_query(query, conn, params=(space_id, period))
+        
+        conn.close()
+        
+        # Конвертируем в список словарей
+        expenses = []
+        for _, row in df.iterrows():
+            expense = {
+                'date': row['date'].isoformat() if hasattr(row['date'], 'isoformat') else str(row['date']),
+                'amount': float(row['amount']),
+                'currency': row['currency'],
+                'category': row['category'],
+                'description': row['description'] if row['description'] else None,
+                'user_name': row['user_name']
+            }
+            expenses.append(expense)
+        
+        return jsonify({'expenses': expenses})
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in get_expenses_list: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 # ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 @flask_app.route('/')
 def health_check():
