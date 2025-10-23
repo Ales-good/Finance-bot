@@ -946,6 +946,7 @@
                     </button>
                 </div>
 
+                <!-- ДОБАВЛЕН ВЫБОР ПРОСТРАНСТВА -->
                 <div class="form-group">
                     <label>Пространство:</label>
                     <div id="expensesListSpacesGrid" class="spaces-grid quick-grid">
@@ -1312,14 +1313,54 @@
                 body: JSON.stringify({ initData: tg.initData })
             })
             .then(response => response.json())
-            .then(data => displaySpacesGrid(data.spaces, containerId, isQuick))
+            .then(data => {
+                const container = document.getElementById(containerId);
+                
+                if (!data.spaces || data.spaces.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Нет пространств</div>';
+                    return;
+                }
+
+                const gridClass = isQuick ? 'spaces-grid quick-grid' : 'spaces-grid';
+                container.className = gridClass;
+
+                // ОПРЕДЕЛЯЕМ КАКОЙ ОБРАБОТЧИК ИСПОЛЬЗОВАТЬ
+                let onClickFunction;
+                if (containerId === 'expensesListSpacesGrid') {
+                    // Для истории трат используем специальный обработчик
+                    onClickFunction = `selectSpaceInExpensesList(${space.id})`;
+                } else {
+                    // Для остальных случаев используем обычный выбор
+                    onClickFunction = `selectSpace(${space.id})`;
+                }
+
+                container.innerHTML = data.spaces.map(space => `
+                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                        data-space-id="${space.id}"
+                        onclick="${onClickFunction}">
+                        <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                        <div class="space-name">${space.name}</div>
+                        ${!isQuick ? `<div class="space-meta">${space.member_count} участ.</div>` : ''}
+                    </div>
+                `).join('');
+            })
             .catch(error => console.error('Ошибка загрузки пространств:', error));
         }
 
         function loadQuickSpaces() {
             loadSpacesForSelector('quickSpacesGrid', true);
         }
-
+        // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
+        function selectSpaceInExpensesList(spaceId) {
+            state.currentSpaceId = spaceId;
+            saveState();
+            
+            // Обновляем визуальное выделение
+            updateSpaceVisualSelection(spaceId);
+            
+            // Перезагружаем историю трат
+            loadExpensesList();
+        }
         async function loadSpaces() {
             console.log('🔄 Loading spaces...');
             
@@ -2026,7 +2067,7 @@
             }
         }
 
-        // ОБНОВЛЕННАЯ ФУНКЦИЯ loadCategories
+        // ИСПРАВЛЕННАЯ ФУНКЦИЯ loadCategories - БЕЗ ДУБЛИКАТОВ
         async function loadCategories() {
             console.log('=== loadCategories() called ===');
             
@@ -2067,15 +2108,33 @@
                     if (response.ok) {
                         const data = await response.json();
                         customCategories = data.categories || [];
+                        console.log('✅ Loaded custom categories:', customCategories.length);
                     }
                 } catch (error) {
                     console.error('Ошибка загрузки пользовательских категорий:', error);
                 }
 
-                // Объединяем категории
-                const allCategories = [...defaultCategories, ...customCategories];
+                // УБИРАЕМ ДУБЛИКАТЫ - используем Map для уникальности по имени
+                const categoryMap = new Map();
+                
+                // Сначала добавляем стандартные категории
+                defaultCategories.forEach(cat => {
+                    categoryMap.set(cat.name, cat);
+                });
+                
+                // Затем добавляем пользовательские (перезаписывают стандартные с тем же именем)
+                customCategories.forEach(cat => {
+                    categoryMap.set(cat.name, cat);
+                });
 
-                console.log('Categories to load:', allCategories);
+                // Преобразуем обратно в массив
+                const allCategories = Array.from(categoryMap.values());
+
+                console.log('📊 Categories statistics:');
+                console.log('Default categories:', defaultCategories.length);
+                console.log('Custom categories:', customCategories.length);
+                console.log('Total unique categories:', allCategories.length);
+                console.log('Categories to load:', allCategories.map(c => c.name));
 
                 container.innerHTML = allCategories.map(cat => `
                     <div class="category-item" onclick="selectCategory('${cat.name}')" data-category-name="${cat.name}">
@@ -2085,7 +2144,7 @@
                     </div>
                 `).join('');
 
-                console.log('✅ Categories HTML generated');
+                console.log('✅ Categories HTML generated - NO DUPLICATES');
 
             } catch (error) {
                 console.error('❌ Error loading categories:', error);
@@ -2841,12 +2900,13 @@
 
         async function loadExpensesList() {
             if (!state.currentSpaceId) {
-                document.getElementById('expensesListContainer').innerHTML = '<div class="empty-state">Выберите пространство</div>';
+                document.getElementById('expensesListContainer').innerHTML = 
+                    '<div class="empty-state">Выберите пространство для просмотра истории трат</div>';
                 return;
             }
 
             try {
-                showLoading('expensesListContainer');
+                showLoadingExpensesList();
                 
                 const response = await fetch(`${API_URL}/get_expenses_list`, {
                     method: 'POST',
@@ -2858,15 +2918,27 @@
                     })
                 });
 
-                if (!response.ok) throw new Error('Ошибка загрузки списка трат');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка загрузки списка трат');
+                }
 
                 const data = await response.json();
                 displayExpensesList(data.expenses);
                 
             } catch (error) {
+                console.error('❌ Error loading expenses list:', error);
                 document.getElementById('expensesListContainer').innerHTML = 
                     `<div class="message error">Ошибка: ${error.message}</div>`;
             }
+        }
+
+        function showLoadingExpensesList() {
+            document.getElementById('expensesListContainer').innerHTML = `
+                <div class="loading">
+                    <div>⏳ Загружаем историю трат...</div>
+                </div>
+            `;
         }
 
         function displayExpensesList(expenses) {
@@ -2877,12 +2949,37 @@
                     <div class="empty-state">
                         <div class="empty-state-icon">📝</div>
                         <div>Нет трат за выбранный период</div>
+                        <div style="font-size: 14px; color: var(--text-muted); margin-top: 8px;">
+                            Попробуйте выбрать другой период или пространство
+                        </div>
                     </div>
                 `;
                 return;
             }
 
-            container.innerHTML = expenses.map(expense => {
+            // Статистика
+            const totalAmount = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+            const expensesWithComments = expenses.filter(expense => expense.description && expense.description.trim() !== '').length;
+
+            container.innerHTML = `
+                <div style="background: var(--card-bg); padding: 12px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #667eea;">
+                    <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                        <div>
+                            <strong>📊 Статистика:</strong><br>
+                            Всего трат: ${expenses.length}<br>
+                            С комментариями: ${expensesWithComments}
+                        </div>
+                        <div style="text-align: right;">
+                            <strong>💰 Сумма:</strong><br>
+                            ${totalAmount.toFixed(2)} ₽<br>
+                            В среднем: ${(totalAmount / expenses.length).toFixed(2)} ₽
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Список трат
+            expenses.forEach(expense => {
                 const date = new Date(expense.date);
                 const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                 
@@ -2890,32 +2987,40 @@
                     `<div style="font-size: 14px; color: var(--text-secondary); margin-top: 8px; padding: 8px; background: var(--border-color); border-radius: 6px; border-left: 3px solid #667eea;">
                         <strong>💬 Комментарий:</strong> ${expense.description}
                     </div>` : 
-                    `<div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                    `<div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; font-style: italic;">
                         Без комментария
                     </div>`;
 
-                return `
-                    <div class="expense-item" style="background: var(--card-bg); padding: 16px; margin-bottom: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                            <div style="display: flex; align-items: center; gap: 12px;">
-                                <div style="font-size: 24px;">${getCategoryIcon(expense.category)}</div>
-                                <div>
-                                    <div style="font-weight: 700; font-size: 16px;">${expense.category}</div>
-                                    <div style="font-size: 12px; color: var(--text-muted);">
-                                        ${formattedDate} • ${expense.user_name}
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="text-align: right;">
-                                <div style="font-weight: 700; color: #dc3545; font-size: 18px;">
-                                    ${expense.amount} ${expense.currency}
+                const expenseItem = document.createElement('div');
+                expenseItem.className = 'expense-item';
+                expenseItem.style.background = 'var(--card-bg)';
+                expenseItem.style.padding = '16px';
+                expenseItem.style.marginBottom = '12px';
+                expenseItem.style.borderRadius = '12px';
+                expenseItem.style.border = '1px solid var(--border-color)';
+
+                expenseItem.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="font-size: 24px;">${getCategoryIcon(expense.category)}</div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 16px;">${expense.category}</div>
+                                <div style="font-size: 12px; color: var(--text-muted);">
+                                    ${formattedDate} • ${expense.user_name}
                                 </div>
                             </div>
                         </div>
-                        ${descriptionHtml}
+                        <div style="text-align: right;">
+                            <div style="font-weight: 700; color: #dc3545; font-size: 18px;">
+                                ${expense.amount} ${expense.currency}
+                            </div>
+                        </div>
                     </div>
+                    ${descriptionHtml}
                 `;
-            }).join('');
+                
+                container.appendChild(expenseItem);
+            });
         }
 
         async function refreshExpensesList() {
@@ -2957,7 +3062,6 @@
                 if (currentTabs) {
                     const tabs = currentTabs.querySelectorAll('.tab');
                     tabs.forEach((tab, index) => {
-                        // Простая логика: первый таб = dashboard, второй = spaces, и т.д.
                         const targetIndex = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'].indexOf(tabName);
                         if (index === targetIndex) {
                             tab.classList.add('active');
@@ -2969,13 +3073,13 @@
                 console.log('Loading tab content for:', tabName);
                 switch(tabName) {
                     case 'expenses':
-                        console.log('Loading expenses tab...');
                         loadExpensesTab();
                         break;
                     case 'analytics':
                         loadAnalytics();
                         break;
                     case 'expensesList':
+                        loadSpacesForSelector('expensesListSpacesGrid', true); // ДОБАВЬТЕ ЭТУ СТРОКУ
                         loadExpensesList();
                         break;
                     case 'spaces':
@@ -3207,7 +3311,29 @@
                 messageEl.classList.add('hidden');
             }, 4000);
         }
-
+        // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
+        function getCategoryIcon(categoryName) {
+            const icons = {
+                'Продукты': '🛒',
+                'Кафе': '☕',
+                'Транспорт': '🚗',
+                'Дом': '🏠',
+                'Одежда': '👕',
+                'Здоровье': '🏥',
+                'Развлечения': '🎬',
+                'Подписки': '📱',
+                'Образование': '📚',
+                'Другое': '❓'
+            };
+            
+            // Добавляем поддержку пользовательских категорий
+            if (icons[categoryName]) {
+                return icons[categoryName];
+            }
+            
+            // Для пользовательских категорий используем общую иконку
+            return '📁';
+        }
         // ===== функция для получения ссылки на бота =====
         function getBotLink() {
             return `https://t.me/incomeexpensebookBot`;
