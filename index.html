@@ -812,11 +812,17 @@
                     <div id="categoriesGrid" class="categories-grid">
                         <!-- Categories will be loaded here -->
                     </div>
+                    
+                    <!-- ОБНОВЛЕННАЯ КНОПКА С УПРАВЛЕНИЕМ КАТЕГОРИЯМИ -->
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button class="btn btn-outline" onclick="showAddCategoryForm()" style="width: auto; padding: 8px 16px;">
+                            ➕ Создать категорию
+                        </button>
+                        <button class="btn btn-outline" onclick="showManageCategories()" style="width: auto; padding: 8px 16px; background: #ffebee; color: #c62828;">
+                            🗑️ Управление категориями
+                        </button>
+                    </div>
                 </div>
-                <!-- КНОПКА ДОБАВЛЕНИЯ НОВОЙ КАТЕГОРИИ -->
-                <button class="btn btn-outline" onclick="showAddCategoryForm()" style="width: auto; margin-top: 8px; padding: 8px 16px;">
-                    ➕ Создать категорию
-                </button>
             </div>
 
             <!-- ФОРМА СОЗДАНИЯ КАТЕГОРИИ -->
@@ -2117,37 +2123,34 @@
                     console.error('Ошибка загрузки пользовательских категорий:', error);
                 }
 
-                // УБИРАЕМ ДУБЛИКАТЫ - используем Map для уникальности по имени
+                // УБИРАЕМ ДУБЛИКАТЫ
                 const categoryMap = new Map();
-                
-                // Сначала добавляем стандартные категории
-                defaultCategories.forEach(cat => {
-                    categoryMap.set(cat.name, cat);
-                });
-                
-                // Затем добавляем пользовательские (перезаписывают стандартные с тем же именем)
-                customCategories.forEach(cat => {
-                    categoryMap.set(cat.name, cat);
-                });
-
-                // Преобразуем обратно в массив
+                defaultCategories.forEach(cat => categoryMap.set(cat.name, cat));
+                customCategories.forEach(cat => categoryMap.set(cat.name, cat));
                 const allCategories = Array.from(categoryMap.values());
 
-                console.log('📊 Categories statistics:');
-                console.log('Default categories:', defaultCategories.length);
-                console.log('Custom categories:', customCategories.length);
-                console.log('Total unique categories:', allCategories.length);
-                console.log('Categories to load:', allCategories.map(c => c.name));
+                console.log('📊 Total unique categories:', allCategories.length);
 
+                // ОТОБРАЖАЕМ КАТЕГОРИИ С КНОПКАМИ УДАЛЕНИЯ ДЛЯ ПОЛЬЗОВАТЕЛЬСКИХ
                 container.innerHTML = allCategories.map(cat => `
                     <div class="category-item" onclick="selectCategory('${cat.name}')" data-category-name="${cat.name}">
                         <div class="category-icon">${cat.icon}</div>
                         <div class="category-name">${cat.name}</div>
-                        ${cat.isCustom ? '<div style="font-size: 8px; color: #666; margin-top: 2px;">пользовательская</div>' : ''}
+                        ${cat.isCustom ? 
+                            `<div style="font-size: 8px; color: #666; margin-top: 2px;">
+                                пользовательская
+                                <button onclick="event.stopPropagation(); deleteCategory('${cat.name}')" 
+                                        style="background: none; border: none; color: #ff4444; cursor: pointer; font-size: 12px; margin-left: 4px;" 
+                                        title="Удалить категорию">
+                                    🗑️
+                                </button>
+                            </div>` : 
+                            '<div style="font-size: 8px; color: #666; margin-top: 2px;">стандартная</div>'
+                        }
                     </div>
                 `).join('');
 
-                console.log('✅ Categories HTML generated - NO DUPLICATES');
+                console.log('✅ Categories HTML generated');
 
             } catch (error) {
                 console.error('❌ Error loading categories:', error);
@@ -3325,6 +3328,168 @@
                 }, 1000);
             }
         }
+
+        // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
+        // Функция удаления пользовательской категории
+        async function deleteCategory(categoryName) {
+            if (!state.currentSpaceId) {
+                showMessage('Сначала выберите пространство', 'error');
+                return;
+            }
+
+            if (!confirm(`Удалить категорию "${categoryName}"?\n\nВнимание: если эта категория использовалась в тратах, они останутся, но категория будет отображаться как "Другое".`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/delete_user_category`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        categoryName: categoryName
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    showMessage(`✅ Категория "${categoryName}" удалена`);
+                    
+                    // Перезагружаем категории
+                    await loadCategories();
+                    
+                    // Сбрасываем выбранную категорию если она была удалена
+                    const activeCategory = document.querySelector('.category-item.active');
+                    if (activeCategory && activeCategory.querySelector('.category-name').textContent === categoryName) {
+                        activeCategory.classList.remove('active');
+                    }
+                } else {
+                    throw new Error(result.error || 'Ошибка удаления категории');
+                }
+                
+            } catch (error) {
+                console.error('❌ Error deleting category:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
+        }
+                // ==== ДОБАВЬТЕ ЭТИ ФУНКЦИИ ЗДЕСЬ ====
+        // Функция для просмотра и управления категориями
+        function showManageCategories() {
+            const modalHtml = `
+                <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+                    <div class="card" style="max-width: 400px; margin: 20px; max-height: 80vh; overflow-y: auto;">
+                        <h3>🗑️ Управление категориями</h3>
+                        <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">
+                            Здесь вы можете удалять созданные вами категории. Стандартные категории удалить нельзя.
+                        </p>
+                        
+                        <div id="manageCategoriesList" style="margin-bottom: 16px;">
+                            <!-- Список категорий будет загружен здесь -->
+                        </div>
+                        
+                        <button class="btn btn-secondary" onclick="closeManageCategories()" style="width: 100%;">
+                            Закрыть
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            const modal = document.createElement('div');
+            modal.id = 'manageCategoriesModal';
+            modal.innerHTML = modalHtml;
+            document.body.appendChild(modal);
+
+            // Загружаем список категорий для управления
+            loadCategoriesForManagement();
+        }
+
+        function closeManageCategories() {
+            const modal = document.getElementById('manageCategoriesModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        async function loadCategoriesForManagement() {
+            const container = document.getElementById('manageCategoriesList');
+            
+            try {
+                // Загружаем категории с сервера
+                const response = await fetch(`${API_URL}/get_user_categories`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId
+                    })
+                });
+
+                if (!response.ok) throw new Error('Ошибка загрузки категорий');
+
+                const data = await response.json();
+                const customCategories = data.categories.filter(cat => cat.isCustom);
+
+                if (customCategories.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Нет пользовательских категорий</div>';
+                    return;
+                }
+
+                container.innerHTML = customCategories.map(cat => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; margin-bottom: 8px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border-color);">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="font-size: 20px;">${cat.icon}</div>
+                            <div>
+                                <div style="font-weight: 700;">${cat.name}</div>
+                                <div style="font-size: 12px; color: var(--text-muted);">пользовательская</div>
+                            </div>
+                        </div>
+                        <button onclick="deleteCategoryFromManagement('${cat.name}')" 
+                                style="background: #ff4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                            Удалить
+                        </button>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                container.innerHTML = `<div class="message error">Ошибка загрузки: ${error.message}</div>`;
+            }
+        }
+
+        async function deleteCategoryFromManagement(categoryName) {
+            if (!confirm(`Удалить категорию "${categoryName}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/delete_user_category`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        categoryName: categoryName
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    showMessage(`✅ Категория "${categoryName}" удалена`);
+                    // Обновляем список в модальном окне
+                    loadCategoriesForManagement();
+                    // Обновляем категории в основном интерфейсе
+                    loadCategories();
+                } else {
+                    throw new Error(result.error || 'Ошибка удаления категории');
+                }
+                
+            } catch (error) {
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
+        }
+        // ====================================
         // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
         function getCategoryIcon(categoryName) {
             const icons = {
