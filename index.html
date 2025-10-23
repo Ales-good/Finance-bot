@@ -946,7 +946,7 @@
                     </button>
                 </div>
 
-                <!-- ДОБАВЛЕН ВЫБОР ПРОСТРАНСТВА -->
+                <!-- ДОЛЖЕН БЫТЬ ЭТОТ БЛОК ДЛЯ ВЫБОРА ПРОСТРАНСТВА -->
                 <div class="form-group">
                     <label>Пространство:</label>
                     <div id="expensesListSpacesGrid" class="spaces-grid quick-grid">
@@ -1324,25 +1324,28 @@
                 const gridClass = isQuick ? 'spaces-grid quick-grid' : 'spaces-grid';
                 container.className = gridClass;
 
-                // ОПРЕДЕЛЯЕМ КАКОЙ ОБРАБОТЧИК ИСПОЛЬЗОВАТЬ
-                let onClickFunction;
-                if (containerId === 'expensesListSpacesGrid') {
-                    // Для истории трат используем специальный обработчик
-                    onClickFunction = `selectSpaceInExpensesList(${space.id})`;
-                } else {
-                    // Для остальных случаев используем обычный выбор
-                    onClickFunction = `selectSpace(${space.id})`;
-                }
-
-                container.innerHTML = data.spaces.map(space => `
-                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                        data-space-id="${space.id}"
-                        onclick="${onClickFunction}">
-                        <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
-                        <div class="space-name">${space.name}</div>
-                        ${!isQuick ? `<div class="space-meta">${space.member_count} участ.</div>` : ''}
-                    </div>
-                `).join('');
+                // ОПРЕДЕЛЯЕМ КАКОЙ ОБРАБОТЧИК ИСПОЛЬЗОВАТЬ ДЛЯ КАЖДОГО ПРОСТРАНСТВА
+                container.innerHTML = data.spaces.map(space => {
+                    let onClickFunction;
+                    
+                    if (containerId === 'expensesListSpacesGrid') {
+                        // Для истории трат используем специальный обработчик
+                        onClickFunction = `selectSpaceInExpensesList(${space.id})`;
+                    } else {
+                        // Для остальных случаев используем обычный выбор
+                        onClickFunction = `selectSpace(${space.id})`;
+                    }
+                    
+                    return `
+                        <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
+                            data-space-id="${space.id}"
+                            onclick="${onClickFunction}">
+                            <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                            <div class="space-name">${space.name}</div>
+                            ${!isQuick ? `<div class="space-meta">${space.member_count} участ.</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
             })
             .catch(error => console.error('Ошибка загрузки пространств:', error));
         }
@@ -3079,7 +3082,7 @@
                         loadAnalytics();
                         break;
                     case 'expensesList':
-                        loadSpacesForSelector('expensesListSpacesGrid', true); // ДОБАВЬТЕ ЭТУ СТРОКУ
+                        loadSpacesForSelector('expensesListSpacesGrid', true); // ← ВАЖНО: загружаем пространства
                         loadExpensesList();
                         break;
                     case 'spaces':
@@ -3312,6 +3315,17 @@
             }, 4000);
         }
         // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
+        // Проверка первого запуска
+        function checkFirstTimeUser() {
+            const firstTime = !localStorage.getItem('notFirstTime');
+            if (firstTime) {
+                setTimeout(() => {
+                    showMessage('🎉 Добро пожаловать в Finance Tracker! Начните с создания пространства или добавления первой траты.', 'success');
+                    localStorage.setItem('notFirstTime', 'true');
+                }, 1000);
+            }
+        }
+        // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
         function getCategoryIcon(categoryName) {
             const icons = {
                 'Продукты': '🛒',
@@ -3343,25 +3357,48 @@
             // Создаем правильную ссылку для приглашения
             const botUsername = 'incomeexpensebookBot';
             const inviteLink = `https://t.me/${botUsername}`;
-    
+
             // Копируем ссылку в буфер обмена
             navigator.clipboard.writeText(inviteLink).then(() => {
-                showMessage('✅ Ссылка на бота скопирована! Отправьте друзьям');
+                // УЛУЧШЕННОЕ УВЕДОМЛЕНИЕ
+                showMessage('✅ Ссылка на бота скопирована! Отправьте её друзьям');
+                
+                // Дополнительно показываем саму ссылку
+                setTimeout(() => {
+                    if (confirm(`Ссылка скопирована:\n${inviteLink}\n\nХотите открыть чат с ботом?`)) {
+                        window.open(inviteLink, '_blank');
+                    }
+                }, 500);
+                
             }).catch(err => {
-                showMessage('❌ Не удалось скопировать ссылку', 'error');
+                console.error('❌ Failed to copy:', err);
+                // Fallback для старых браузеров
+                const textArea = document.createElement('textarea');
+                textArea.value = inviteLink;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                showMessage('✅ Ссылка скопирована! Отправьте друзьям: ' + inviteLink);
             });
         }
 
         // ===== INITIALIZE APP =====
         function initializeApp() {
+            setupAutoUpdate();
+            checkFirstTimeUser();
             loadSpaces();
             loadQuickSpaces();
             generateKeypad();
             handleStartParameters();
+            testDatabaseConnection();
+            addDebugButtons();
             
             // Загружаем пространства для всех вкладок
             loadSpacesForSelector('expenseSpacesGrid', true);
             loadSpacesForSelector('analyticsSpacesGrid', true);
+            loadSpacesForSelector('expensesListSpacesGrid', true); // ← ДОБАВЬТЕ ЭТУ СТРОКУ
         }
 
         // ===== CHARTS =====
