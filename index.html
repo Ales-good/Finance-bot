@@ -1594,70 +1594,78 @@
         function hideCreateSpaceForm() {
             document.getElementById('createSpaceForm').classList.add('hidden');
             document.getElementById('spacesList').classList.remove('hidden');
+            
+            // Дополнительно гарантируем восстановление кнопки
+            const createButton = document.querySelector('.btn[onclick="createSpace()"]');
+            if (createButton) {
+                createButton.textContent = 'Создать';
+                createButton.disabled = false;
+            }
         }
 
         async function createSpace() {
-                const name = document.getElementById('spaceName').value.trim();
-                const type = document.getElementById('spaceType').value;
-                const description = document.getElementById('spaceDescription').value.trim();
+            const name = document.getElementById('spaceName').value.trim();
+            const type = document.getElementById('spaceType').value;
+            const description = document.getElementById('spaceDescription').value.trim();
 
-                if (!name) {
-                    showMessage('Введите название пространства', 'error');
-                    return;
-                }
-
-                try {
-                    // Показываем индикатор загрузки
-                    const createButton = document.querySelector('.btn[onclick="createSpace()"]');
-                    const originalText = createButton.textContent;
-                    createButton.textContent = '⏳ Создаем...';
-                    createButton.disabled = true;
-
-                    const response = await fetch(`${API_URL}/create_space`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            initData: tg.initData,
-                            name: name,
-                            type: type,
-                            description: description
-                        })
-                    });
-
-                    const data = await response.json();
-                    
-                    if (!response.ok) {
-                        throw new Error(data.error || 'Ошибка создания пространства');
-                    }
-                    
-                    if (data.success) {
-                        showMessage(`✅ Пространство "${name}" создано! Код приглашения: ${data.invite_code}`);
-                        hideCreateSpaceForm();
-                        
-                        // Очищаем форму
-                        document.getElementById('spaceName').value = '';
-                        document.getElementById('spaceDescription').value = '';
-                        
-                        // Перезагружаем пространства с задержкой для обновления БД
-                        setTimeout(() => {
-                            loadSpaces();
-                            loadQuickSpaces();
-                        }, 1000);
-                        
-                    } else {
-                        throw new Error(data.error || 'Неизвестная ошибка');
-                    }
-                    
-                } catch (error) {
-                    console.error('❌ Create space error:', error);
-                    showMessage(`❌ Ошибка: ${error.message}`, 'error');
-                } finally {
-                    // Восстанавливаем кнопку
-                    const createButton = document.querySelector('.btn[onclick="createSpace()"]');
-                    createButton.textContent = originalText || 'Создать';
-                    createButton.disabled = false;
-                }
+            if (!name) {
+                showMessage('Введите название пространства', 'error');
+                return;
             }
+
+            // Сохраняем ссылку на кнопку ДО выполнения асинхронных операций
+            const createButton = document.querySelector('.btn[onclick="createSpace()"]');
+            const originalText = createButton.textContent;
+            
+            try {
+                // Показываем индикатор загрузки
+                createButton.textContent = '⏳ Создаем...';
+                createButton.disabled = true;
+
+                const response = await fetch(`${API_URL}/create_space`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        name: name,
+                        type: type,
+                        description: description
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || `Ошибка создания пространства: ${response.status}`);
+                }
+                
+                if (data.success) {
+                    showMessage(`✅ Пространство "${name}" создано! Код приглашения: ${data.invite_code}`);
+                    hideCreateSpaceForm();
+                    
+                    // Очищаем форму
+                    document.getElementById('spaceName').value = '';
+                    document.getElementById('spaceDescription').value = '';
+                    
+                    // Перезагружаем пространства с задержкой для обновления БД
+                    setTimeout(() => {
+                        loadSpaces();
+                        loadQuickSpaces();
+                    }, 500);
+                    
+                } else {
+                    throw new Error(data.error || 'Неизвестная ошибка при создании');
+                }
+                
+            } catch (error) {
+                console.error('❌ Create space error:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            } finally {
+                // ВОССТАНАВЛИВАЕМ КНОПКУ в блоке finally - это гарантирует выполнение
+                createButton.textContent = 'Создать';
+                createButton.disabled = false;
+            }
+        }
 
         async function showSpaceDetails(spaceId) {
             state.currentSpaceId = spaceId;
