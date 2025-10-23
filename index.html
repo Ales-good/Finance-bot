@@ -948,7 +948,30 @@
         tg.enableClosingConfirmation();
 
         // ===== STATE MANAGEMENT =====
+        // ===== CACHE CONFIGURATION =====
+        const CACHE_CONFIG = {
+            spaces: 60000,    // 1 минута
+            analytics: 30000, // 30 секунд
+            kpi: 15000       // 15 секунд
+        };
 
+        let cache = {
+            spaces: { data: null, timestamp: 0 },
+            analytics: { data: null, timestamp: 0 },
+            kpi: { data: null, timestamp: 0 }
+        };
+
+        function getCachedData(key) {
+            const item = cache[key];
+            if (item && Date.now() - item.timestamp < CACHE_CONFIG[key]) {
+                return item.data;
+            }
+            return null;
+        }
+
+        function setCachedData(key, data) {
+            cache[key] = { data, timestamp: Date.now() };
+        }
         // Добавьте в state management
         let dataCache = {
             spaces: null,
@@ -968,6 +991,22 @@
 
         let userData = tg.initDataUnsafe.user;
         let currentSpaceData = null;
+        
+        //Добавьте debounce для частых операций:
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Используйте для частых операций
+        const optimizedRefresh = debounce(refreshDashboard, 1000);
 
         // ===== CURRENCY CONFIG =====
         const CURRENCIES = {
@@ -3207,18 +3246,7 @@
             });
         }
         
-        // ===== INITIALIZE APP =====
-        function initializeApp() {
-            loadSpacesMinimal();
-            loadQuickSpaces();
-            generateKeypad();
-            handleStartParameters();
-            
-            // Загружаем пространства для всех вкладок
-            loadSpacesForSelector('expenseSpacesGrid', true);
-            loadSpacesForSelector('analyticsSpacesGrid', true);
-        }
-
+       
         // ===== CHARTS =====
                 let analyticsChart = null;
 
