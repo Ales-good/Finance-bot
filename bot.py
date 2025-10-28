@@ -2303,9 +2303,13 @@ def api_delete_user_category():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
+    # Логируем вызов функции
+    logger.info(f"🚀 Команда /start от пользователя {user.id} ({user.first_name})")
+    
     # Проверяем, это приглашение или обычный старт
     args = context.args
     if args and args[0].startswith('invite_'):
+        logger.info(f"📨 Обработка пригласительной ссылки: {args[0]}")
         await handle_invite_start(update, context)
         return
     
@@ -2316,7 +2320,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ПРОВЕРЯЕМ НОВЫЙ ЛИ ЭТО ПОЛЬЗОВАТЕЛЬ
     is_new_user = await check_if_new_user(user.id)
-    
+    logger.info(f"👤 Пользователь {user.id} новый: {is_new_user}")
+        
     if is_new_user:
         # СООБЩЕНИЕ ДЛЯ НОВЫХ ПОЛЬЗОВАТЕЛЕЙ
         welcome_text = (
@@ -2665,11 +2670,13 @@ def main():
     # Создаем приложение бота
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Добавляем обработчики
+    # Добавляем обработчики в ПРАВИЛЬНОМ ПОРЯДКЕ
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    
+    # Обработчик текста ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ и исключать команды
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
     # Запускаем Flask в отдельном потоке
@@ -2688,6 +2695,3 @@ def main():
     # Запускаем бота
     logger.info("🤖 Бот запускается...")
     application.run_polling()
-
-if __name__ == '__main__':
-    main()
