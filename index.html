@@ -1204,51 +1204,86 @@
         function setupSwipeNavigation() {
             let startX = 0;
             let startY = 0;
+            let currentX = 0;
+            let isSwiping = false;
             const minSwipeDistance = 50;
             const tabs = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'];
 
             document.addEventListener('touchstart', e => {
                 startX = e.touches[0].clientX;
                 startY = e.touches[0].clientY;
+                currentX = startX;
+                isSwiping = true;
+                
+                // Добавляем визуальную обратную связь
+                document.body.style.transition = 'none';
+            });
+
+            document.addEventListener('touchmove', e => {
+                if (!isSwiping) return;
+                
+                currentX = e.touches[0].clientX;
+                const diffX = currentX - startX;
+                
+                // Блокируем вертикальную прокрутку во время горизонтального свайпа
+                if (Math.abs(diffX) > 10) {
+                    e.preventDefault();
+                }
             });
 
             document.addEventListener('touchend', e => {
+                if (!isSwiping) return;
+                
                 const endX = e.changedTouches[0].clientX;
                 const endY = e.changedTouches[0].clientY;
-                const diffX = startX - endX;
-                const diffY = startY - endY;
-
-                // Проверяем что это горизонтальный свайп, а не вертикальный
+                const diffX = endX - startX;
+                const diffY = endY - startY;
+                
+                // Сбрасываем состояние
+                isSwiping = false;
+                document.body.style.transition = '';
+                
+                // Проверяем что это горизонтальный свайп
                 if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > minSwipeDistance) {
                     const currentTab = getCurrentActiveTab();
                     const currentIndex = tabs.indexOf(currentTab);
                     let newIndex;
 
                     if (diffX > 0) {
-                        // Свайп влево - следующая вкладка
-                        newIndex = Math.min(currentIndex + 1, tabs.length - 1);
-                    } else {
                         // Свайп вправо - предыдущая вкладка
                         newIndex = Math.max(currentIndex - 1, 0);
+                    } else {
+                        // Свайп влево - следующая вкладка
+                        newIndex = Math.min(currentIndex + 1, tabs.length - 1);
                     }
 
                     if (newIndex !== currentIndex) {
+                        console.log(`🔄 Swipe: ${currentTab} -> ${tabs[newIndex]}`);
                         showTab(tabs[newIndex]);
                     }
                 }
             });
+
+            // Блокируем вертикальную прокрутку при начале горизонтального свайпа
+            document.addEventListener('touchmove', e => {
+                if (!isSwiping) return;
+                
+                const diffX = Math.abs(e.touches[0].clientX - startX);
+                const diffY = Math.abs(e.touches[0].clientY - startY);
+                
+                if (diffX > diffY && diffX > 10) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
         }
 
         // Вспомогательная функция для определения текущей активной вкладки
         function getCurrentActiveTab() {
-            const tabs = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'];
-            for (let tab of tabs) {
-                if (document.getElementById(tab).classList.contains('active')) {
-                    return tab;
-                }
-            }
-            return 'dashboard';
+            const activeTab = document.querySelector('.tab-content.active');
+            return activeTab ? activeTab.id : 'dashboard';
         }
+
+        
 
         // ===== CURRENCY MANAGEMENT =====
         function selectCurrency(currency, updateKeypad = true) {
@@ -1402,6 +1437,8 @@
             console.log('🔄 Loading spaces...');
             
             try {
+                showMessage('🔄 Загружаем пространства...');
+                
                 const response = await fetch(`${API_URL}/get_user_spaces`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1411,28 +1448,63 @@
                 console.log('📩 Spaces response status:', response.status);
 
                 if (!response.ok) {
-                    throw new Error('Ошибка загрузки пространств');
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `HTTP ${response.status}: Ошибка загрузки пространств`);
                 }
                 
                 const data = await response.json();
                 console.log('🏠 Loaded spaces:', data.spaces);
+                
+                if (!data.spaces || !Array.isArray(data.spaces)) {
+                    throw new Error('Некорректный формат данных пространств');
+                }
+                
+                // Сохраняем в кэш
+                dataCache.spaces = data.spaces;
+                dataCache.lastUpdate = Date.now();
                 
                 // Отображаем пространства во всех контейнерах
                 displaySpacesGrid(data.spaces, 'spacesList', true);
                 displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
                 displaySpacesGrid(data.spaces, 'expenseSpacesGrid', true);
                 displaySpacesGrid(data.spaces, 'analyticsSpacesGrid', true);
+                displaySpacesGrid(data.spaces, 'expensesListSpacesGrid', true);
                 
                 // Автовыбор первого пространства если нет выбранного
-                if (!state.currentSpaceId && data.spaces.length > 0) {
-                    console.log('🔍 Auto-selecting first space:', data.spaces[0].id);
-                    selectSpace(data.spaces[0].id);
+                if (data.spaces.length > 0) {
+                    if (!state.currentSpaceId) {
+                        console.log('🔍 Auto-selecting first space:', data.spaces[0].id);
+                        selectSpace(data.spaces[0].id);
+                    } else {
+                        // Проверяем, что выбранное пространство все еще существует
+                        const currentSpaceExists = data.spaces.some(space => space.id === state.currentSpaceId);
+                        if (!currentSpaceExists && data.spaces.length > 0) {
+                            console.log('🔄 Current space not found, selecting first available');
+                            selectSpace(data.spaces[0].id);
+                        }
+                    }
+                } else {
+                    // Нет пространств
+                    state.currentSpaceId = null;
+                    saveState();
+                    toggleKPIVisibility();
                 }
                 
+                showMessage('✅ Пространства загружены');
                 return data.spaces;
                 
             } catch (error) {
                 console.error('❌ Error loading spaces:', error);
+                showMessage(`❌ Ошибка загрузки пространств: ${error.message}`, 'error');
+                
+                // Показываем пустые состояния
+                const emptyHtml = '<div class="empty-state">Ошибка загрузки</div>';
+                ['spacesList', 'quickSpacesGrid', 'expenseSpacesGrid', 'analyticsSpacesGrid', 'expensesListSpacesGrid']
+                    .forEach(id => {
+                        const container = document.getElementById(id);
+                        if (container) container.innerHTML = emptyHtml;
+                    });
+                
                 return [];
             }
         }
@@ -1747,14 +1819,14 @@
                 return;
             }
 
-            // Сохраняем ссылку на кнопку ДО выполнения асинхронных операций
             const createButton = document.querySelector('.btn[onclick="createSpace()"]');
             const originalText = createButton.textContent;
             
             try {
-                // Показываем индикатор загрузки
                 createButton.textContent = '⏳ Создаем...';
                 createButton.disabled = true;
+
+                console.log('🔄 Creating space with data:', { name, type, description });
 
                 const response = await fetch(`${API_URL}/create_space`, {
                     method: 'POST',
@@ -1767,25 +1839,39 @@
                     })
                 });
 
+                console.log('📩 Create space response status:', response.status);
+                
                 const data = await response.json();
+                console.log('📦 Create space response data:', data);
                 
                 if (!response.ok) {
-                    throw new Error(data.error || `Ошибка создания пространства: ${response.status}`);
+                    throw new Error(data.error || `HTTP ${response.status}: Ошибка создания пространства`);
                 }
                 
                 if (data.success) {
                     showMessage(`✅ Пространство "${name}" создано! Код приглашения: ${data.invite_code}`);
-                    hideCreateSpaceForm();
                     
                     // Очищаем форму
                     document.getElementById('spaceName').value = '';
                     document.getElementById('spaceDescription').value = '';
                     
-                    // Перезагружаем пространства с задержкой для обновления БД
-                    setTimeout(() => {
-                        loadSpaces();
-                        loadQuickSpaces();
-                    }, 500);
+                    // Скрываем форму
+                    hideCreateSpaceForm();
+                    
+                    // Очищаем кэш и перезагружаем пространства
+                    dataCache.spaces = null;
+                    dataCache.lastUpdate = null;
+                    
+                    // Даем время серверу обновиться
+                    setTimeout(async () => {
+                        await loadSpaces();
+                        await loadQuickSpaces();
+                        
+                        // Автовыбор нового пространства
+                        if (data.space_id) {
+                            selectSpace(data.space_id);
+                        }
+                    }, 1000);
                     
                 } else {
                     throw new Error(data.error || 'Неизвестная ошибка при создании');
@@ -1793,10 +1879,9 @@
                 
             } catch (error) {
                 console.error('❌ Create space error:', error);
-                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+                showMessage(`❌ Ошибка создания: ${error.message}`, 'error');
             } finally {
-                // ВОССТАНАВЛИВАЕМ КНОПКУ в блоке finally - это гарантирует выполнение
-                createButton.textContent = 'Создать';
+                createButton.textContent = originalText;
                 createButton.disabled = false;
             }
         }
@@ -2013,15 +2098,35 @@
         // Вызовите эту функцию при загрузке приложения
         // Добавьте в функцию initializeApp():
         function initializeApp() {
-            loadSpaces();
-            loadQuickSpaces();
-            generateKeypad();
-            handleStartParameters();
-            testDatabaseConnection(); // Добавьте эту строку
+            console.log('🚀 Initializing app...');
             
-            // Загружаем пространства для всех вкладок
-            loadSpacesForSelector('expenseSpacesGrid', true);
-            loadSpacesForSelector('analyticsSpacesGrid', true);
+            // Сначала загружаем состояние
+            loadState();
+            
+            // Настраиваем свайп
+            setupSwipeNavigation();
+            
+            // Загружаем пространства
+            loadSpaces().then(() => {
+                console.log('✅ Spaces loaded, initializing rest...');
+                
+                // Инициализируем остальные компоненты
+                generateKeypad();
+                handleStartParameters();
+                checkFirstTimeUser();
+                handleStartCommand();
+                
+                // Загружаем пространства для всех селекторов
+                loadSpacesForSelector('expenseSpacesGrid', true);
+                loadSpacesForSelector('analyticsSpacesGrid', true);
+                loadSpacesForSelector('expensesListSpacesGrid', true);
+                
+                // Добавляем кнопку отладки (можно убрать после фикса)
+                addDebugButtons();
+            }).catch(error => {
+                console.error('❌ Failed to load spaces:', error);
+                showMessage('❌ Ошибка загрузки приложения', 'error');
+            });
         }
 
         // ===== EXPENSES TAB =====
