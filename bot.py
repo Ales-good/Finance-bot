@@ -2671,10 +2671,13 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Добавляем обработчики в ПРАВИЛЬНОМ ПОРЯДКЕ
-    application.add_handler(CommandHandler("start", start))
+    # Добавляем обработчики в ПРАВИЛЬНОМ ПОРЯДКЕ
+    application.add_handler(CommandHandler("start", start))  # ← исправлено на "start"
+    application.add_handler(CommandHandler("Start", start))  # ← дополнительно на всякий случай
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
     # Обработчик текста ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ и исключать команды
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
