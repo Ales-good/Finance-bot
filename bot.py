@@ -2299,6 +2299,55 @@ def api_delete_user_category():
     except Exception as e:
         logger.error(f"❌ API Error in delete_user_category: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+@flask_app.route('/debug_database')
+def debug_database():
+    """Диагностика подключения к базе данных"""
+    try:
+        conn = get_db_connection()
+        
+        # Проверяем тип подключения
+        db_type = "PostgreSQL" if not isinstance(conn, sqlite3.Connection) else "SQLite"
+        
+        # Проверяем переменные окружения
+        env_vars = {
+            'DATABASE_URL_EXISTS': 'DATABASE_URL' in os.environ,
+            'DATABASE_URL_LENGTH': len(os.environ.get('DATABASE_URL', '')) if 'DATABASE_URL' in os.environ else 0,
+            'DEV_MODE': DEV_MODE
+        }
+        
+        # Проверяем таблицы
+        if isinstance(conn, sqlite3.Connection):
+            tables_query = "SELECT name FROM sqlite_master WHERE type='table'"
+        else:
+            tables_query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        
+        tables_df = pd.read_sql_query(tables_query, conn)
+        tables_list = tables_df.iloc[:, 0].tolist()
+        
+        # Проверяем данные в основных таблицах
+        table_counts = {}
+        for table in ['financial_spaces', 'expenses', 'space_members']:
+            if table in tables_list:
+                count_df = pd.read_sql_query(f"SELECT COUNT(*) as count FROM {table}", conn)
+                table_counts[table] = count_df.iloc[0]['count']
+            else:
+                table_counts[table] = 'TABLE_NOT_EXISTS'
+        
+        conn.close()
+        
+        return jsonify({
+            'database_type': db_type,
+            'environment_variables': env_vars,
+            'tables_exists': tables_list,
+            'table_counts': table_counts,
+            'connection_status': 'SUCCESS'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'connection_status': 'FAILED',
+            'error': str(e)
+        }), 500
 # ===== TELEGRAM BOT HANDLERS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
