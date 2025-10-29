@@ -869,38 +869,56 @@ def create_personal_space(user_id, user_name):
         conn.close()
 
 def create_financial_space(name, description, space_type, created_by, created_by_name):
-    """Создание нового финансового пространства с улучшенной обработкой ошибок"""
+    """Создание нового финансового пространства с правильной обработкой транзакций"""
     conn = None
+    cursor = None
     try:
         conn = get_db_connection()
         invite_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
         
+        # Преобразуем created_by в int
+        try:
+            created_by = int(created_by)
+        except (ValueError, TypeError) as e:
+            logger.error(f"❌ Неверный формат created_by: {created_by}, ошибка: {e}")
+            return None, None
+        
         logger.info(f"🔧 Создание пространства: {name}, тип: {space_type}, created_by: {created_by}")
         
+        # Создаем курсор
+        cursor = conn.cursor()
+        
         if isinstance(conn, sqlite3.Connection):
-            # SQLite
-            c = conn.cursor()
-            c.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
-                         VALUES (?, ?, ?, ?, ?)''', 
-                     (name, description, space_type, created_by, invite_code))
-            space_id = c.lastrowid
+            # SQLite версия
+            cursor.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
+                             VALUES (?, ?, ?, ?, ?)''', 
+                         (name, description, space_type, created_by, invite_code))
+            space_id = cursor.lastrowid
             
-            c.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
-                         VALUES (?, ?, ?, ?)''', 
-                     (space_id, created_by, created_by_name, 'owner'))
+            cursor.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
+                             VALUES (?, ?, ?, ?)''', 
+                         (space_id, created_by, created_by_name, 'owner'))
             
         else:
-            # PostgreSQL
-            c = conn.cursor()
-            c.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
-                         VALUES (%s, %s, %s, %s, %s) RETURNING id''', 
-                     (name, description, space_type, created_by, invite_code))
-            space_id = c.fetchone()[0]
+            # PostgreSQL версия - используем один курсор для всех операций
+            cursor.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
+                             VALUES (%s, %s, %s, %s, %s) RETURNING id''', 
+                         (name, description, space_type, created_by, invite_code))
             
-            c.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
-                         VALUES (%s, %s, %s, %s)''', 
-                     (space_id, created_by, created_by_name, 'owner'))
+            # Получаем ID созданного пространства
+            result = cursor.fetchone()
+            if not result:
+                raise Exception("Не удалось получить ID созданного пространства")
+            space_id = result[0]
+            
+            logger.info(f"📌 Получен space_id: {space_id}")
+            
+            # Добавляем создателя как владельца
+            cursor.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
+                             VALUES (%s, %s, %s, %s)''', 
+                         (space_id, created_by, created_by_name, 'owner'))
         
+        # Комитим транзакцию
         conn.commit()
         logger.info(f"✅ Пространство успешно создано: ID {space_id}, код: {invite_code}")
         return space_id, invite_code
@@ -910,16 +928,32 @@ def create_financial_space(name, description, space_type, created_by, created_by
         import traceback
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
         
+        # Откатываем транзакцию при ошибке
         if conn:
-            conn.rollback()
-            
+            try:
+                conn.rollback()
+                logger.info("🔁 Транзакция откатана")
+            except Exception as rollback_error:
+                logger.error(f"❌ Ошибка при откате транзакции: {rollback_error}")
+        
         # Детальная диагностика
         logger.error(f"🔍 Детали ошибки: name={name}, type={space_type}, user={created_by}")
         return None, None
         
     finally:
+        # Закрываем курсор и соединение
+        if cursor:
+            try:
+                cursor.close()
+            except Exception as close_error:
+                logger.error(f"❌ Ошибка закрытия курсора: {close_error}")
+                
         if conn:
-            conn.close()
+            try:
+                conn.close()
+                logger.info("🔒 Соединение с БД закрыто")
+            except Exception as close_error:
+                logger.error(f"❌ Ошибка закрытия соединения: {close_error}")
 
 def add_expense(user_id, user_name, amount, category, description="", space_id=None, currency="RUB"):
     """Добавление траты в базу"""
@@ -1761,19 +1795,16 @@ def api_get_space_members():
 
 @flask_app.route('/create_space', methods=['POST'])
 def api_create_space():
-    """API для создания нового пространства"""
     try:
         data = request.json
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-            
+        logger.info(f"📝 Полные данные запроса create_space: {data}")
+        
         init_data = data.get('initData')
         name = data.get('name')
         space_type = data.get('type')
         description = data.get('description', '')
         
-        logger.info(f"📝 Создание пространства: {name}, тип: {space_type}")
-        logger.info(f"📦 Данные запроса: {data}")
+        logger.info(f"📝 Создание пространства: name='{name}', type='{space_type}'")
         
         if not validate_webapp_data(init_data):
             logger.warning("❌ Валидация WebApp данных не пройдена")
@@ -1784,11 +1815,11 @@ def api_create_space():
             logger.warning("❌ Не удалось извлечь данные пользователя")
             return jsonify({'error': 'User not found'}), 401
             
-        logger.info(f"👤 Пользователь: {user_data}")
+        logger.info(f"👤 Пользователь: id={user_data['id']}, name={user_data['first_name']}")
             
         if not name or not space_type:
-            logger.warning("❌ Отсутствуют обязательные поля")
-            return jsonify({'error': 'Missing required fields'}), 400
+            logger.warning("❌ Отсутствуют обязательные поля: name или type")
+            return jsonify({'error': 'Missing required fields: name and type are required'}), 400
         
         # Создаем пространство
         result = create_financial_space(
@@ -1796,20 +1827,21 @@ def api_create_space():
             user_data['id'], user_data['first_name']
         )
         
+        logger.info(f"🔍 Результат create_financial_space: {result}")
+        
         if result and result[0] is not None:
             space_id, invite_code = result
-            logger.info(f"✅ Пространство создано: {space_id}, код: {invite_code}")
+            logger.info(f"✅ Пространство создано успешно: ID {space_id}, код: {invite_code}")
             return jsonify({
                 'success': True,
                 'space_id': space_id,
                 'invite_code': invite_code
             })
         else:
-            logger.error("❌ Ошибка создания пространства - функция вернула None")
-            # Детальная диагностика
+            logger.error("❌ Функция create_financial_space вернула None")
             return jsonify({
                 'error': 'Failed to create space - database error',
-                'details': 'Check database connection and logs'
+                'details': 'Check server logs for more information'
             }), 500
             
     except Exception as e:
@@ -1817,7 +1849,7 @@ def api_create_space():
         import traceback
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
-
+    
 
 @flask_app.route('/delete_space', methods=['POST'])
 def api_delete_space():
