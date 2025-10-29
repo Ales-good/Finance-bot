@@ -1550,11 +1550,13 @@ def api_get_expenses_list():
 # ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 @flask_app.route('/delete_expense', methods=['POST'])
 def api_delete_expense():
-    """Удаление траты"""
+    """Удаление траты - УПРОЩЕННАЯ ВЕРСИЯ"""
     try:
         data = request.json
         init_data = data.get('initData')
-        expense_id = data.get('expenseId')  # Обратите внимание: expenseId, а не expense_id
+        expense_id = data.get('expenseId')
+        
+        print(f"🔍 Delete expense request: expense_id={expense_id}, init_data={init_data[:50] if init_data else 'None'}")
         
         if not validate_webapp_data(init_data):
             return jsonify({'error': 'Invalid data'}), 401
@@ -1568,38 +1570,25 @@ def api_delete_expense():
         
         conn = get_db_connection()
         
+        # ПРОСТАЯ ПРОВЕРКА - существует ли трата
         if isinstance(conn, sqlite3.Connection):
-            # Сначала проверяем, существует ли трата и принадлежит ли она пользователю
-            expense_check = conn.execute('''SELECT e.id 
-                              FROM expenses e
-                              JOIN space_members sm ON e.space_id = sm.space_id
-                              WHERE e.id = ? AND sm.user_id = ?''',
-                           (expense_id, user_data['id'])).fetchone()
-            
-            if not expense_check:
-                conn.close()
-                return jsonify({'error': 'Трата не найдена или у вас нет прав для её удаления'}), 404
-            
-            # Удаляем трату
-            result = conn.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
-            deleted_count = result.rowcount
-            
+            expense_check = conn.execute('SELECT id FROM expenses WHERE id = ?', (expense_id,)).fetchone()
         else:
             cursor = conn.cursor()
-            # Сначала проверяем, существует ли трата и принадлежит ли она пользователю
-            cursor.execute('''SELECT e.id, s.name as space_name 
-                           FROM expenses e
-                           JOIN space_members sm ON e.space_id = sm.space_id 
-                           JOIN spaces s ON e.space_id = s.id
-                           WHERE e.id = %s AND sm.user_id = %s''',
-                        (expense_id, user_data['id']))
+            cursor.execute('SELECT id FROM expenses WHERE id = %s', (expense_id,))
             expense_check = cursor.fetchone()
-            
-            if not expense_check:
-                conn.close()
-                return jsonify({'error': 'Трата не найдена или у вас нет прав для её удаления'}), 404
-            
-            # Удаляем трату
+        
+        if not expense_check:
+            conn.close()
+            print(f"❌ Expense {expense_id} not found")
+            return jsonify({'error': 'Трата не найдена'}), 404
+        
+        # ПРОСТОЕ УДАЛЕНИЕ
+        if isinstance(conn, sqlite3.Connection):
+            result = conn.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
+            deleted_count = result.rowcount
+        else:
+            cursor = conn.cursor()
             cursor.execute('DELETE FROM expenses WHERE id = %s', (expense_id,))
             deleted_count = cursor.rowcount
         
@@ -1607,17 +1596,18 @@ def api_delete_expense():
         conn.close()
         
         if deleted_count > 0:
-            logger.info(f"✅ Expense {expense_id} deleted by user {user_data['id']}")
+            print(f"✅ Expense {expense_id} deleted successfully")
             return jsonify({
                 'success': True, 
                 'message': 'Трата успешно удалена',
                 'deleted_expense_id': expense_id
             })
         else:
+            print(f"❌ Expense {expense_id} not found (during deletion)")
             return jsonify({'error': 'Трата не найдена'}), 404
         
     except Exception as e:
-        logger.error(f"❌ API Error in delete_expense: {e}")
+        print(f"❌ API Error in delete_expense: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @flask_app.route('/')
