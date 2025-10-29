@@ -2610,77 +2610,6 @@
         }
 
         // ===== ANALYTICS =====
-        
-        function updateAnalyticsIfOpen(spaceId) {
-            const analyticsTab = document.getElementById('analytics');
-            if (analyticsTab.classList.contains('active')) {
-                // Быстрая перезагрузка аналитики
-                loadAnalyticsQuick(spaceId);
-            }
-        }
-
-        async function loadAnalyticsQuick(spaceId) {
-            if (!spaceId) return;
-    
-            try {
-                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: spaceId,
-                        period: state.analyticsPeriod
-                    })
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    // Быстрое обновление без полного рендеринга
-                    updateAnalyticsDisplayQuick(data);
-                }
-            } catch (error) {
-                console.error('Быстрая загрузка аналитики:', error);
-            }
-        }
-        
-        function updateAnalyticsDisplayQuick(data) {
-            document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
-            document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
-            
-            if (window.analyticsChart && data.daily_data) {
-                window.analyticsChart.data.datasets[0].data = data.daily_data.map(item => item.total);
-                window.analyticsChart.update('none');
-            }
-        }
-        
-        async function loadAnalytics() {
-            if (!state.currentSpaceId) {
-                document.getElementById('categoriesAnalytics').innerHTML = '<div class="empty-state">Выберите пространство</div>';
-                return;
-            }
-
-            try {
-                showLoading('categoriesAnalytics');
-                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId,
-                        period: state.analyticsPeriod
-                    })
-                });
-
-                if (!response.ok) throw new Error('Ошибка загрузки аналитики');
-        
-                const data = await response.json();
-                displayAnalytics(data);
-            } catch (error) {
-                document.getElementById('categoriesAnalytics').innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
-            }
-        }
-
-
         async function deleteExpense(expenseId) {
             if (!expenseId) {
                 console.error('❌ Expense ID is missing!');
@@ -2786,18 +2715,6 @@
                 deleteButton.innerHTML = '🗑️';
                 deleteButton.disabled = false;
             }
-        }
-
-        // Функция для плавного удаления элемента
-        function fadeOutAndRemove(element, callback) {
-            element.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-            element.style.opacity = '0';
-            element.style.transform = 'translateX(-20px)';
-            
-            setTimeout(() => {
-                element.remove();
-                if (callback) callback();
-            }, 300);
         }
 
         function displayAnalytics(data) {
@@ -2914,6 +2831,138 @@
             }
         }
 
+
+        async function loadAnalytics() {
+            if (!state.currentSpaceId) {
+                document.getElementById('categoriesAnalytics').innerHTML = '<div class="empty-state">Выберите пространство</div>';
+                return;
+            }
+
+            try {
+                showLoading('categoriesAnalytics');
+                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        period: state.analyticsPeriod
+                    })
+                });
+
+                if (!response.ok) throw new Error('Ошибка загрузки аналитики');
+        
+                const data = await response.json();
+                displayAnalytics(data);
+            } catch (error) {
+                document.getElementById('categoriesAnalytics').innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
+            }
+        }
+
+
+        function setAnalyticsPeriod(period) {
+            state.analyticsPeriod = period;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.period == period);
+            });
+            loadAnalytics();
+        }
+        
+        function renderCategoryChart(categories) {
+            const ctx = document.createElement('canvas');
+            ctx.id = 'categoryChart';
+            ctx.style.maxHeight = '250px';
+    
+            const container = document.getElementById('categoriesAnalytics');
+            container.innerHTML = '<h3>📊 Распределение по категориям</h3>';
+            container.appendChild(ctx);
+    
+            const categoryChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: categories.map(cat => cat.name),
+                    datasets: [{
+                        data: categories.map(cat => cat.total),
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                            '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF',
+                            '#4BC0C0', '#FF6384'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+
+        function updateAnalyticsIfOpen(spaceId) {
+            const analyticsTab = document.getElementById('analytics');
+            if (analyticsTab.classList.contains('active')) {
+                // Быстрая перезагрузка аналитики
+                loadAnalyticsQuick(spaceId);
+            }
+        }
+
+        async function loadAnalyticsQuick(spaceId) {
+            if (!spaceId) return;
+    
+            try {
+                const response = await fetch(`${API_URL}/get_advanced_analytics`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: spaceId,
+                        period: state.analyticsPeriod
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    // Быстрое обновление без полного рендеринга
+                    updateAnalyticsDisplayQuick(data);
+                }
+            } catch (error) {
+                console.error('Быстрая загрузка аналитики:', error);
+            }
+        }
+        
+        function updateAnalyticsDisplayQuick(data) {
+            document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
+            document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
+            
+            if (window.analyticsChart && data.daily_data) {
+                window.analyticsChart.data.datasets[0].data = data.daily_data.map(item => item.total);
+                window.analyticsChart.update('none');
+            }
+        }
+        
+        
+
+
+        
+
+        // Функция для плавного удаления элемента
+        function fadeOutAndRemove(element, callback) {
+            element.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            element.style.opacity = '0';
+            element.style.transform = 'translateX(-20px)';
+            
+            setTimeout(() => {
+                element.remove();
+                if (callback) callback();
+            }, 300);
+        }
+
+        
+
         
         // Функция для загрузки последних трат если их нет в data
         async function loadRecentExpensesForAnalytics() {
@@ -3013,46 +3062,7 @@
             });
         }
 
-        function setAnalyticsPeriod(period) {
-            state.analyticsPeriod = period;
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.period == period);
-            });
-            loadAnalytics();
-        }
         
-        function renderCategoryChart(categories) {
-            const ctx = document.createElement('canvas');
-            ctx.id = 'categoryChart';
-            ctx.style.maxHeight = '250px';
-    
-            const container = document.getElementById('categoriesAnalytics');
-            container.innerHTML = '<h3>📊 Распределение по категориям</h3>';
-            container.appendChild(ctx);
-    
-            const categoryChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: categories.map(cat => cat.name),
-                    datasets: [{
-                        data: categories.map(cat => cat.total),
-                        backgroundColor: [
-                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
-                            '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF',
-                            '#4BC0C0', '#FF6384'
-                        ]
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
-                        }
-                    }
-                }
-            });
-        }
 
         function renderComparisonChart(currentData, previousData) {
             const ctx = document.createElement('canvas');
