@@ -1279,15 +1279,31 @@
 
                 console.log('📩 Create space response status:', response.status);
                 
+                if (!response.ok) {
+                    // Пробуем получить текст ошибки
+                    let errorText = `HTTP ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        errorText = errorData.error || errorData.detail || errorText;
+                    } catch (e) {
+                        // Если не JSON, пробуем получить текст
+                        try {
+                            errorText = await response.text();
+                        } catch (e2) {
+                            // Игнорируем ошибки получения текста
+                        }
+                    }
+                    throw new Error(errorText);
+                }
+                
                 const data = await response.json();
                 console.log('📦 Create space response data:', data);
                 
-                if (!response.ok) {
-                    throw new Error(data.error || `HTTP ${response.status}: Ошибка создания пространства`);
-                }
-                
-                if (data.success) {
-                    showMessage(`✅ Пространство "${name}" создано! Код приглашения: ${data.invite_code}`);
+                if (data.success || data.space_id) {
+                    const spaceName = data.space_name || name;
+                    const inviteCode = data.invite_code || 'код не получен';
+                    
+                    showMessage(`✅ Пространство "${spaceName}" создано! Код приглашения: ${inviteCode}`);
                     
                     // Очищаем форму
                     document.getElementById('spaceName').value = '';
@@ -1312,17 +1328,31 @@
                     }, 1000);
                     
                 } else {
-                    throw new Error(data.error || 'Неизвестная ошибка при создании');
+                    throw new Error(data.error || data.detail || 'Неизвестная ошибка при создании');
                 }
                 
             } catch (error) {
                 console.error('❌ Create space error:', error);
-                showMessage(`❌ Ошибка создания: ${error.message}`, 'error');
-            } finally {
-                createButton.textContent = originalText;
-                createButton.disabled = false;
+                
+                // Логируем дополнительную информацию для диагностики
+                console.log('🔍 Diagnostic info:', {
+                    apiUrl: API_URL,
+                    hasInitData: !!tg.initData,
+                    initDataLength: tg.initData ? tg.initData.length : 0,
+                    userData: userData
+                });
+                
+                let errorMessage = error.message;
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Нет соединения с сервером. Проверьте интернет.';
+                } else if (error.message.includes('500')) {
+                    errorMessage = 'Ошибка сервера 500. Проверьте логи Railway.';
+                } else if (error.message.includes('NetworkError')) {
+                    errorMessage = 'Ошибка сети. Проверьте подключение.';
+                }
+                
+                showMessage(`❌ Ошибка создания: ${errorMessage}`, 'error');
             }
-        }
 
         async function showSpaceDetails(spaceId) {
             state.currentSpaceId = spaceId;
