@@ -1548,66 +1548,113 @@ def api_get_expenses_list():
         logger.error(f"❌ API Error in get_expenses_list: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 # ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
-@flask_app.route('/delete_expense', methods=['POST'])
+@flask_app.route('/delete_expense', methods=['POST', 'OPTIONS'])
 def api_delete_expense():
-    """Удаление траты - УПРОЩЕННАЯ ВЕРСИЯ"""
+    """Удаление траты - ОТЛАДОЧНАЯ ВЕРСИЯ"""
     try:
-        data = request.json
+        if request.method == 'OPTIONS':
+            return '', 200
+            
+        print("=== 🗑️ DELETE EXPENSE DEBUG ===")
+        data = request.json or {}
+        print(f"📦 Raw data: {data}")
+        
         init_data = data.get('initData')
         expense_id = data.get('expenseId')
         
-        print(f"🔍 Delete expense request: expense_id={expense_id}, init_data={init_data[:50] if init_data else 'None'}")
+        print(f"🔍 Delete expense request:")
+        print(f"   expense_id: {expense_id} (type: {type(expense_id)})")
+        print(f"   init_data: {init_data[:100] if init_data else 'None'}")
+        
+        # ВАЖНО: Проверяем что expense_id корректен
+        if not expense_id:
+            print("❌ ERROR: expense_id is required but not provided")
+            return jsonify({'error': 'Expense ID is required'}), 400
+            
+        try:
+            expense_id = int(expense_id)
+        except (ValueError, TypeError):
+            print(f"❌ ERROR: expense_id must be integer, got {expense_id}")
+            return jsonify({'error': 'Expense ID must be a number'}), 400
         
         if not validate_webapp_data(init_data):
+            print("❌ ERROR: Invalid webapp data")
             return jsonify({'error': 'Invalid data'}), 401
             
         user_data = get_user_from_init_data(init_data)
         if not user_data:
+            print("❌ ERROR: User not found")
             return jsonify({'error': 'User not found'}), 401
             
-        if not expense_id:
-            return jsonify({'error': 'Expense ID is required'}), 400
+        user_id = user_data['id']
+        print(f"👤 User ID: {user_id}")
         
         conn = get_db_connection()
+        cursor = conn.cursor()
         
-        # ПРОСТАЯ ПРОВЕРКА - существует ли трата
+        # ПРОВЕРКА 1: Существует ли трата
         if isinstance(conn, sqlite3.Connection):
-            expense_check = conn.execute('SELECT id FROM expenses WHERE id = ?', (expense_id,)).fetchone()
+            cursor.execute('SELECT id, user_id, space_id FROM expenses WHERE id = ?', (expense_id,))
         else:
-            cursor = conn.cursor()
-            cursor.execute('SELECT id FROM expenses WHERE id = %s', (expense_id,))
-            expense_check = cursor.fetchone()
+            cursor.execute('SELECT id, user_id, space_id FROM expenses WHERE id = %s', (expense_id,))
         
-        if not expense_check:
+        expense = cursor.fetchone()
+        print(f"📊 Expense check: {expense}")
+        
+        if not expense:
             conn.close()
-            print(f"❌ Expense {expense_id} not found")
+            print(f"❌ ERROR: Expense {expense_id} not found in database")
             return jsonify({'error': 'Трата не найдена'}), 404
         
-        # ПРОСТОЕ УДАЛЕНИЕ
+        # ПРОВЕРКА 2: Имеет ли пользователь права на удаление
+        # Вариант 1: Пользователь создал трату
+        # Вариант 2: Пользователь состоит в пространстве траты
         if isinstance(conn, sqlite3.Connection):
-            result = conn.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
-            deleted_count = result.rowcount
+            cursor.execute('''
+                SELECT e.id FROM expenses e 
+                LEFT JOIN space_members sm ON e.space_id = sm.space_id 
+                WHERE e.id = ? AND (e.user_id = ? OR sm.user_id = ?)
+            ''', (expense_id, user_id, user_id))
         else:
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM expenses WHERE id = %s', (expense_id,))
-            deleted_count = cursor.rowcount
+            cursor.execute('''
+                SELECT e.id FROM expenses e 
+                LEFT JOIN space_members sm ON e.space_id = sm.space_id 
+                WHERE e.id = %s AND (e.user_id = %s OR sm.user_id = %s)
+            ''', (expense_id, user_id, user_id))
         
+        permission_check = cursor.fetchone()
+        print(f"🔐 Permission check: {permission_check}")
+        
+        if not permission_check:
+            conn.close()
+            print(f"❌ ERROR: User {user_id} has no permission to delete expense {expense_id}")
+            return jsonify({'error': 'Нет прав для удаления этой траты'}), 403
+        
+        # УДАЛЕНИЕ
+        if isinstance(conn, sqlite3.Connection):
+            cursor.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
+        else:
+            cursor.execute('DELETE FROM expenses WHERE id = %s', (expense_id,))
+        
+        deleted_count = cursor.rowcount
         conn.commit()
         conn.close()
         
         if deleted_count > 0:
-            print(f"✅ Expense {expense_id} deleted successfully")
+            print(f"✅ SUCCESS: Expense {expense_id} deleted by user {user_id}")
             return jsonify({
                 'success': True, 
                 'message': 'Трата успешно удалена',
                 'deleted_expense_id': expense_id
             })
         else:
-            print(f"❌ Expense {expense_id} not found (during deletion)")
+            print(f"❌ ERROR: No rows affected during deletion")
             return jsonify({'error': 'Трата не найдена'}), 404
         
     except Exception as e:
-        print(f"❌ API Error in delete_expense: {e}")
+        print(f"💥 CRITICAL ERROR in delete_expense: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': 'Internal server error'}), 500
 
 @flask_app.route('/')
