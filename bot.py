@@ -2381,7 +2381,7 @@ def api_delete_expense():
     try:
         data = request.json
         init_data = data.get('initData')
-        expense_id = data.get('expenseId')
+        expense_id = data.get('expenseId')  # Изменили с expense_id на expenseId
         
         if not validate_webapp_data(init_data):
             return jsonify({'error': 'Invalid data'}), 401
