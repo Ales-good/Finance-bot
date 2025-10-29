@@ -2168,21 +2168,7 @@
                 console.log('Total unique categories:', allCategories.length);
                 console.log('Categories to load:', allCategories.map(c => c.name));
 
-                container.innerHTML = allCategories.map(cat => `
-                    <div class="category-item" onclick="selectCategory('${cat.name}')" data-category-name="${cat.name}">
-                        <div class="category-icon">${cat.icon}</div>
-                        <div class="category-name">${cat.name}</div>
-                        ${cat.isCustom ? 
-                            `<div style="display: flex; gap: 4px; margin-top: 4px;">
-                                <button class="btn-delete-category" onclick="event.stopPropagation(); confirmDeleteCategory('${cat.name}')" 
-                                        style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer;">
-                                    🗑️
-                                </button>
-                                <div style="font-size: 8px; color: #666; line-height: 1.4;">пользовательская</div>
-                            </div>` : 
-                            ''}
-                    </div>
-                `).join('');
+                
 
                 console.log('✅ Categories HTML generated - NO DUPLICATES');
 
