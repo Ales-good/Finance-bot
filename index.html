@@ -3197,7 +3197,7 @@
                         period: expensesListPeriod
                     })
                 });
-                
+
                 console.log('📩 Response status:', response.status);
 
                 if (!response.ok) {
@@ -3322,7 +3322,7 @@
                             <div style="font-weight: 700; color: #dc3545; font-size: 18px;">
                                 ${expense.amount}
                             </div>
-                            <button onclick="deleteExpense(${expense.id})" 
+                            <button onclick="deleteExpenseHandler(${expense.id})" 
                                     style="background: #ff4444; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-left: 8px; transition: all 0.2s ease;"
                                     title="Удалить трату"
                                     class="delete-expense-btn">
@@ -3335,6 +3335,13 @@
                 
                 container.appendChild(expenseItem);
             });
+        }
+
+        // Добавьте эту функцию обертку
+        function deleteExpenseHandler(expenseId) {
+            console.log('🎯 Delete button clicked, expenseId:', expenseId);
+            showMessage('🔄 Удаляем трату...');
+            deleteExpense(expenseId);
         }
 
         async function refreshExpensesList() {
