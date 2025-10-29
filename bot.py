@@ -165,6 +165,7 @@ def get_db_connection():
 
 def safe_init_db():
     """Безопасная инициализация базы данных без потери данных"""
+    logger.info("🔧 Начинаем инициализацию БД...")
     conn = get_db_connection()
     
     try:
@@ -181,6 +182,8 @@ def safe_init_db():
             c = conn.cursor()
             c.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'expenses')")
             table_exists = c.fetchone()[0]
+        
+        logger.info(f"🔍 Таблица expenses существует: {table_exists}")
         
         if not table_exists:
             logger.info("🔄 Таблицы не существуют, создаем структуру базы данных...")
@@ -355,6 +358,7 @@ def safe_init_db():
     finally:
         if conn:
             conn.close()
+        logger.info("🔧 Инициализация БД завершена")
 
 # ===== НОВЫЕ ФУНКЦИИ ДЛЯ УВЕДОМЛЕНИЙ =====
 async def check_budget_alerts():
@@ -2924,7 +2928,34 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=WEB_APP_URL))]
             ], resize_keyboard=True)
         )
-
+def force_init_tables():
+    """Принудительная инициализация таблиц при запуске"""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Проверяем существование основной таблицы
+        if isinstance(conn, sqlite3.Connection):
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='financial_spaces'")
+        else:
+            cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'financial_spaces')")
+        
+        table_exists = cursor.fetchone()[0]
+        
+        if not table_exists:
+            logger.warning("🚨 Таблицы не существуют! Создаем...")
+            safe_init_db()
+            logger.info("✅ Таблицы созданы принудительно")
+        else:
+            logger.info("✅ Таблицы уже существуют")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка проверки таблиц: {e}")
+        # Если ошибка - все равно пытаемся создать таблицы
+        safe_init_db()
+    finally:
+        if conn:
+            conn.close()
 # ===== ОСНОВНАЯ ФУНКЦИЯ =====
 def main():
     """Основная функция запуска бота"""
@@ -2934,16 +2965,19 @@ def main():
         return
     
     logger.info("🤖 Начинаем запуск бота...")
-    logger.info(f"🔑 BOT_TOKEN: {BOT_TOKEN[:10]}...")  # Логируем только начало токена
     
-    # Инициализация базы данных
+    # Инициализация базы данных - ЯВНЫЙ ВЫЗОВ
     logger.info("🗄️ Инициализируем базу данных...")
     safe_init_db()
+    
+    # ДОПОЛНИТЕЛЬНО: Принудительная проверка и создание таблиц
+    logger.info("🔍 Проверяем существование таблиц...")
+    force_init_tables()
     
     # Запускаем планировщик уведомлений
     logger.info("🔔 Запускаем планировщик уведомлений...")
     start_notification_scheduler()
-    
+        
     # Создаем приложение бота
     logger.info("🔧 Создаем приложение бота...")
     application = Application.builder().token(BOT_TOKEN).build()
