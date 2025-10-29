@@ -653,7 +653,7 @@
                     </div>
                     <div class="stat-card success">
                         <div class="stat-value" id="budgetProgress">0%</div>
-                        <div class="stat-label">Бюджет</div>
+                        <div class="stat-label" id="budgetDetails">Бюджет 0/0</div>
                     </div>
                     <div class="stat-card warning">
                         <div class="stat-value" id="weekSpent">0</div>
@@ -1665,16 +1665,18 @@
                         progress = Math.min((spent / budget) * 100, 100);
                     }
                     
+                    // Обновляем оба элемента
                     document.getElementById('budgetProgress').textContent = `${progress.toFixed(0)}%`;
+                    document.getElementById('budgetDetails').textContent = `${spent.toFixed(0)}/${budget.toFixed(0)}`;
                     
-                    // Добавляем визуальную индикацию
+                    // Визуальная индикация
                     const progressElement = document.getElementById('budgetProgress');
                     if (progress >= 80) {
-                        progressElement.style.color = '#dc3545'; // Красный при接近 лимита
+                        progressElement.style.color = '#dc3545';
                     } else if (progress >= 50) {
-                        progressElement.style.color = '#ffc107'; // Желтый
+                        progressElement.style.color = '#ffc107';
                     } else {
-                        progressElement.style.color = '#28a745'; // Зеленый
+                        progressElement.style.color = '#28a745';
                     }
                     
                     return progress;
