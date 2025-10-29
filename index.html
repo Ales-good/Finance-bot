@@ -1193,8 +1193,13 @@
 
         function setupSwipeNavigation() {
             let startX = 0;
-            let currentTab = 'dashboard';
             const tabs = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'];
+
+            // Функция для получения текущей активной вкладки
+            function getCurrentTab() {
+                const activeTab = document.querySelector('.tab-content.active');
+                return activeTab ? activeTab.id : 'dashboard';
+            }
 
             document.addEventListener('touchstart', e => {
                 startX = e.touches[0].clientX;
@@ -1205,21 +1210,38 @@
                 const diff = startX - endX;
 
                 if (Math.abs(diff) > 50) {
+                    const currentTab = getCurrentTab();
                     const currentIndex = tabs.indexOf(currentTab);
                     let newIndex;
 
                     if (diff > 0) {
+                        // Свайп влево - следующая вкладка
                         newIndex = Math.min(currentIndex + 1, tabs.length - 1);
                     } else {
+                        // Свайп вправо - предыдущая вкладка
                         newIndex = Math.max(currentIndex - 1, 0);
                     }
 
                     if (newIndex !== currentIndex) {
-                        currentTab = tabs[newIndex];
-                        showTab(currentTab);
+                        showTab(tabs[newIndex]);
                     }
                 }
             });
+
+            // Добавляем CSS для улучшения свайпа
+            const style = document.createElement('style');
+            style.textContent = `
+                .tab-content {
+                    transition: transform 0.3s ease;
+                }
+                .swipe-left {
+                    transform: translateX(-100%);
+                }
+                .swipe-right {
+                    transform: translateX(100%);
+                }
+            `;
+            document.head.appendChild(style);
         }
 
         // ===== CURRENCY MANAGEMENT =====
@@ -2016,6 +2038,10 @@
             // Загружаем пространства для всех вкладок
             loadSpacesForSelector('expenseSpacesGrid', true);
             loadSpacesForSelector('analyticsSpacesGrid', true);
+            loadSpacesForSelector('expensesListSpacesGrid', true);
+            
+            // Инициализируем свайп навигацию
+            setupSwipeNavigation();
         }
 
         // ===== EXPENSES TAB =====
@@ -2925,37 +2951,62 @@
 
 
         async function deleteExpense(expenseId) {
+            if (!expenseId) {
+                console.error('❌ Expense ID is missing!');
+                showMessage('❌ Ошибка: ID траты не указан', 'error');
+                return;
+            }
+
             if (!confirm('Вы уверены, что хотите удалить эту трату?')) {
                 return;
             }
 
             try {
                 showMessage('⏳ Удаляем трату...');
+                console.log('🗑️ Deleting expense with ID:', expenseId);
                 
+                const requestBody = {
+                    initData: tg.initData,
+                    expenseId: expenseId
+                };
+                
+                console.log('📤 Request body:', requestBody);
+
                 const response = await fetch(`${API_URL}/delete_expense`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        expenseId: expenseId
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
+                console.log('📩 Delete response status:', response.status);
+                
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка удаления траты');
+                    const errorText = await response.text();
+                    console.error('❌ Response error:', errorText);
+                    throw new Error(`Ошибка сервера: ${response.status}`);
                 }
 
-                showMessage('✅ Трата удалена');
-                
-                // Обновляем интерфейс
-                if (document.getElementById('expensesList').classList.contains('active')) {
-                    loadExpensesList();
+                const result = await response.json();
+                console.log('📦 Delete response data:', result);
+
+                if (result.success) {
+                    showMessage('✅ Трата удалена');
+                    console.log('✅ Expense deleted successfully');
+                    
+                    // Обновляем интерфейс
+                    setTimeout(() => {
+                        if (document.getElementById('expensesList').classList.contains('active')) {
+                            loadExpensesList();
+                        }
+                        if (document.getElementById('analytics').classList.contains('active')) {
+                            loadAnalytics();
+                        }
+                        loadDashboardKPI(state.currentSpaceId, true);
+                    }, 500);
+                    
+                } else {
+                    throw new Error(result.error || 'Неизвестная ошибка при удалении');
                 }
-                if (document.getElementById('analytics').classList.contains('active')) {
-                    loadAnalytics();
-                }
-                loadDashboardKPI(state.currentSpaceId, true);
                 
             } catch (error) {
                 console.error('❌ Error deleting expense:', error);
