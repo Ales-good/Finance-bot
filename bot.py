@@ -163,192 +163,181 @@ def get_db_connection():
     else:
         return sqlite3.connect('finance.db', check_same_thread=False)
 
-def safe_init_db():
-    """Безопасная инициализация базы данных без потери данных"""
-    logger.info("🔧 Начинаем инициализацию БД...")
+def init_db():
+    """Инициализация базы данных"""
     conn = get_db_connection()
     
     try:
-        # ПРОВЕРЯЕМ СУЩЕСТВОВАНИЕ ТАБЛИЦ ПЕРЕД СОЗДАНИЕМ
-        table_exists = False
-        
         if isinstance(conn, sqlite3.Connection):
-            # SQLite - проверяем существование таблицы expenses
+            # SQLite
             c = conn.cursor()
-            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='expenses'")
+            
+            # Таблица финансовых пространств
+            c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          name TEXT NOT NULL,
+                          description TEXT,
+                          space_type TEXT DEFAULT 'personal',
+                          created_by INTEGER,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          invite_code TEXT UNIQUE,
+                          is_active BOOLEAN DEFAULT TRUE)''')
+            
+            # Таблица участников пространств
+            c.execute('''CREATE TABLE IF NOT EXISTS space_members
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          space_id INTEGER,
+                          user_id INTEGER,
+                          user_name TEXT,
+                          role TEXT DEFAULT 'member',
+                          joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+            # Таблица расходов
+            c.execute('''CREATE TABLE IF NOT EXISTS expenses
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          user_id INTEGER, 
+                          user_name TEXT,
+                          space_id INTEGER,
+                          amount REAL, 
+                          category TEXT, 
+                          description TEXT, 
+                          date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          currency TEXT DEFAULT 'RUB',
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+            # Таблица бюджетов
+            c.execute('''CREATE TABLE IF NOT EXISTS budgets
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          user_id INTEGER,
+                          space_id INTEGER,
+                          amount REAL,
+                          month_year TEXT,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          currency TEXT DEFAULT 'RUB',
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+            # Таблица уведомлений о бюджете
+            c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          user_id INTEGER,
+                          space_id INTEGER,
+                          budget_amount REAL,
+                          spent_amount REAL,
+                          percentage REAL,
+                          alert_type TEXT,
+                          sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+            # Таблица категорий пользователя
+            c.execute('''CREATE TABLE IF NOT EXISTS user_categories
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          user_id INTEGER,
+                          space_id INTEGER,
+                          category_name TEXT,
+                          category_icon TEXT,
+                          is_custom BOOLEAN DEFAULT TRUE,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
+            
+        else:
+            # PostgreSQL
+            c = conn.cursor()
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
+                         (id SERIAL PRIMARY KEY,
+                          name TEXT NOT NULL,
+                          description TEXT,
+                          space_type TEXT DEFAULT 'personal',
+                          created_by BIGINT,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          invite_code TEXT UNIQUE,
+                          is_active BOOLEAN DEFAULT TRUE)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS space_members
+                         (id SERIAL PRIMARY KEY,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          user_id BIGINT,
+                          user_name TEXT,
+                          role TEXT DEFAULT 'member',
+                          joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS expenses
+                         (id SERIAL PRIMARY KEY,
+                          user_id BIGINT, 
+                          user_name TEXT,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          amount REAL, 
+                          category TEXT, 
+                          description TEXT, 
+                          date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          currency TEXT DEFAULT 'RUB')''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS budgets
+                         (id SERIAL PRIMARY KEY,
+                          user_id BIGINT,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          amount REAL,
+                          month_year TEXT,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          currency TEXT DEFAULT 'RUB')''')
+            
+            # Таблица уведомлений о бюджете
+            c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
+                         (id SERIAL PRIMARY KEY,
+                          user_id BIGINT,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          budget_amount REAL,
+                          spent_amount REAL,
+                          percentage REAL,
+                          alert_type TEXT,
+                          sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            
+            # Таблица категорий пользователя
+            c.execute('''CREATE TABLE IF NOT EXISTS user_categories
+                         (id SERIAL PRIMARY KEY,
+                          user_id BIGINT,
+                          space_id INTEGER REFERENCES financial_spaces(id),
+                          category_name TEXT,
+                          category_icon TEXT,
+                          is_custom BOOLEAN DEFAULT TRUE,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        
+        # Проверяем создание таблицы финансовых пространств
+        if isinstance(conn, sqlite3.Connection):
+            c.execute('''SELECT name FROM sqlite_master WHERE type='table' AND name='financial_spaces' ''')
             table_exists = c.fetchone() is not None
         else:
-            # PostgreSQL - проверяем существование таблицы expenses
-            c = conn.cursor()
-            c.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'expenses')")
-            table_exists = c.fetchone()[0]
-        
-        logger.info(f"🔍 Таблица expenses существует: {table_exists}")
-        
+            c.execute('''SELECT table_name FROM information_schema.tables WHERE table_name = 'financial_spaces' ''')
+            table_exists = c.fetchone() is not None
+            
         if not table_exists:
-            logger.info("🔄 Таблицы не существуют, создаем структуру базы данных...")
-            
-            # ТАБЛИЦА ФИНАНСОВЫХ ПРОСТРАНСТВ
-            if isinstance(conn, sqlite3.Connection):
-                # SQLite
-                c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
-                             (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              name TEXT NOT NULL,
-                              description TEXT,
-                              space_type TEXT DEFAULT 'personal',
-                              created_by INTEGER,
-                              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              invite_code TEXT UNIQUE,
-                              is_active BOOLEAN DEFAULT TRUE)''')
-                
-                # Таблица участников пространств
-                c.execute('''CREATE TABLE IF NOT EXISTS space_members
-                             (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              space_id INTEGER,
-                              user_id INTEGER,
-                              user_name TEXT,
-                              role TEXT DEFAULT 'member',
-                              joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
-                
-                # Таблица расходов
-                c.execute('''CREATE TABLE IF NOT EXISTS expenses
-                             (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              user_id INTEGER, 
-                              user_name TEXT,
-                              space_id INTEGER,
-                              amount REAL, 
-                              category TEXT, 
-                              description TEXT, 
-                              date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              currency TEXT DEFAULT 'RUB',
-                              FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
-                
-                # Таблица бюджетов
-                c.execute('''CREATE TABLE IF NOT EXISTS budgets
-                             (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              user_id INTEGER,
-                              space_id INTEGER,
-                              amount REAL,
-                              month_year TEXT,
-                              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              currency TEXT DEFAULT 'RUB',
-                              FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
-                
-                # Таблица уведомлений о бюджете
-                c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
-                             (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              user_id INTEGER,
-                              space_id INTEGER,
-                              budget_amount REAL,
-                              spent_amount REAL,
-                              percentage REAL,
-                              alert_type TEXT,
-                              sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
-                
-                # Таблица категорий пользователя
-                c.execute('''CREATE TABLE IF NOT EXISTS user_categories
-                             (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              user_id INTEGER,
-                              space_id INTEGER,
-                              category_name TEXT,
-                              category_icon TEXT,
-                              is_custom BOOLEAN DEFAULT TRUE,
-                              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
-                
-            else:
-                # PostgreSQL
-                c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
-                             (id SERIAL PRIMARY KEY,
-                              name TEXT NOT NULL,
-                              description TEXT,
-                              space_type TEXT DEFAULT 'personal',
-                              created_by BIGINT,
-                              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              invite_code TEXT UNIQUE,
-                              is_active BOOLEAN DEFAULT TRUE)''')
-                
-                c.execute('''CREATE TABLE IF NOT EXISTS space_members
-                             (id SERIAL PRIMARY KEY,
-                              space_id INTEGER REFERENCES financial_spaces(id),
-                              user_id BIGINT,
-                              user_name TEXT,
-                              role TEXT DEFAULT 'member',
-                              joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-                
-                c.execute('''CREATE TABLE IF NOT EXISTS expenses
-                             (id SERIAL PRIMARY KEY,
-                              user_id BIGINT, 
-                              user_name TEXT,
-                              space_id INTEGER REFERENCES financial_spaces(id),
-                              amount REAL, 
-                              category TEXT, 
-                              description TEXT, 
-                              date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              currency TEXT DEFAULT 'RUB')''')
-                
-                c.execute('''CREATE TABLE IF NOT EXISTS budgets
-                             (id SERIAL PRIMARY KEY,
-                              user_id BIGINT,
-                              space_id INTEGER REFERENCES financial_spaces(id),
-                              amount REAL,
-                              month_year TEXT,
-                              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              currency TEXT DEFAULT 'RUB')''')
-                
-                # Таблица уведомлений о бюджете
-                c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
-                             (id SERIAL PRIMARY KEY,
-                              user_id BIGINT,
-                              space_id INTEGER REFERENCES financial_spaces(id),
-                              budget_amount REAL,
-                              spent_amount REAL,
-                              percentage REAL,
-                              alert_type TEXT,
-                              sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-                
-                # Таблица категорий пользователя
-                c.execute('''CREATE TABLE IF NOT EXISTS user_categories
-                             (id SERIAL PRIMARY KEY,
-                              user_id BIGINT,
-                              space_id INTEGER REFERENCES financial_spaces(id),
-                              category_name TEXT,
-                              category_icon TEXT,
-                              is_custom BOOLEAN DEFAULT TRUE,
-                              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
-            # Добавляем стандартные категории если их нет
-            default_categories = [
-                ('Продукты', '🛒'),
-                ('Кафе', '☕'),
-                ('Транспорт', '🚗'),
-                ('Дом', '🏠'),
-                ('Одежда', '👕'),
-                ('Здоровье', '🏥'),
-                ('Развлечения', '🎬'),
-                ('Подписки', '📱'),
-                ('Образование', '📚'),
-                ('Другое', '❓')
-            ]
-            
-            for category_name, icon in default_categories:
-                if isinstance(conn, sqlite3.Connection):
-                    c.execute('''INSERT OR IGNORE INTO user_categories 
-                                 (user_id, space_id, category_name, category_icon, is_custom) 
-                                 VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
-                else:
-                    c.execute('''INSERT INTO user_categories 
-                                 (user_id, space_id, category_name, category_icon, is_custom) 
-                                 VALUES (0, 0, %s, %s, FALSE) 
-                                 ON CONFLICT DO NOTHING''', (category_name, icon))
-            
-            conn.commit()
-            logger.info("✅ База данных инициализирована с новыми таблицами")
+            logger.error("❌ Таблица financial_spaces не создана!")
         else:
-            logger.info("✅ Таблицы уже существуют, пропускаем создание")
-            
+            logger.info("✅ Таблица financial_spaces существует")
+        
+        # Добавляем стандартные категории если их нет
+        default_categories = [
+            ('Продукты', '🛒'),
+            ('Кафе', '☕'),
+            ('Транспорт', '🚗'),
+            ('Дом', '🏠'),
+            ('Одежда', '👕'),
+            ('Здоровье', '🏥'),
+            ('Развлечения', '🎬'),
+            ('Подписки', '📱'),
+            ('Образование', '📚'),
+            ('Другое', '❓')
+        ]
+        
+        for category_name, icon in default_categories:
+            c.execute('''INSERT OR IGNORE INTO user_categories 
+                         (user_id, space_id, category_name, category_icon, is_custom) 
+                         VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
+        
+        conn.commit()
+        logger.info("✅ База данных инициализирована с новыми таблицами")
+        
     except Exception as e:
         logger.error(f"❌ Ошибка инициализации базы данных: {e}")
         import traceback
@@ -358,7 +347,6 @@ def safe_init_db():
     finally:
         if conn:
             conn.close()
-        logger.info("🔧 Инициализация БД завершена")
 
 # ===== НОВЫЕ ФУНКЦИИ ДЛЯ УВЕДОМЛЕНИЙ =====
 async def check_budget_alerts():
@@ -873,56 +861,38 @@ def create_personal_space(user_id, user_name):
         conn.close()
 
 def create_financial_space(name, description, space_type, created_by, created_by_name):
-    """Создание нового финансового пространства с правильной обработкой транзакций"""
+    """Создание нового финансового пространства с улучшенной обработкой ошибок"""
     conn = None
-    cursor = None
     try:
         conn = get_db_connection()
         invite_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
         
-        # Преобразуем created_by в int
-        try:
-            created_by = int(created_by)
-        except (ValueError, TypeError) as e:
-            logger.error(f"❌ Неверный формат created_by: {created_by}, ошибка: {e}")
-            return None, None
-        
         logger.info(f"🔧 Создание пространства: {name}, тип: {space_type}, created_by: {created_by}")
         
-        # Создаем курсор
-        cursor = conn.cursor()
-        
         if isinstance(conn, sqlite3.Connection):
-            # SQLite версия
-            cursor.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
-                             VALUES (?, ?, ?, ?, ?)''', 
-                         (name, description, space_type, created_by, invite_code))
-            space_id = cursor.lastrowid
+            # SQLite
+            c = conn.cursor()
+            c.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
+                         VALUES (?, ?, ?, ?, ?)''', 
+                     (name, description, space_type, created_by, invite_code))
+            space_id = c.lastrowid
             
-            cursor.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
-                             VALUES (?, ?, ?, ?)''', 
-                         (space_id, created_by, created_by_name, 'owner'))
+            c.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
+                         VALUES (?, ?, ?, ?)''', 
+                     (space_id, created_by, created_by_name, 'owner'))
             
         else:
-            # PostgreSQL версия - используем один курсор для всех операций
-            cursor.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
-                             VALUES (%s, %s, %s, %s, %s) RETURNING id''', 
-                         (name, description, space_type, created_by, invite_code))
+            # PostgreSQL
+            c = conn.cursor()
+            c.execute('''INSERT INTO financial_spaces (name, description, space_type, created_by, invite_code)
+                         VALUES (%s, %s, %s, %s, %s) RETURNING id''', 
+                     (name, description, space_type, created_by, invite_code))
+            space_id = c.fetchone()[0]
             
-            # Получаем ID созданного пространства
-            result = cursor.fetchone()
-            if not result:
-                raise Exception("Не удалось получить ID созданного пространства")
-            space_id = result[0]
-            
-            logger.info(f"📌 Получен space_id: {space_id}")
-            
-            # Добавляем создателя как владельца
-            cursor.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
-                             VALUES (%s, %s, %s, %s)''', 
-                         (space_id, created_by, created_by_name, 'owner'))
+            c.execute('''INSERT INTO space_members (space_id, user_id, user_name, role)
+                         VALUES (%s, %s, %s, %s)''', 
+                     (space_id, created_by, created_by_name, 'owner'))
         
-        # Комитим транзакцию
         conn.commit()
         logger.info(f"✅ Пространство успешно создано: ID {space_id}, код: {invite_code}")
         return space_id, invite_code
@@ -932,32 +902,16 @@ def create_financial_space(name, description, space_type, created_by, created_by
         import traceback
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
         
-        # Откатываем транзакцию при ошибке
         if conn:
-            try:
-                conn.rollback()
-                logger.info("🔁 Транзакция откатана")
-            except Exception as rollback_error:
-                logger.error(f"❌ Ошибка при откате транзакции: {rollback_error}")
-        
+            conn.rollback()
+            
         # Детальная диагностика
         logger.error(f"🔍 Детали ошибки: name={name}, type={space_type}, user={created_by}")
         return None, None
         
     finally:
-        # Закрываем курсор и соединение
-        if cursor:
-            try:
-                cursor.close()
-            except Exception as close_error:
-                logger.error(f"❌ Ошибка закрытия курсора: {close_error}")
-                
         if conn:
-            try:
-                conn.close()
-                logger.info("🔒 Соединение с БД закрыто")
-            except Exception as close_error:
-                logger.error(f"❌ Ошибка закрытия соединения: {close_error}")
+            conn.close()
 
 def add_expense(user_id, user_name, amount, category, description="", space_id=None, currency="RUB"):
     """Добавление траты в базу"""
@@ -1799,16 +1753,19 @@ def api_get_space_members():
 
 @flask_app.route('/create_space', methods=['POST'])
 def api_create_space():
+    """API для создания нового пространства"""
     try:
         data = request.json
-        logger.info(f"📝 Полные данные запроса create_space: {data}")
-        
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+            
         init_data = data.get('initData')
         name = data.get('name')
         space_type = data.get('type')
         description = data.get('description', '')
         
-        logger.info(f"📝 Создание пространства: name='{name}', type='{space_type}'")
+        logger.info(f"📝 Создание пространства: {name}, тип: {space_type}")
+        logger.info(f"📦 Данные запроса: {data}")
         
         if not validate_webapp_data(init_data):
             logger.warning("❌ Валидация WebApp данных не пройдена")
@@ -1819,11 +1776,11 @@ def api_create_space():
             logger.warning("❌ Не удалось извлечь данные пользователя")
             return jsonify({'error': 'User not found'}), 401
             
-        logger.info(f"👤 Пользователь: id={user_data['id']}, name={user_data['first_name']}")
+        logger.info(f"👤 Пользователь: {user_data}")
             
         if not name or not space_type:
-            logger.warning("❌ Отсутствуют обязательные поля: name или type")
-            return jsonify({'error': 'Missing required fields: name and type are required'}), 400
+            logger.warning("❌ Отсутствуют обязательные поля")
+            return jsonify({'error': 'Missing required fields'}), 400
         
         # Создаем пространство
         result = create_financial_space(
@@ -1831,21 +1788,20 @@ def api_create_space():
             user_data['id'], user_data['first_name']
         )
         
-        logger.info(f"🔍 Результат create_financial_space: {result}")
-        
         if result and result[0] is not None:
             space_id, invite_code = result
-            logger.info(f"✅ Пространство создано успешно: ID {space_id}, код: {invite_code}")
+            logger.info(f"✅ Пространство создано: {space_id}, код: {invite_code}")
             return jsonify({
                 'success': True,
                 'space_id': space_id,
                 'invite_code': invite_code
             })
         else:
-            logger.error("❌ Функция create_financial_space вернула None")
+            logger.error("❌ Ошибка создания пространства - функция вернула None")
+            # Детальная диагностика
             return jsonify({
                 'error': 'Failed to create space - database error',
-                'details': 'Check server logs for more information'
+                'details': 'Check database connection and logs'
             }), 500
             
     except Exception as e:
@@ -1853,7 +1809,7 @@ def api_create_space():
         import traceback
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
-    
+
 
 @flask_app.route('/delete_space', methods=['POST'])
 def api_delete_space():
@@ -2285,363 +2241,69 @@ def api_remove_member():
     except Exception as e:
         logger.error(f"❌ API Error in remove_member: {e}")
         return jsonify({'error': 'Internal server error'}), 500
-        
-@flask_app.route('/delete_user_category', methods=['POST'])
-def api_delete_user_category():
-    """Удаление пользовательской категории"""
-    try:
-        data = request.json
-        init_data = data.get('initData')
-        space_id = data.get('spaceId')
-        category_name = data.get('categoryName')
-        
-        if not validate_webapp_data(init_data):
-            return jsonify({'error': 'Invalid data'}), 401
-            
-        user_data = get_user_from_init_data(init_data)
-        if not user_data:
-            return jsonify({'error': 'User not found'}), 401
-            
-        if not category_name:
-            return jsonify({'error': 'Category name is required'}), 400
-        
-        conn = get_db_connection()
-        
-        if isinstance(conn, sqlite3.Connection):
-            # Удаляем категорию только если она пользовательская и принадлежит этому пользователю
-            result = conn.execute('''DELETE FROM user_categories 
-                                   WHERE user_id = ? AND (space_id = ? OR space_id = 0) 
-                                   AND category_name = ? AND is_custom = TRUE''',
-                                (user_data['id'], space_id if space_id else 0, category_name))
-            
-            deleted_count = result.rowcount
-        else:
-            cursor = conn.cursor()
-            cursor.execute('''DELETE FROM user_categories 
-                           WHERE user_id = %s AND (space_id = %s OR space_id = 0) 
-                           AND category_name = %s AND is_custom = TRUE''',
-                         (user_data['id'], space_id if space_id else 0, category_name))
-            
-            deleted_count = cursor.rowcount
-        
-        conn.commit()
-        conn.close()
-        
-        if deleted_count > 0:
-            return jsonify({'success': True, 'message': 'Категория удалена'})
-        else:
-            return jsonify({'error': 'Категория не найдена или нельзя удалить стандартную категорию'}), 404
-        
-    except Exception as e:
-        logger.error(f"❌ API Error in delete_user_category: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-@flask_app.route('/debug_database')
-def debug_database():
-    """Диагностика подключения к базе данных"""
-    try:
-        conn = get_db_connection()
-        
-        # Проверяем тип подключения
-        db_type = "PostgreSQL" if not isinstance(conn, sqlite3.Connection) else "SQLite"
-        
-        # Проверяем переменные окружения
-        env_vars = {
-            'DATABASE_URL_EXISTS': 'DATABASE_URL' in os.environ,
-            'DATABASE_URL_LENGTH': len(os.environ.get('DATABASE_URL', '')) if 'DATABASE_URL' in os.environ else 0,
-            'DEV_MODE': DEV_MODE
-        }
-        
-        # Проверяем таблицы
-        if isinstance(conn, sqlite3.Connection):
-            tables_query = "SELECT name FROM sqlite_master WHERE type='table'"
-        else:
-            tables_query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
-        
-        tables_df = pd.read_sql_query(tables_query, conn)
-        tables_list = tables_df.iloc[:, 0].tolist()
-        
-        # Проверяем данные в основных таблицах
-        table_counts = {}
-        for table in ['financial_spaces', 'expenses', 'space_members']:
-            if table in tables_list:
-                count_df = pd.read_sql_query(f"SELECT COUNT(*) as count FROM {table}", conn)
-                table_counts[table] = count_df.iloc[0]['count']
-            else:
-                table_counts[table] = 'TABLE_NOT_EXISTS'
-        
-        conn.close()
-        
-        return jsonify({
-            'database_type': db_type,
-            'environment_variables': env_vars,
-            'tables_exists': tables_list,
-            'table_counts': table_counts,
-            'connection_status': 'SUCCESS'
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'connection_status': 'FAILED',
-            'error': str(e)
-        }), 500
 
-
-@flask_app.route('/debug_db_structure', methods=['GET'])
-def debug_db_structure():
-    """Диагностика структуры базы данных"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Проверяем существование таблиц
-        if isinstance(conn, sqlite3.Connection):
-            tables_query = "SELECT name FROM sqlite_master WHERE type='table'"
-        else:
-            tables_query = """
-                SELECT table_name 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public'
-            """
-        
-        cursor.execute(tables_query)
-        tables = [row[0] for row in cursor.fetchall()]
-        
-        # Проверяем структуру каждой таблицы
-        table_structures = {}
-        for table in tables:
-            if isinstance(conn, sqlite3.Connection):
-                cursor.execute(f"PRAGMA table_info({table})")
-            else:
-                cursor.execute(f"""
-                    SELECT column_name, data_type, is_nullable, column_default
-                    FROM information_schema.columns 
-                    WHERE table_name = '{table}'
-                    ORDER BY ordinal_position
-                """)
-            table_structures[table] = cursor.fetchall()
-        
-        # Проверяем данные в financial_spaces
-        cursor.execute("SELECT COUNT(*) as count FROM financial_spaces")
-        spaces_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) as count FROM space_members")
-        members_count = cursor.fetchone()[0]
-        
-        conn.close()
-        
-        return jsonify({
-            'tables': tables,
-            'table_structures': table_structures,
-            'counts': {
-                'financial_spaces': spaces_count,
-                'space_members': members_count
-            },
-            'database_type': 'PostgreSQL' if not isinstance(conn, sqlite3.Connection) else 'SQLite'
-        })
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
-@flask_app.route('/debug_financial_spaces', methods=['GET'])
-def debug_financial_spaces():
-    """Проверка структуры таблицы financial_spaces"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        if isinstance(conn, sqlite3.Connection):
-            # SQLite
-            cursor.execute("PRAGMA table_info(financial_spaces)")
-            structure = cursor.fetchall()
-        else:
-            # PostgreSQL
-            cursor.execute("""
-                SELECT column_name, data_type, is_nullable, column_default
-                FROM information_schema.columns 
-                WHERE table_name = 'financial_spaces'
-                ORDER BY ordinal_position
-            """)
-            structure = cursor.fetchall()
-            
-            # Проверяем последовательности (для SERIAL)
-            cursor.execute("""
-                SELECT sequence_name 
-                FROM information_schema.sequences 
-                WHERE sequence_name LIKE '%financial_spaces%'
-            """)
-            sequences = cursor.fetchall()
-        
-        conn.close()
-        
-        result = {
-            'table_structure': structure
-        }
-        
-        if not isinstance(conn, sqlite3.Connection):
-            result['sequences'] = sequences
-            
-        return jsonify(result)
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
-# ===== функция для принудительного пересоздания таблиц    
-def force_recreate_tables():
-    """Принудительное пересоздание таблиц (ОСТОРОЖНО: УДАЛИТ ВСЕ ДАННЫЕ!)"""
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        
-        if isinstance(conn, sqlite3.Connection):
-            # SQLite - просто используем существующую логику
-            safe_init_db()
-        else:
-            # PostgreSQL - принудительно пересоздаем таблицы
-            logger.info("🔄 Принудительное пересоздание таблиц PostgreSQL...")
-            
-            # Удаляем таблицы в правильном порядке (из-за foreign keys)
-            tables = [
-                'budget_alerts', 'user_categories', 'expenses', 'budgets', 
-                'space_members', 'financial_spaces'
-            ]
-            
-            for table in tables:
-                try:
-                    cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-                    logger.info(f"✅ Таблица {table} удалена")
-                except Exception as e:
-                    logger.error(f"❌ Ошибка удаления {table}: {e}")
-            
-            # Пересоздаем таблицы
-            cursor.execute('''
-                CREATE TABLE financial_spaces (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    description TEXT,
-                    space_type TEXT DEFAULT 'personal',
-                    created_by BIGINT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    invite_code TEXT UNIQUE,
-                    is_active BOOLEAN DEFAULT TRUE
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE space_members (
-                    id SERIAL PRIMARY KEY,
-                    space_id INTEGER REFERENCES financial_spaces(id) ON DELETE CASCADE,
-                    user_id BIGINT,
-                    user_name TEXT,
-                    role TEXT DEFAULT 'member',
-                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE expenses (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT,
-                    user_name TEXT,
-                    space_id INTEGER REFERENCES financial_spaces(id) ON DELETE CASCADE,
-                    amount REAL,
-                    category TEXT,
-                    description TEXT,
-                    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    currency TEXT DEFAULT 'RUB'
-                )
-            ''')
-            
-            # Остальные таблицы...
-            
-            conn.commit()
-            logger.info("✅ Таблицы PostgreSQL пересозданы")
-            
-    except Exception as e:
-        logger.error(f"❌ Ошибка пересоздания таблиц: {e}")
-        if conn:
-            conn.rollback()
-    finally:
-        if conn:
-            conn.close()
 # ===== TELEGRAM BOT HANDLERS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user = update.effective_user
-        
-        # Логируем вызов функции
-        logger.info(f"🚀 Команда /start от пользователя {user.id} ({user.first_name})")
-        
-        # Проверяем, это приглашение или обычный старт
-        args = context.args
-        if args and args[0].startswith('invite_'):
-            logger.info(f"📨 Обработка пригласительной ссылки: {args[0]}")
-            await handle_invite_start(update, context)
-            return
-        
-        keyboard = [
-            [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=WEB_APP_URL))]
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
-        # ПРОВЕРЯЕМ НОВЫЙ ЛИ ЭТО ПОЛЬЗОВАТЕЛЬ
-        is_new_user = await check_if_new_user(user.id)
-        logger.info(f"👤 Пользователь {user.id} новый: {is_new_user}")
-        
-        if is_new_user:
-            # СООБЩЕНИЕ ДЛЯ НОВЫХ ПОЛЬЗОВАТЕЛЕЙ
-            welcome_text = (
-                f"🎉 Добро пожаловать, {user.first_name}!\n\n"
-                "🤖 <b>Finance Tracker</b> - это умное приложение для управления вашими финансами прямо в Telegram!\n\n"
-                "📱 <b>Что вы можете делать:</b>\n"
-                "• 💸 <b>Учет расходов</b> - легко добавляйте траты\n"
-                "• 👥 <b>Совместные бюджеты</b> - ведите общие финансы с семьей или друзьями\n"
-                "• 📊 <b>Аналитика</b> - наглядные графики и отчеты\n"
-                "• 🎯 <b>Бюджеты</b> - устанавливайте лимиты и получайте уведомления\n"
-                "• 🧾 <b>Распознавание чеков</b> - просто сфотографируйте чек\n"
-                "• 💰 <b>Мультивалютность</b> - поддерживает RUB, BYN, KZT\n\n"
-                "🚀 <b>Как начать:</b>\n"
-                "1. Нажмите кнопку <b>«📊 Открыть финансовый трекер»</b> ниже\n"
-                "2. Создайте свое первое пространство\n"
-                "3. Добавьте ваши траты\n"
-                "4. Пригласите друзей или семью в общие пространства\n\n"
-                "💫 <b>Удобные функции:</b>\n"
-                "• <b>Свайп влево/вправо</b> - переключайтесь между вкладками\n"
-                "• 🏠 <b>Главная</b> - ваша финансовая статистика\n"
-                "• 👥 <b>Пространства</b> - управляйте группами\n"
-                "• 💸 <b>Траты</b> - добавляйте расходы\n"
-                "• 📊 <b>Аналитика</b> - смотрите отчеты\n\n"
-                "Начните контролировать свои финансы прямо сейчас! 💪"
-            )
-        else:
-            # СООБЩЕНИЕ ДЛЯ СУЩЕСТВУЮЩИХ ПОЛЬЗОВАТЕЛЕЙ
-            welcome_text = (
-                f"С возвращением, {user.first_name}! 👋\n\n"
-                "🤖 <b>Finance Tracker</b> всегда под рукой!\n\n"
-                "📱 <b>Что нового вы можете сделать:</b>\n"
-                "• 📝 <b>История трат</b> - полный список всех ваших расходов\n"
-                "• 💬 <b>Комментарии к тратам</b> - добавляйте описания к расходам\n"
-                "• 📊 <b>Расширенная аналитика</b> - еще больше графиков и отчетов\n"
-                "• 🎯 <b>Пользовательские категории</b> - создавайте свои категории\n"
-                "• 📤 <b>Экспорт в Excel</b> - выгружайте данные для анализа\n\n"
-                "Нажмите кнопку ниже, чтобы продолжить работу с вашими финансами! 🚀"
-            )
-        
-        logger.info(f"📨 Отправляем приветственное сообщение пользователю {user.id}")
-        await update.message.reply_text(
-            welcome_text,
-            reply_markup=reply_markup,
-            parse_mode='HTML'
+    user = update.effective_user
+    
+    # Проверяем, это приглашение или обычный старт
+    args = context.args
+    if args and args[0].startswith('invite_'):
+        await handle_invite_start(update, context)
+        return
+    
+    keyboard = [
+        [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=WEB_APP_URL))]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    # ПРОВЕРЯЕМ НОВЫЙ ЛИ ЭТО ПОЛЬЗОВАТЕЛЬ
+    is_new_user = await check_if_new_user(user.id)
+    
+    if is_new_user:
+        # СООБЩЕНИЕ ДЛЯ НОВЫХ ПОЛЬЗОВАТЕЛЕЙ
+        welcome_text = (
+            f"🎉 Добро пожаловать, {user.first_name}!\n\n"
+            "🤖 <b>Finance Tracker</b> - это умное приложение для управления вашими финансами прямо в Telegram!\n\n"
+            "📱 <b>Что вы можете делать:</b>\n"
+            "• 💸 <b>Учет расходов</b> - легко добавляйте траты\n"
+            "• 👥 <b>Совместные бюджеты</b> - ведите общие финансы с семьей или друзьями\n"
+            "• 📊 <b>Аналитика</b> - наглядные графики и отчеты\n"
+            "• 🎯 <b>Бюджеты</b> - устанавливайте лимиты и получайте уведомления\n"
+            "• 🧾 <b>Распознавание чеков</b> - просто сфотографируйте чек\n"
+            "• 💰 <b>Мультивалютность</b> - поддерживает RUB, BYN, KZT\n\n"
+            "🚀 <b>Как начать:</b>\n"
+            "1. Нажмите кнопку <b>«📊 Открыть финансовый трекер»</b> ниже\n"
+            "2. Создайте свое первое пространство\n"
+            "3. Добавьте ваши траты\n"
+            "4. Пригласите друзей или семью в общие пространства\n\n"
+            "💫 <b>Удобные функции:</b>\n"
+            "• <b>Свайп влево/вправо</b> - переключайтесь между вкладками\n"
+            "• 🏠 <b>Главная</b> - ваша финансовая статистика\n"
+            "• 👥 <b>Пространства</b> - управляйте группами\n"
+            "• 💸 <b>Траты</b> - добавляйте расходы\n"
+            "• 📊 <b>Аналитика</b> - смотрите отчеты\n\n"
+            "Начните контролировать свои финансы прямо сейчас! 💪"
         )
-        logger.info(f"✅ Приветственное сообщение отправлено пользователю {user.id}")
-        
-    except Exception as e:
-        logger.error(f"💥 Ошибка в функции start: {e}")
-        logger.error(f"🔍 Traceback: {traceback.format_exc()}")
-        if update and update.message:
-            try:
-                await update.message.reply_text("❌ Произошла ошибка при обработке команды /start")
-            except Exception as send_error:
-                logger.error(f"💥 Не удалось отправить сообщение об ошибке: {send_error}")
+    else:
+        # СООБЩЕНИЕ ДЛЯ СУЩЕСТВУЮЩИХ ПОЛЬЗОВАТЕЛЕЙ
+        welcome_text = (
+            f"С возвращением, {user.first_name}! 👋\n\n"
+            "🤖 <b>Finance Tracker</b> всегда под рукой!\n\n"
+            "📱 <b>Что нового вы можете сделать:</b>\n"
+            "• 📝 <b>История трат</b> - полный список всех ваших расходов\n"
+            "• 💬 <b>Комментарии к тратам</b> - добавляйте описания к расходам\n"
+            "• 📊 <b>Расширенная аналитика</b> - еще больше графиков и отчетов\n"
+            "• 🎯 <b>Пользовательские категории</b> - создавайте свои категории\n"
+            "• 📤 <b>Экспорт в Excel</b> - выгружайте данные для анализа\n\n"
+            "Нажмите кнопку ниже, чтобы продолжить работу с вашими финансами! 🚀"
+        )
+    
+    await update.message.reply_text(
+        welcome_text,
+        reply_markup=reply_markup,
+        parse_mode='HTML'
+    )
 
 async def check_if_new_user(user_id):
     """Проверяет, новый ли пользователь"""
@@ -2928,34 +2590,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=WEB_APP_URL))]
             ], resize_keyboard=True)
         )
-def force_init_tables():
-    """Принудительная инициализация таблиц при запуске"""
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        
-        # Проверяем существование основной таблицы
-        if isinstance(conn, sqlite3.Connection):
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='financial_spaces'")
-        else:
-            cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'financial_spaces')")
-        
-        table_exists = cursor.fetchone()[0]
-        
-        if not table_exists:
-            logger.warning("🚨 Таблицы не существуют! Создаем...")
-            safe_init_db()
-            logger.info("✅ Таблицы созданы принудительно")
-        else:
-            logger.info("✅ Таблицы уже существуют")
-            
-    except Exception as e:
-        logger.error(f"❌ Ошибка проверки таблиц: {e}")
-        # Если ошибка - все равно пытаемся создать таблицы
-        safe_init_db()
-    finally:
-        if conn:
-            conn.close()
+
 # ===== ОСНОВНАЯ ФУНКЦИЯ =====
 def main():
     """Основная функция запуска бота"""
@@ -2964,29 +2599,16 @@ def main():
         logger.error("❌ BOT_TOKEN не найден! Убедитесь, что переменная окружения BOT_TOKEN установлена.")
         return
     
-    logger.info("🤖 Начинаем запуск бота...")
-    
-    # Инициализация базы данных - ЯВНЫЙ ВЫЗОВ
-    logger.info("🗄️ Инициализируем базу данных...")
-    safe_init_db()
-    
-    # ДОПОЛНИТЕЛЬНО: Принудительная проверка и создание таблиц
-    logger.info("🔍 Проверяем существование таблиц...")
-    force_init_tables()
+    # Инициализация базы данных
+    init_db()
     
     # Запускаем планировщик уведомлений
-    logger.info("🔔 Запускаем планировщик уведомлений...")
     start_notification_scheduler()
-        
+    
     # Создаем приложение бота
-    logger.info("🔧 Создаем приложение бота...")
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Добавляем обработчик ошибок
-    application.add_error_handler(error_handler)
-    
-    # Добавляем обработчики в ПРАВИЛЬНОМ ПОРЯДКЕ
-    logger.info("📝 Регистрируем обработчики...")
+    # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -2998,22 +2620,17 @@ def main():
     port = int(os.environ.get('PORT', 5000))
     
     def run_flask():
-        logger.info(f"🌐 Запускаем Flask API на порту {port}...")
         flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
     
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
+    logger.info(f"🌐 Flask API запущен на порту {port}")
+    logger.info(f"🔧 Режим разработки: {DEV_MODE}")
+    logger.info("🔔 Планировщик уведомлений активирован")
     
     # Запускаем бота
-    logger.info("🚀 Запускаем поллинг бота...")
-    try:
-        application.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES,
-            timeout=30,
-            pool_timeout=10
-        )
-    except Exception as e:
-        logger.error(f"💥 Ошибка при запуске бота: {e}")
-        logger.error(f"🔍 Traceback: {traceback.format_exc()}")
-        raise
+    logger.info("🤖 Бот запускается...")
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()
