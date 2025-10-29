@@ -2380,6 +2380,185 @@ def debug_database():
             'connection_status': 'FAILED',
             'error': str(e)
         }), 500
+
+
+@flask_app.route('/debug_db_structure', methods=['GET'])
+def debug_db_structure():
+    """Диагностика структуры базы данных"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Проверяем существование таблиц
+        if isinstance(conn, sqlite3.Connection):
+            tables_query = "SELECT name FROM sqlite_master WHERE type='table'"
+        else:
+            tables_query = """
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+            """
+        
+        cursor.execute(tables_query)
+        tables = [row[0] for row in cursor.fetchall()]
+        
+        # Проверяем структуру каждой таблицы
+        table_structures = {}
+        for table in tables:
+            if isinstance(conn, sqlite3.Connection):
+                cursor.execute(f"PRAGMA table_info({table})")
+            else:
+                cursor.execute(f"""
+                    SELECT column_name, data_type, is_nullable, column_default
+                    FROM information_schema.columns 
+                    WHERE table_name = '{table}'
+                    ORDER BY ordinal_position
+                """)
+            table_structures[table] = cursor.fetchall()
+        
+        # Проверяем данные в financial_spaces
+        cursor.execute("SELECT COUNT(*) as count FROM financial_spaces")
+        spaces_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM space_members")
+        members_count = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return jsonify({
+            'tables': tables,
+            'table_structures': table_structures,
+            'counts': {
+                'financial_spaces': spaces_count,
+                'space_members': members_count
+            },
+            'database_type': 'PostgreSQL' if not isinstance(conn, sqlite3.Connection) else 'SQLite'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+@flask_app.route('/debug_financial_spaces', methods=['GET'])
+def debug_financial_spaces():
+    """Проверка структуры таблицы financial_spaces"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if isinstance(conn, sqlite3.Connection):
+            # SQLite
+            cursor.execute("PRAGMA table_info(financial_spaces)")
+            structure = cursor.fetchall()
+        else:
+            # PostgreSQL
+            cursor.execute("""
+                SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns 
+                WHERE table_name = 'financial_spaces'
+                ORDER BY ordinal_position
+            """)
+            structure = cursor.fetchall()
+            
+            # Проверяем последовательности (для SERIAL)
+            cursor.execute("""
+                SELECT sequence_name 
+                FROM information_schema.sequences 
+                WHERE sequence_name LIKE '%financial_spaces%'
+            """)
+            sequences = cursor.fetchall()
+        
+        conn.close()
+        
+        result = {
+            'table_structure': structure
+        }
+        
+        if not isinstance(conn, sqlite3.Connection):
+            result['sequences'] = sequences
+            
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+# ===== функция для принудительного пересоздания таблиц    
+def force_recreate_tables():
+    """Принудительное пересоздание таблиц (ОСТОРОЖНО: УДАЛИТ ВСЕ ДАННЫЕ!)"""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        if isinstance(conn, sqlite3.Connection):
+            # SQLite - просто используем существующую логику
+            safe_init_db()
+        else:
+            # PostgreSQL - принудительно пересоздаем таблицы
+            logger.info("🔄 Принудительное пересоздание таблиц PostgreSQL...")
+            
+            # Удаляем таблицы в правильном порядке (из-за foreign keys)
+            tables = [
+                'budget_alerts', 'user_categories', 'expenses', 'budgets', 
+                'space_members', 'financial_spaces'
+            ]
+            
+            for table in tables:
+                try:
+                    cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+                    logger.info(f"✅ Таблица {table} удалена")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка удаления {table}: {e}")
+            
+            # Пересоздаем таблицы
+            cursor.execute('''
+                CREATE TABLE financial_spaces (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    space_type TEXT DEFAULT 'personal',
+                    created_by BIGINT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    invite_code TEXT UNIQUE,
+                    is_active BOOLEAN DEFAULT TRUE
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE space_members (
+                    id SERIAL PRIMARY KEY,
+                    space_id INTEGER REFERENCES financial_spaces(id) ON DELETE CASCADE,
+                    user_id BIGINT,
+                    user_name TEXT,
+                    role TEXT DEFAULT 'member',
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE expenses (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    user_name TEXT,
+                    space_id INTEGER REFERENCES financial_spaces(id) ON DELETE CASCADE,
+                    amount REAL,
+                    category TEXT,
+                    description TEXT,
+                    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    currency TEXT DEFAULT 'RUB'
+                )
+            ''')
+            
+            # Остальные таблицы...
+            
+            conn.commit()
+            logger.info("✅ Таблицы PostgreSQL пересозданы")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка пересоздания таблиц: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
 # ===== TELEGRAM BOT HANDLERS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
