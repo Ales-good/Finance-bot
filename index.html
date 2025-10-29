@@ -2668,6 +2668,71 @@
             }
         }
 
+
+        async function deleteExpense(expenseId) {
+            if (!expenseId) {
+                console.error('❌ Expense ID is missing!');
+                showMessage('❌ Ошибка: ID траты не указан', 'error');
+                return;
+            }
+
+            if (!confirm('Вы уверены, что хотите удалить эту трату?')) {
+                return;
+            }
+
+            try {
+                showMessage('⏳ Удаляем трату...');
+                console.log('🗑️ Deleting expense with ID:', expenseId);
+                
+                const requestBody = {
+                    initData: tg.initData,
+                    expenseId: expenseId
+                };
+                
+                console.log('📤 Request body:', requestBody);
+
+                const response = await fetch(`${API_URL}/delete_expense`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(requestBody)
+                });
+
+                console.log('📩 Delete response status:', response.status);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ Response error:', errorText);
+                    throw new Error(`Ошибка сервера: ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log('📦 Delete response data:', result);
+
+                if (result.success) {
+                    showMessage('✅ Трата удалена');
+                    console.log('✅ Expense deleted successfully');
+                    
+                    // Обновляем интерфейс
+                    setTimeout(() => {
+                        if (document.getElementById('expensesList').classList.contains('active')) {
+                            loadExpensesList();
+                        }
+                        if (document.getElementById('analytics').classList.contains('active')) {
+                            loadAnalytics();
+                        }
+                        loadDashboardKPI(state.currentSpaceId, true);
+                    }, 500);
+                    
+                } else {
+                    throw new Error(result.error || 'Неизвестная ошибка при удалении');
+                }
+                
+            } catch (error) {
+                console.error('❌ Error deleting expense:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
+        }
+
         function displayAnalytics(data) {
             // Общие суммы - БЕЗ символов валюты
             document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
@@ -2950,69 +3015,7 @@
         }    
 
 
-        async function deleteExpense(expenseId) {
-            if (!expenseId) {
-                console.error('❌ Expense ID is missing!');
-                showMessage('❌ Ошибка: ID траты не указан', 'error');
-                return;
-            }
-
-            if (!confirm('Вы уверены, что хотите удалить эту трату?')) {
-                return;
-            }
-
-            try {
-                showMessage('⏳ Удаляем трату...');
-                console.log('🗑️ Deleting expense with ID:', expenseId);
-                
-                const requestBody = {
-                    initData: tg.initData,
-                    expenseId: expenseId
-                };
-                
-                console.log('📤 Request body:', requestBody);
-
-                const response = await fetch(`${API_URL}/delete_expense`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(requestBody)
-                });
-
-                console.log('📩 Delete response status:', response.status);
-                
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('❌ Response error:', errorText);
-                    throw new Error(`Ошибка сервера: ${response.status}`);
-                }
-
-                const result = await response.json();
-                console.log('📦 Delete response data:', result);
-
-                if (result.success) {
-                    showMessage('✅ Трата удалена');
-                    console.log('✅ Expense deleted successfully');
-                    
-                    // Обновляем интерфейс
-                    setTimeout(() => {
-                        if (document.getElementById('expensesList').classList.contains('active')) {
-                            loadExpensesList();
-                        }
-                        if (document.getElementById('analytics').classList.contains('active')) {
-                            loadAnalytics();
-                        }
-                        loadDashboardKPI(state.currentSpaceId, true);
-                    }, 500);
-                    
-                } else {
-                    throw new Error(result.error || 'Неизвестная ошибка при удалении');
-                }
-                
-            } catch (error) {
-                console.error('❌ Error deleting expense:', error);
-                showMessage(`❌ Ошибка: ${error.message}`, 'error');
-            }
-        }
+        
 
         async function exportToExcel() {
             console.log('=== 🎯 EXPORT TO EXCEL START ===');
