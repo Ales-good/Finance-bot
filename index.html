@@ -124,6 +124,32 @@
             background: linear-gradient(135deg, #ff6b6b, #ee5a52);
         }
 
+        /* Добавьте этот блок после существующих стилей .btn-danger */
+
+        .btn-delete-category {
+            background: #dc3545 !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 4px !important;
+            padding: 2px 6px !important;
+            font-size: 10px !important;
+            cursor: pointer !important;
+            transition: all 0.2s !important;
+            min-width: auto !important;
+            width: auto !important;
+            margin: 0 !important;
+            line-height: 1 !important;
+        }
+
+        .btn-delete-category:hover {
+            background: #c82332 !important;
+            transform: scale(1.1) !important;
+        }
+
+        .btn-delete-category:active {
+            transform: scale(0.95) !important;
+        }
+
         .btn-outline {
             background: transparent;
             border: 2px solid var(--border-color);
@@ -2127,7 +2153,7 @@
                 
                 // Затем добавляем пользовательские (перезаписывают стандартные с тем же именем)
                 customCategories.forEach(cat => {
-                    categoryMap.set(cat.name, cat);
+                    categoryMap.set(cat.name, { ...cat, isCustom: true });
                 });
 
                 // Преобразуем обратно в массив
@@ -2143,7 +2169,15 @@
                     <div class="category-item" onclick="selectCategory('${cat.name}')" data-category-name="${cat.name}">
                         <div class="category-icon">${cat.icon}</div>
                         <div class="category-name">${cat.name}</div>
-                        ${cat.isCustom ? '<div style="font-size: 8px; color: #666; margin-top: 2px;">пользовательская</div>' : ''}
+                        ${cat.isCustom ? 
+                            `<div style="display: flex; gap: 4px; margin-top: 4px;">
+                                <button class="btn-delete-category" onclick="event.stopPropagation(); confirmDeleteCategory('${cat.name}')" 
+                                        style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer;">
+                                    🗑️
+                                </button>
+                                <div style="font-size: 8px; color: #666; line-height: 1.4;">пользовательская</div>
+                            </div>` : 
+                            ''}
                     </div>
                 `).join('');
 
@@ -2154,6 +2188,61 @@
             }
         }
 
+        function confirmDeleteCategory(categoryName) {
+            if (!confirm(`Вы уверены, что хотите удалить категорию "${categoryName}"?\n\nВнимание: это действие нельзя отменить!`)) {
+                return;
+            }
+            
+            deleteCategory(categoryName);
+        }
+
+        async function deleteCategory(categoryName) {
+            if (!state.currentSpaceId) {
+                showMessage('Выберите пространство', 'error');
+                return;
+            }
+
+            try {
+                showMessage('⏳ Удаляем категорию...');
+                
+                const response = await fetch(`${API_URL}/delete_user_category`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        spaceId: state.currentSpaceId,
+                        categoryName: categoryName
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка удаления категории');
+                }
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage(`✅ Категория "${categoryName}" удалена!`);
+                    
+                    // Перезагружаем категории
+                    loadCategories();
+                    
+                    // Если есть траты с этой категорией, предлагаем переназначить их
+                    if (data.affected_expenses_count > 0) {
+                        setTimeout(() => {
+                            showMessage(`ℹ️ ${data.affected_expenses_count} трат переназначено в категорию "Другое"`);
+                        }, 1000);
+                    }
+                } else {
+                    throw new Error(data.error || 'Неизвестная ошибка при удалении');
+                }
+                
+            } catch (error) {
+                console.error('❌ Delete category error:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
+        }
         function selectCategory(category) {
             document.querySelectorAll('.category-item').forEach(item => {
                 item.classList.remove('active');
