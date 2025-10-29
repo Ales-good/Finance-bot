@@ -1570,12 +1570,11 @@ def api_delete_expense():
         
         if isinstance(conn, sqlite3.Connection):
             # Сначала проверяем, существует ли трата и принадлежит ли она пользователю
-            expense_check = conn.execute('''SELECT e.id, s.name as space_name 
-                                          FROM expenses e
-                                          JOIN space_members sm ON e.space_id = sm.space_id
-                                          JOIN spaces s ON e.space_id = s.id
-                                          WHERE e.id = ? AND sm.user_id = ?''',
-                                       (expense_id, user_data['id'])).fetchone()
+            expense_check = conn.execute('''SELECT e.id 
+                              FROM expenses e
+                              JOIN space_members sm ON e.space_id = sm.space_id
+                              WHERE e.id = ? AND sm.user_id = ?''',
+                           (expense_id, user_data['id'])).fetchone()
             
             if not expense_check:
                 conn.close()
