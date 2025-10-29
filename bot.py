@@ -2374,6 +2374,7 @@ def api_delete_user_category():
     except Exception as e:
         logger.error(f"❌ API Error in delete_user_category: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
 @flask_app.route('/delete_expense', methods=['POST'])
 def api_delete_expense():
     """Удаление траты"""
