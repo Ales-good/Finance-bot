@@ -2324,7 +2324,129 @@ async def check_if_new_user(user_id):
         return True  # В случае ошибки считаем пользователя новым
     finally:
         conn.close()
-
+        
+@flask_app.route('/delete_user_category', methods=['POST'])
+def api_delete_user_category():
+    """Удаление пользовательской категории"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        category_name = data.get('categoryName')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if not category_name:
+            return jsonify({'error': 'Category name is required'}), 400
+        
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            # Удаляем категорию только если она пользовательская и принадлежит этому пользователю
+            result = conn.execute('''DELETE FROM user_categories 
+                                   WHERE user_id = ? AND (space_id = ? OR space_id = 0) 
+                                   AND category_name = ? AND is_custom = TRUE''',
+                                (user_data['id'], space_id if space_id else 0, category_name))
+            
+            deleted_count = result.rowcount
+        else:
+            cursor = conn.cursor()
+            cursor.execute('''DELETE FROM user_categories 
+                           WHERE user_id = %s AND (space_id = %s OR space_id = 0) 
+                           AND category_name = %s AND is_custom = TRUE''',
+                         (user_data['id'], space_id if space_id else 0, category_name))
+            
+            deleted_count = cursor.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        if deleted_count > 0:
+            return jsonify({'success': True, 'message': 'Категория удалена'})
+        else:
+            return jsonify({'error': 'Категория не найдена или нельзя удалить стандартную категорию'}), 404
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in delete_user_category: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+@flask_app.route('/delete_expense', methods=['POST'])
+def api_delete_expense():
+    """Удаление траты"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        expense_id = data.get('expenseId')
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if not expense_id:
+            return jsonify({'error': 'Expense ID is required'}), 400
+        
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            # Сначала проверяем, существует ли трата и принадлежит ли она пользователю
+            expense_check = conn.execute('''SELECT e.id, s.name as space_name 
+                                          FROM expenses e
+                                          JOIN space_members sm ON e.space_id = sm.space_id
+                                          JOIN spaces s ON e.space_id = s.id
+                                          WHERE e.id = ? AND sm.user_id = ?''',
+                                       (expense_id, user_data['id'])).fetchone()
+            
+            if not expense_check:
+                conn.close()
+                return jsonify({'error': 'Трата не найдена или у вас нет прав для её удаления'}), 404
+            
+            # Удаляем трату
+            result = conn.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
+            deleted_count = result.rowcount
+            
+        else:
+            cursor = conn.cursor()
+            # Сначала проверяем, существует ли трата и принадлежит ли она пользователю
+            cursor.execute('''SELECT e.id, s.name as space_name 
+                           FROM expenses e
+                           JOIN space_members sm ON e.space_id = sm.space_id 
+                           JOIN spaces s ON e.space_id = s.id
+                           WHERE e.id = %s AND sm.user_id = %s''',
+                        (expense_id, user_data['id']))
+            expense_check = cursor.fetchone()
+            
+            if not expense_check:
+                conn.close()
+                return jsonify({'error': 'Трата не найдена или у вас нет прав для её удаления'}), 404
+            
+            # Удаляем трату
+            cursor.execute('DELETE FROM expenses WHERE id = %s', (expense_id,))
+            deleted_count = cursor.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        if deleted_count > 0:
+            logger.info(f"✅ Expense {expense_id} deleted by user {user_data['id']}")
+            return jsonify({
+                'success': True, 
+                'message': 'Трата успешно удалена',
+                'deleted_expense_id': expense_id
+            })
+        else:
+            return jsonify({'error': 'Трата не найдена'}), 404
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in delete_expense: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+        
 async def handle_invite_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка пригласительных ссылок с улучшенным приветствием"""
     user = update.effective_user
