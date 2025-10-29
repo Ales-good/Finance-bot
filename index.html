@@ -606,6 +606,18 @@
         .tab-content {
             touch-action: pan-y;
         }
+        .expense-item {
+            transition: all 0.3s ease;
+        }
+
+        .delete-expense-btn:hover {
+            transform: scale(1.1);
+            background: #cc0000 !important;
+        }
+
+        .delete-expense-btn:active {
+            transform: scale(0.95);
+        }
     </style>
 </head>
 <body>
@@ -2681,7 +2693,12 @@
             }
 
             try {
-                showMessage('⏳ Удаляем трату...');
+                // Показываем индикатор загрузки на кнопке
+                const deleteButton = event.target;
+                const originalText = deleteButton.innerHTML;
+                deleteButton.innerHTML = '⏳...';
+                deleteButton.disabled = true;
+
                 console.log('🗑️ Deleting expense with ID:', expenseId);
                 
                 const requestBody = {
@@ -2712,15 +2729,48 @@
                     showMessage('✅ Трата удалена');
                     console.log('✅ Expense deleted successfully');
                     
-                    // Обновляем интерфейс
+                    // УДАЛЯЕМ ЭЛЕМЕНТ ИЗ ИНТЕРФЕЙСА НЕМЕДЛЕННО
+                    const expenseElement = deleteButton.closest('.expense-item');
+                    if (expenseElement) {
+                        expenseElement.style.opacity = '0.5';
+                        expenseElement.style.transition = 'opacity 0.3s ease';
+                        
+                        setTimeout(() => {
+                            expenseElement.remove();
+                            
+                            // Проверяем, не пустой ли теперь список
+                            const container = document.getElementById('expensesListContainer') || 
+                                            document.getElementById('categoriesAnalytics');
+                            const remainingItems = container.querySelectorAll('.expense-item');
+                            
+                            if (remainingItems.length === 0) {
+                                // Показываем сообщение о пустом списке
+                                container.innerHTML = `
+                                    <div class="empty-state">
+                                        <div class="empty-state-icon">📝</div>
+                                        <div>Нет трат</div>
+                                    </div>
+                                `;
+                            }
+                        }, 300);
+                    }
+                    
+                    // ОБНОВЛЯЕМ ВСЕ ЗАВИСИМЫЕ ДАННЫЕ
                     setTimeout(() => {
+                        // Обновляем список трат если активна соответствующая вкладка
                         if (document.getElementById('expensesList').classList.contains('active')) {
                             loadExpensesList();
                         }
+                        
+                        // Обновляем аналитику если активна
                         if (document.getElementById('analytics').classList.contains('active')) {
                             loadAnalytics();
                         }
-                        loadDashboardKPI(state.currentSpaceId, true);
+                        
+                        // Обновляем дашборд
+                        if (state.currentSpaceId) {
+                            loadDashboardKPI(state.currentSpaceId, true);
+                        }
                     }, 500);
                     
                 } else {
@@ -2730,7 +2780,24 @@
             } catch (error) {
                 console.error('❌ Error deleting expense:', error);
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
+                
+                // Восстанавливаем кнопку при ошибке
+                const deleteButton = event.target;
+                deleteButton.innerHTML = '🗑️';
+                deleteButton.disabled = false;
             }
+        }
+
+        // Функция для плавного удаления элемента
+        function fadeOutAndRemove(element, callback) {
+            element.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            element.style.opacity = '0';
+            element.style.transform = 'translateX(-20px)';
+            
+            setTimeout(() => {
+                element.remove();
+                if (callback) callback();
+            }, 300);
         }
 
         function displayAnalytics(data) {
@@ -3175,7 +3242,7 @@
                 </div>
             `;
 
-            // Список трат с кнопками удаления
+            // Список трат с кнопками удаления - ДОБАВЛЯЕМ ID ЭЛЕМЕНТАМ
             expenses.forEach(expense => {
                 const date = new Date(expense.date);
                 const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
@@ -3190,12 +3257,14 @@
 
                 const expenseItem = document.createElement('div');
                 expenseItem.className = 'expense-item';
+                expenseItem.id = `expense-${expense.id}`; // ДОБАВЛЯЕМ ID
                 expenseItem.style.background = 'var(--card-bg)';
                 expenseItem.style.padding = '16px';
                 expenseItem.style.marginBottom = '12px';
                 expenseItem.style.borderRadius = '12px';
                 expenseItem.style.border = '1px solid var(--border-color)';
                 expenseItem.style.position = 'relative';
+                expenseItem.style.transition = 'all 0.3s ease'; // Добавляем анимацию
 
                 expenseItem.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
@@ -3213,8 +3282,9 @@
                                 ${expense.amount}
                             </div>
                             <button onclick="deleteExpense(${expense.id})" 
-                                    style="background: #ff4444; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-left: 8px;"
-                                    title="Удалить трату">
+                                    style="background: #ff4444; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-left: 8px; transition: all 0.2s ease;"
+                                    title="Удалить трату"
+                                    class="delete-expense-btn">
                                 🗑️
                             </button>
                         </div>
