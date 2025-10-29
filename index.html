@@ -4042,7 +4042,14 @@
 
                 // === УПРОЩЕННАЯ ФУНКЦИЯ УДАЛЕНИЯ ===
                 async function deleteExpense(expenseId) {
-                    console.log('=== DELETE EXPENSE CALLED ===', expenseId);
+                    console.log('=== 🗑️ DELETE EXPENSE DEBUG FRONTEND ===');
+                    console.log('📋 Expense ID:', expenseId);
+                    console.log('📋 Expense ID type:', typeof expenseId);
+                    console.log('👤 User ID:', tg.initDataUnsafe.user?.id);
+                    console.log('🏠 Current space ID:', state.currentSpaceId);
+                    console.log('🔐 InitData length:', tg.initData?.length);
+    
+    
                     
                     if (!expenseId) {
                         showMessage('❌ Ошибка: ID траты не указан', 'error');
