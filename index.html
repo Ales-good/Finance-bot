@@ -1024,11 +1024,7 @@
         });
 
         // ===== INITIALIZATION =====
-        document.addEventListener('DOMContentLoaded', function() {
-            loadState();
-            initializeApp();
-            setupSwipeNavigation();
-        });
+        
 
         function initializeApp() {
             console.log('🚀 Initializing app...');
@@ -2036,37 +2032,7 @@
             }
         `;
         document.head.appendChild(style);
-        function showTab(tabName) {
-            // Скрываем все вкладки
-            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-    
-            // Убираем активный класс со всех табов во всех вкладках
-            document.querySelectorAll('.tabs .tab').forEach(tab => tab.classList.remove('active'));
-    
-            // Показываем нужную вкладку
-            document.getElementById(tabName).classList.add('active');
-    
-            // Активируем соответствующий таб в текущей вкладке
-            const currentTabs = document.querySelector(`#${tabName} .tabs`);
-            if (currentTabs) {
-                const targetTab = Array.from(currentTabs.querySelectorAll('.tab')).find(tab => 
-                    tab.textContent.includes(getTabLabel(tabName))
-                );
-                if (targetTab) {
-                    targetTab.classList.add('active');
-                }
-            }
-
-            // ДОБАВЬТЕ ЭТОТ КОД - загрузка контента для конкретных вкладок
-            console.log('Switching to tab:', tabName);
-            if (tabName === 'expenses') {
-                console.log('Loading expenses tab content...');
-                loadExpensesTab();
-            } else if (tabName === 'analytics') {
-                loadAnalytics();
-            }
-        }
-        
+                
 
         // Вспомогательная функция для определения метки таба
         function getTabLabel(tabName) {
