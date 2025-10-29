@@ -2212,13 +2212,7 @@
                         <div class="category-icon">${cat.icon}</div>
                         <div class="category-name">${cat.name}</div>
                         ${cat.isCustom ? 
-                            `<div style="display: flex; gap: 4px; margin-top: 4px;">
-                                <button class="btn-delete-category" onclick="event.stopPropagation(); confirmDeleteCategory('${cat.name}')" 
-                                        style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer;">
-                                    🗑️
-                                </button>
-                                <div style="font-size: 8px; color: #666; line-height: 1.4;">пользовательская</div>
-                            </div>` : 
+                            `<div style="font-size: 8px; color: #666; line-height: 1.4; margin-top: 4px;">пользовательская</div>` : 
                             ''}
                     </div>
                 `).join('');
@@ -2619,28 +2613,33 @@
 
         // ===== ANALYTICS =====
         async function deleteExpense(expenseId) {
-            console.log('=== 🗑️ DELETE EXPENSE CALLED ===');
-            console.log('Expense ID:', expenseId);
-            console.log('Current space ID:', state.currentSpaceId);
+            console.log('=== 🗑️ DELETE EXPENSE FUNCTION CALLED ===');
+            console.log('📋 Expense ID:', expenseId);
+            console.log('👤 User ID:', tg.initDataUnsafe.user?.id);
+            console.log('🏠 Current space ID:', state.currentSpaceId);
+
+            if (!expenseId || expenseId === 'undefined' || expenseId === 'null') {
+                console.error('❌ Invalid expense ID:', expenseId);
+                showMessage('❌ Ошибка: неверный ID траты', 'error');
+                return;
+            }
+
+            // Преобразуем ID в число на всякий случай
+            expenseId = parseInt(expenseId);
             
-            if (!expenseId) {
-                console.error('❌ Expense ID is missing!');
-                showMessage('❌ Ошибка: ID траты не указан', 'error');
+            if (isNaN(expenseId)) {
+                console.error('❌ Expense ID is not a number:', expenseId);
+                showMessage('❌ Ошибка: ID траты должен быть числом', 'error');
                 return;
             }
 
             if (!confirm('Вы уверены, что хотите удалить эту трату?')) {
+                console.log('❌ User cancelled deletion');
                 return;
             }
 
             try {
-                // Показываем индикатор загрузки на кнопке
-                const deleteButton = event.target;
-                const originalText = deleteButton.innerHTML;
-                deleteButton.innerHTML = '⏳...';
-                deleteButton.disabled = true;
-
-                console.log('🗑️ Deleting expense with ID:', expenseId);
+                console.log('🔄 Starting delete request...');
                 
                 const requestBody = {
                     initData: tg.initData,
@@ -2648,6 +2647,7 @@
                 };
                 
                 console.log('📤 Request body:', requestBody);
+                console.log('🌐 API URL:', `${API_URL}/delete_expense`);
 
                 const response = await fetch(`${API_URL}/delete_expense`, {
                     method: 'POST',
@@ -2655,37 +2655,44 @@
                     body: JSON.stringify(requestBody)
                 });
 
-                console.log('📩 Delete response status:', response.status);
+                console.log('📩 Response status:', response.status);
+                console.log('📩 Response headers:', response.headers);
                 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('❌ Response error:', errorText);
-                    throw new Error(`Ошибка сервера: ${response.status}`);
+                const responseText = await response.text();
+                console.log('📦 Raw response:', responseText);
+
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                    console.log('📦 Parsed response:', result);
+                } catch (parseError) {
+                    console.error('❌ JSON parse error:', parseError);
+                    throw new Error('Неверный формат ответа от сервера');
                 }
 
-                const result = await response.json();
-                console.log('📦 Delete response data:', result);
+                if (!response.ok) {
+                    throw new Error(result.error || `HTTP error: ${response.status}`);
+                }
 
                 if (result.success) {
-                    showMessage('✅ Трата удалена');
                     console.log('✅ Expense deleted successfully');
+                    showMessage('✅ Трата удалена');
                     
-                    // УДАЛЯЕМ ЭЛЕМЕНТ ИЗ ИНТЕРФЕЙСА НЕМЕДЛЕННО
-                    const expenseElement = deleteButton.closest('.expense-item');
+                    // Находим и удаляем элемент из DOM
+                    const expenseElement = document.getElementById(`expense-${expenseId}`);
                     if (expenseElement) {
+                        console.log('🎯 Found expense element, removing...');
                         expenseElement.style.opacity = '0.5';
                         expenseElement.style.transition = 'opacity 0.3s ease';
                         
                         setTimeout(() => {
                             expenseElement.remove();
+                            console.log('✅ Element removed from DOM');
                             
-                            // Проверяем, не пустой ли теперь список
-                            const container = document.getElementById('expensesListContainer') || 
-                                            document.getElementById('categoriesAnalytics');
-                            const remainingItems = container.querySelectorAll('.expense-item');
-                            
+                            // Проверяем, не пустой ли список
+                            const remainingItems = document.querySelectorAll('.expense-item');
                             if (remainingItems.length === 0) {
-                                // Показываем сообщение о пустом списке
+                                console.log('📝 List is empty, showing empty state');
                                 container.innerHTML = `
                                     <div class="empty-state">
                                         <div class="empty-state-icon">📝</div>
@@ -2694,25 +2701,11 @@
                                 `;
                             }
                         }, 300);
+                    } else {
+                        console.warn('⚠️ Expense element not found in DOM, reloading list...');
+                        // Если элемент не найден, перезагружаем список
+                        loadExpensesList();
                     }
-                    
-                    // ОБНОВЛЯЕМ ВСЕ ЗАВИСИМЫЕ ДАННЫЕ
-                    setTimeout(() => {
-                        // Обновляем список трат если активна соответствующая вкладка
-                        if (document.getElementById('expensesList').classList.contains('active')) {
-                            loadExpensesList();
-                        }
-                        
-                        // Обновляем аналитику если активна
-                        if (document.getElementById('analytics').classList.contains('active')) {
-                            loadAnalytics();
-                        }
-                        
-                        // Обновляем дашборд
-                        if (state.currentSpaceId) {
-                            loadDashboardKPI(state.currentSpaceId, true);
-                        }
-                    }, 500);
                     
                 } else {
                     throw new Error(result.error || 'Неизвестная ошибка при удалении');
@@ -2720,12 +2713,12 @@
                 
             } catch (error) {
                 console.error('❌ Error deleting expense:', error);
+                console.error('🔍 Error details:', {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
-                
-                // Восстанавливаем кнопку при ошибке
-                const deleteButton = event.target;
-                deleteButton.innerHTML = '🗑️';
-                deleteButton.disabled = false;
             }
         }
 
@@ -3186,6 +3179,7 @@
 
         async function loadExpensesList() {
             if (!state.currentSpaceId) {
+                console.log('❌ No space selected');
                 document.getElementById('expensesListContainer').innerHTML = 
                     '<div class="empty-state">Выберите пространство для просмотра истории трат</div>';
                 return;
@@ -3203,6 +3197,8 @@
                         period: expensesListPeriod
                     })
                 });
+                
+                console.log('📩 Response status:', response.status);
 
                 if (!response.ok) {
                     const errorData = await response.json();
@@ -3228,7 +3224,30 @@
         }
 
         function displayExpensesList(expenses) {
+            console.log('=== displayExpensesList called ===');
+            console.log('Expenses type:', typeof expenses);
+            console.log('Expenses length:', expenses?.length);
+            
+            if (!expenses) {
+                console.error('❌ Expenses is null or undefined');
+                showMessage('❌ Ошибка: данные трат не получены', 'error');
+                return;
+            }
+            
+            if (!Array.isArray(expenses)) {
+                console.error('❌ Expenses is not an array:', expenses);
+                showMessage('❌ Ошибка: неверный формат данных', 'error');
+                return;
+            }
+            console.log('=== displayExpensesList called ===');
+            console.log('Expenses data:', expenses);
+            
+            // Визуальное уведомление
+            showMessage('📝 Загружаем список трат...');
+            
             const container = document.getElementById('expensesListContainer');
+            console.log('Container found:', !!container);    
+
             
             if (!expenses || expenses.length === 0) {
                 container.innerHTML = `
