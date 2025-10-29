@@ -1230,7 +1230,8 @@
                 flag.classList.toggle('active', flag.dataset.currency === currency);
             });
             
-            document.getElementById('amountCurrency').textContent = CURRENCIES[currency].symbol;
+            // УБРАЛИ отображение символа валюты
+            document.getElementById('amountCurrency').textContent = '';
             
             if (updateKeypad) {
                 generateKeypad();
@@ -2168,12 +2169,19 @@
                 console.log('Total unique categories:', allCategories.length);
                 console.log('Categories to load:', allCategories.map(c => c.name));
 
-                
+                // ГЕНЕРИРУЕМ HTML для категорий
+                container.innerHTML = allCategories.map(category => `
+                    <div class="category-item" onclick="selectCategory('${category.name}')">
+                        <div class="category-icon">${category.icon}</div>
+                        <div class="category-name" style="font-size: 12px; margin-top: 4px;">${category.name}</div>
+                    </div>
+                `).join('');
 
                 console.log('✅ Categories HTML generated - NO DUPLICATES');
 
             } catch (error) {
                 console.error('❌ Error loading categories:', error);
+                container.innerHTML = '<div class="empty-state">Ошибка загрузки категорий</div>';
             }
         }
 
@@ -2635,7 +2643,7 @@
         }
 
         function displayAnalytics(data) {
-            // Общие суммы - ИСПРАВЛЕНО: убраны символы валют
+            // Общие суммы - БЕЗ символов валюты
             document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
             document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
 
@@ -2714,6 +2722,12 @@
                     const date = new Date(expense.created_at);
                     const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 
+                    const description = expense.description ? 
+                        `<div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px; margin-top: 4px; font-style: italic;">
+                            💬 "${expense.description}"
+                        </div>` : 
+                        '<div style="font-size: 12px; color: var(--text-muted); padding-left: 26px; margin-top: 4px;">Без комментария</div>';
+
                     expenseItem.innerHTML = `
                         <div style="flex: 1;">
                             <div style="display: flex; align-items: center; margin-bottom: 4px;">
@@ -2723,12 +2737,15 @@
                                     <div style="font-size: 11px; color: var(--text-muted);">${formattedDate}</div>
                                 </div>
                             </div>
-                            <div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px;">
-                                ${expense.description || '<span style="color: var(--text-muted); font-style: italic;">Без описания</span>'}
-                            </div>
+                            ${description}
                         </div>
-                        <div style="text-align: right; min-width: 80px;">
-                            <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount} ${expense.currency_symbol || ''}</div>
+                        <div style="text-align: right; min-width: 100px; display: flex; align-items: center; gap: 8px;">
+                            <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount}</div>
+                            <button onclick="deleteExpense(${expense.id})" 
+                                    style="background: #ff4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;"
+                                    title="Удалить трату">
+                                🗑️
+                            </button>
                         </div>
                     `;
                     container.appendChild(expenseItem);
@@ -2825,8 +2842,13 @@
                         </div>
                         ${description}
                     </div>
-                    <div style="text-align: right; min-width: 80px;">
-                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount} ${expense.currency || ''}</div>
+                    <div style="text-align: right; min-width: 100px; display: flex; align-items: center; gap: 8px;">
+                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount}</div>
+                        <button onclick="deleteExpense(${expense.id})" 
+                                style="background: #ff4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;"
+                                title="Удалить трату">
+                            🗑️
+                        </button>
                     </div>
                 `;
                 container.appendChild(expenseItem);
@@ -2900,6 +2922,46 @@
                 }
             });
         }    
+
+
+        async function deleteExpense(expenseId) {
+            if (!confirm('Вы уверены, что хотите удалить эту трату?')) {
+                return;
+            }
+
+            try {
+                showMessage('⏳ Удаляем трату...');
+                
+                const response = await fetch(`${API_URL}/delete_expense`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        initData: tg.initData,
+                        expenseId: expenseId
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка удаления траты');
+                }
+
+                showMessage('✅ Трата удалена');
+                
+                // Обновляем интерфейс
+                if (document.getElementById('expensesList').classList.contains('active')) {
+                    loadExpensesList();
+                }
+                if (document.getElementById('analytics').classList.contains('active')) {
+                    loadAnalytics();
+                }
+                loadDashboardKPI(state.currentSpaceId, true);
+                
+            } catch (error) {
+                console.error('❌ Error deleting expense:', error);
+                showMessage(`❌ Ошибка: ${error.message}`, 'error');
+            }
+        }
 
         async function exportToExcel() {
             console.log('=== 🎯 EXPORT TO EXCEL START ===');
@@ -3038,7 +3100,7 @@
                 return;
             }
 
-            // Статистика
+            // Статистика (без изменений)
             const totalAmount = expenses.reduce((sum, expense) => sum + expense.amount, 0);
             const expensesWithComments = expenses.filter(expense => expense.description && expense.description.trim() !== '').length;
 
@@ -3052,14 +3114,14 @@
                         </div>
                         <div style="text-align: right;">
                             <strong>💰 Сумма:</strong><br>
-                            ${totalAmount.toFixed(2)} ₽<br>
-                            В среднем: ${(totalAmount / expenses.length).toFixed(2)} ₽
+                            ${totalAmount.toFixed(0)}<br>
+                            В среднем: ${(totalAmount / expenses.length).toFixed(0)}
                         </div>
                     </div>
                 </div>
             `;
 
-            // Список трат
+            // Список трат с кнопками удаления
             expenses.forEach(expense => {
                 const date = new Date(expense.date);
                 const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
@@ -3079,22 +3141,28 @@
                 expenseItem.style.marginBottom = '12px';
                 expenseItem.style.borderRadius = '12px';
                 expenseItem.style.border = '1px solid var(--border-color)';
+                expenseItem.style.position = 'relative';
 
                 expenseItem.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
                             <div style="font-size: 24px;">${getCategoryIcon(expense.category)}</div>
-                            <div>
+                            <div style="flex: 1;">
                                 <div style="font-weight: 700; font-size: 16px;">${expense.category}</div>
                                 <div style="font-size: 12px; color: var(--text-muted);">
                                     ${formattedDate} • ${expense.user_name}
                                 </div>
                             </div>
                         </div>
-                        <div style="text-align: right;">
+                        <div style="text-align: right; display: flex; align-items: center; gap: 8px;">
                             <div style="font-weight: 700; color: #dc3545; font-size: 18px;">
-                                ${expense.amount} ${expense.currency}
+                                ${expense.amount}
                             </div>
+                            <button onclick="deleteExpense(${expense.id})" 
+                                    style="background: #ff4444; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-left: 8px;"
+                                    title="Удалить трату">
+                                🗑️
+                            </button>
                         </div>
                     </div>
                     ${descriptionHtml}
