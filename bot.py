@@ -774,6 +774,122 @@ def start_notification_scheduler():
     thread.start()
     logger.info("✅ Планировщик уведомлений запущен")
 
+def check_tables_exist():
+    """Проверка существования всех таблиц"""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Проверяем существование каждой таблицы
+        tables = [
+            'financial_spaces', 'space_members', 'expenses', 
+            'budgets', 'budget_alerts', 'user_categories'
+        ]
+        
+        for table in tables:
+            cursor.execute(f"""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = '{table}'
+                )
+            """)
+            exists = cursor.fetchone()[0]
+            
+            if exists:
+                logger.info(f"✅ Таблица {table} существует")
+            else:
+                logger.error(f"❌ Таблица {table} НЕ существует!")
+                # Создаем таблицу принудительно
+                create_missing_table(table, cursor)
+                logger.info(f"🔄 Таблица {table} создана принудительно")
+        
+        conn.commit()
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка проверки таблиц: {e}")
+    finally:
+        conn.close()
+
+def create_missing_table(table_name, cursor):
+    """Создание отсутствующей таблицы"""
+    if table_name == 'financial_spaces':
+        cursor.execute('''
+            CREATE TABLE financial_spaces (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                space_type TEXT DEFAULT 'personal',
+                created_by BIGINT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                invite_code TEXT UNIQUE,
+                is_active BOOLEAN DEFAULT TRUE
+            )
+        ''')
+    elif table_name == 'space_members':
+        cursor.execute('''
+            CREATE TABLE space_members (
+                id SERIAL PRIMARY KEY,
+                space_id INTEGER REFERENCES financial_spaces(id),
+                user_id BIGINT,
+                user_name TEXT,
+                role TEXT DEFAULT 'member',
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+    elif table_name == 'expenses':
+        cursor.execute('''
+            CREATE TABLE expenses (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT,
+                user_name TEXT,
+                space_id INTEGER REFERENCES financial_spaces(id),
+                amount REAL,
+                category TEXT,
+                description TEXT,
+                date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                currency TEXT DEFAULT 'RUB'
+            )
+        ''')
+    elif table_name == 'budgets':
+        cursor.execute('''
+            CREATE TABLE budgets (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT,
+                space_id INTEGER REFERENCES financial_spaces(id),
+                amount REAL,
+                month_year TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                currency TEXT DEFAULT 'RUB'
+            )
+        ''')
+    elif table_name == 'budget_alerts':
+        cursor.execute('''
+            CREATE TABLE budget_alerts (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT,
+                space_id INTEGER REFERENCES financial_spaces(id),
+                budget_amount REAL,
+                spent_amount REAL,
+                percentage REAL,
+                alert_type TEXT,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+    elif table_name == 'user_categories':
+        cursor.execute('''
+            CREATE TABLE user_categories (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT,
+                space_id INTEGER REFERENCES financial_spaces(id),
+                category_name TEXT,
+                category_icon TEXT,
+                is_custom BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+
 # ===== СУЩЕСТВУЮЩИЕ ФУНКЦИИ (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 def check_tesseract_installation():
     """Проверяем установлен ли Tesseract"""
@@ -1254,6 +1370,42 @@ def debug_database():
             'error': str(e)
         }), 500
 
+
+@flask_app.route('/admin/init-db')
+def admin_init_db():
+    """Принудительная инициализация базы данных"""
+    try:
+        init_db()
+        check_tables_exist()
+        return jsonify({"status": "success", "message": "База данных инициализирована"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+@flask_app.route('/admin/check-tables')
+def admin_check_tables():
+    """Проверка таблиц"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+            ORDER BY table_name
+        """)
+        
+        tables = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        
+        return jsonify({
+            "status": "success",
+            "tables_count": len(tables),
+            "tables": tables
+        })
+        
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 # ===== НОВЫЕ API ДЛЯ РАСШИРЕННОЙ АНАЛИТИКИ =====
 @flask_app.route('/get_advanced_analytics', methods=['POST'])
 def api_get_advanced_analytics():
@@ -3100,15 +3252,13 @@ def main():
         logger.error("❌ BOT_TOKEN не найден!")
         return
     
-    # ПРОВЕРКА ПОДКЛЮЧЕНИЯ К БД ПЕРВЫМ ДЕЛОМ
-    if not check_database_connection():
-        logger.error("🔴 КРИТИЧЕСКАЯ ОШИБКА: Не удалось подключиться к PostgreSQL!")
-        logger.error("🔴 Проверь DATABASE_URL в настройках Railway!")
-        return
-    
-    # Инициализация базы данных
-    logger.info("🗃️ Инициализация базы данных...")
+    # ПРИНУДИТЕЛЬНАЯ ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
+    logger.info("🗃️ ПРИНУДИТЕЛЬНАЯ инициализация базы данных...")
     init_db()
+    
+    # ПРОВЕРКА СОЗДАНИЯ ТАБЛИЦ
+    logger.info("🔍 Проверка создания таблиц...")
+    check_tables_exist()
     
     # Создаем приложение бота
     application = Application.builder().token(BOT_TOKEN).build()
@@ -3122,7 +3272,7 @@ def main():
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
-    # Запускаем Flask в отдельном потоке
+    # Запускаем Flask
     import threading
     port = int(os.environ.get('PORT', 5000))
     
@@ -3133,8 +3283,8 @@ def main():
     flask_thread.start()
     logger.info(f"🌐 Flask API запущен на порту {port}")
     
-    # Запускаем бота с обработкой ошибок
     logger.info("🤖 Запуск бота...")
+    application.run_polling()
     
     try:
         # Очищаем предыдущие обновления
