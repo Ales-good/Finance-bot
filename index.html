@@ -1230,55 +1230,27 @@
         }
 
         function setupSwipeNavigation() {
+            console.log('🔄 Swipe navigation initialized');
+            
             let startX = 0;
             let startY = 0;
-            let currentX = 0;
             const minSwipeDistance = 50;
-            const maxVerticalSwipe = 30;
-
-            // Правильный порядок вкладок согласно DOM
+            
             const tabs = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'];
 
-            function getCurrentTab() {
-                const activeTab = document.querySelector('.tab-content.active');
-                return activeTab ? activeTab.id : 'dashboard';
-            }
-
-            function switchToTab(tabName) {
-                console.log('🔄 Switching to tab via swipe:', tabName);
-                showTab(tabName);
-            }
-
             document.addEventListener('touchstart', e => {
-                // Игнорируем свайпы на элементах ввода и кнопках
+                // Игнорируем свайпы на интерактивных элементах
                 if (e.target.tagName === 'INPUT' || 
                     e.target.tagName === 'TEXTAREA' || 
                     e.target.tagName === 'SELECT' ||
                     e.target.closest('button') ||
-                    e.target.closest('.keypad-btn') ||
-                    e.target.closest('.space-card') ||
-                    e.target.closest('.category-item')) {
+                    e.target.closest('.keypad-btn')) {
                     return;
                 }
                 
                 startX = e.touches[0].clientX;
                 startY = e.touches[0].clientY;
-                currentX = startX;
-            });
-
-            document.addEventListener('touchmove', e => {
-                if (!startX) return;
-                
-                currentX = e.touches[0].clientX;
-                const diffX = startX - currentX;
-                
-                // Небольшая визуальная обратная связь при свайпе
-                if (Math.abs(diffX) > 10) {
-                    const activeContent = document.querySelector('.tab-content.active');
-                    if (activeContent) {
-                        activeContent.style.transform = `translateX(${diffX * 0.3}px)`;
-                    }
-                }
+                console.log('👆 Touch start at:', startX, startY);
             });
 
             document.addEventListener('touchend', e => {
@@ -1286,35 +1258,33 @@
                 
                 const endX = e.changedTouches[0].clientX;
                 const endY = e.changedTouches[0].clientY;
-                
                 const diffX = startX - endX;
                 const diffY = startY - endY;
 
-                // Сбрасываем трансформацию
-                const activeContent = document.querySelector('.tab-content.active');
-                if (activeContent) {
-                    activeContent.style.transform = 'translateX(0)';
-                }
+                console.log('🖐️ Touch end. Diff X:', diffX, 'Diff Y:', diffY);
 
-                // Игнорируем если это вертикальный скролл или маленький свайп
-                if (Math.abs(diffY) > maxVerticalSwipe || Math.abs(diffX) < minSwipeDistance) {
+                // Игнорируем вертикальные свайпы и маленькие движения
+                if (Math.abs(diffY) > Math.abs(diffX) || Math.abs(diffX) < minSwipeDistance) {
+                    console.log('❌ Ignored - vertical or small swipe');
                     startX = 0;
                     return;
                 }
 
-                const currentTab = getCurrentTab();
-                console.log('📱 Swipe detected. Current tab:', currentTab, 'DiffX:', diffX);
-                
-                const currentIndex = tabs.indexOf(currentTab);
+                const currentTab = document.querySelector('.tab-content.active');
+                if (!currentTab) {
+                    console.log('❌ No active tab found');
+                    return;
+                }
+
+                const currentTabId = currentTab.id;
+                const currentIndex = tabs.indexOf(currentTabId);
                 
                 if (currentIndex === -1) {
-                    console.error('❌ Tab not found:', currentTab);
-                    startX = 0;
+                    console.log('❌ Current tab not found in tabs array:', currentTabId);
                     return;
                 }
 
                 let newIndex;
-
                 if (diffX > 0) {
                     // Свайп влево - следующая вкладка
                     newIndex = Math.min(currentIndex + 1, tabs.length - 1);
@@ -1326,44 +1296,19 @@
                 }
 
                 if (newIndex !== currentIndex) {
-                    // Плавная анимация перехода
-                    if (activeContent) {
-                        activeContent.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
-                        activeContent.style.transform = diffX > 0 ? 'translateX(-100%)' : 'translateX(100%)';
-                        activeContent.style.opacity = '0';
-                    }
-                    
-                    setTimeout(() => {
-                        switchToTab(tabs[newIndex]);
-                        
-                        // Сбрасываем анимацию для новой вкладки
-                        setTimeout(() => {
-                            const newActiveContent = document.querySelector('.tab-content.active');
-                            if (newActiveContent) {
-                                newActiveContent.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
-                                newActiveContent.style.transform = 'translateX(0)';
-                                newActiveContent.style.opacity = '1';
-                            }
-                        }, 50);
-                        
-                    }, 150);
+                    console.log('✅ Switching from', tabs[currentIndex], 'to', tabs[newIndex]);
+                    showTab(tabs[newIndex]);
+                } else {
+                    console.log('ℹ️ Same tab, no switch needed');
                 }
 
                 startX = 0;
             });
 
-            // Добавляем CSS для свайпа
-            if (!document.querySelector('#swipe-styles')) {
-                const style = document.createElement('style');
-                style.id = 'swipe-styles';
-                style.textContent = `
-                    .tab-content {
-                        transition: transform 0.3s ease, opacity 0.3s ease !important;
-                        will-change: transform, opacity;
-                    }
-                `;
-                document.head.appendChild(style);
-            }
+            // Добавим визуальный индикатор что свайп работает
+            setTimeout(() => {
+                console.log('🎯 Swipe navigation ready! Try swiping left/right');
+            }, 1000);
         }
 
         // Убедитесь что функция showTab правильно обрабатывает все вкладки
