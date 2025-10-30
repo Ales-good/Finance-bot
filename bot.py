@@ -292,33 +292,28 @@ def check_database_connection():
         return False
 
 def get_db_connection():
-    """Подключение к базе данных с улучшенной диагностикой"""
+    """Подключение только к PostgreSQL (без SQLite fallback)"""
+    if 'DATABASE_URL' not in os.environ:
+        raise Exception("❌ DATABASE_URL не найден! Добавь в Railway Variables")
+    
+    database_url = os.environ['DATABASE_URL']
+    logger.info(f"🔗 Подключение к PostgreSQL: {database_url}")
+    
     try:
-        if 'DATABASE_URL' in os.environ:
-            database_url = os.environ['DATABASE_URL']
-            logger.info(f"🔗 Попытка подключения к PostgreSQL...")
-            logger.info(f"📡 HOST: {urlparse(database_url).hostname}")
-            logger.info(f"🎯 PORT: {urlparse(database_url).port}")
-            
-            parsed_url = urlparse(database_url)
-            conn = psycopg2.connect(
-                database=parsed_url.path[1:],
-                user=parsed_url.username,
-                password=parsed_url.password,
-                host=parsed_url.hostname,
-                port=parsed_url.port,
-                sslmode='require',
-                connect_timeout=10
-            )
-            logger.info("✅ Успешное подключение к PostgreSQL!")
-            return conn
-        else:
-            logger.warning("⚠️ DATABASE_URL не найден, используем SQLite")
-            return sqlite3.connect('finance.db', check_same_thread=False)
+        parsed_url = urlparse(database_url)
+        conn = psycopg2.connect(
+            database=parsed_url.path[1:],
+            user=parsed_url.username,
+            password=parsed_url.password,
+            host=parsed_url.hostname,
+            port=parsed_url.port,
+            sslmode='require'
+        )
+        logger.info("✅ Успешное подключение к PostgreSQL!")
+        return conn
     except Exception as e:
         logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
-        logger.warning("🔄 Используем SQLite как fallback")
-        return sqlite3.connect('finance.db', check_same_thread=False)
+        raise
 
 def init_db():
     """Инициализация базы данных"""
@@ -2611,6 +2606,40 @@ def api_delete_user_category():
         logger.error(f"❌ API Error in delete_user_category: {e}")
         return jsonify({'error': 'Internal server error'}), 500
     
+
+@flask_app.route('/debug/postgres')
+def debug_postgres():
+    """Проверка подключения к PostgreSQL"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Проверяем данные
+        cursor.execute("SELECT COUNT(*) as spaces_count FROM financial_spaces")
+        spaces_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) as expenses_count FROM expenses")
+        expenses_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT name FROM financial_spaces LIMIT 5")
+        spaces = [row[0] for row in cursor.fetchall()]
+        
+        conn.close()
+        
+        return jsonify({
+            "status": "success",
+            "database": "PostgreSQL",
+            "spaces_count": spaces_count,
+            "expenses_count": expenses_count,
+            "spaces": spaces,
+            "message": f"✅ Найдено {spaces_count} пространств и {expenses_count} трат"
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
 # ===== TELEGRAM BOT HANDLERS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 async def check_if_new_user(user_id: int) -> bool:
     """Проверяет, новый ли пользователь"""
