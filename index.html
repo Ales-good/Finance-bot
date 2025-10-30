@@ -3520,58 +3520,7 @@
             }
         }
 
-        // Обновите функцию showTab для загрузки данных при переходе на вкладку
-        function showTab(tabName) {
-            console.log('🔄 Switching to tab:', tabName);
-            
-            // Скрываем все вкладки
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Убираем активный класс со всех табов
-            document.querySelectorAll('.tabs .tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Показываем нужную вкладку
-            const targetTab = document.getElementById(tabName);
-            if (targetTab) {
-                targetTab.classList.add('active');
-                
-                // Активируем соответствующий таб в текущей вкладке
-                const currentTabs = targetTab.querySelector('.tabs');
-                if (currentTabs) {
-                    const tabs = currentTabs.querySelectorAll('.tab');
-                    tabs.forEach((tab, index) => {
-                        const targetIndex = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'].indexOf(tabName);
-                        if (index === targetIndex) {
-                            tab.classList.add('active');
-                        }
-                    });
-                }
-                
-                // Загружаем контент для конкретных вкладок
-                console.log('Loading tab content for:', tabName);
-                switch(tabName) {
-                    case 'expenses':
-                        loadExpensesTab();
-                        break;
-                    case 'analytics':
-                        loadAnalytics();
-                        break;
-                    case 'expensesList':
-                        loadSpacesForSelector('expensesListSpacesGrid', true); // ← ВАЖНО: загружаем пространства
-                        loadExpensesList();
-                        break;
-                    case 'spaces':
-                        loadSpaces();
-                        break;
-                }
-            } else {
-                console.error('❌ Tab not found:', tabName);
-            }
-        }
+        
         // Функция для загрузки быстрых пространств
         function loadQuickSpaces() {
             fetch(`${API_URL}/get_user_spaces`, {
