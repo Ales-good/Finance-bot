@@ -1159,7 +1159,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadState();
             initializeApp();
-            setupSwipeNavigation();
+            // setupSwipeNavigation(); // ← УДАЛИТЕ эту строку! Она теперь вызывается внутри initializeApp()
         });
 
         // ===== STATE MANAGEMENT =====
@@ -2154,24 +2154,7 @@
             }
         }
 
-        // Вызовите эту функцию при загрузке приложения
-        // Добавьте в функцию initializeApp():
-        function initializeApp() {
-            loadSpaces();
-            loadQuickSpaces();
-            generateKeypad();
-            handleStartParameters();
-            testDatabaseConnection(); // Добавьте эту строку
-            
-            // Загружаем пространства для всех вкладок
-            loadSpacesForSelector('expenseSpacesGrid', true);
-            loadSpacesForSelector('analyticsSpacesGrid', true);
-            loadSpacesForSelector('expensesListSpacesGrid', true);
-            
-            // Инициализируем свайп навигацию
-            setupSwipeNavigation();
-        }
-
+        
         // ===== EXPENSES TAB =====
         function loadExpensesTab() {
             console.log('=== loadExpensesTab() called ===');
@@ -3919,8 +3902,10 @@
             });
         }
 
-        // ===== INITIALIZE APP =====
+        // ОСТАВЬТЕ ТОЛЬКО ЭТУ ФУНКЦИЮ (строка 3923) и ДОПОЛНИТЕ ЕЕ:
         function initializeApp() {
+            console.log('🎪 INITIALIZE APP CALLED');
+            
             setupAutoUpdate();
             checkFirstTimeUser();
             loadSpaces();
@@ -3930,11 +3915,15 @@
             testDatabaseConnection();
             addDebugButtons();
             
+            // ДОБАВЬТЕ ЭТУ СТРОКУ (если ее нет):
+            setupSwipeNavigation();
+            
             // Загружаем пространства для всех вкладок
             loadSpacesForSelector('expenseSpacesGrid', true);
             loadSpacesForSelector('analyticsSpacesGrid', true);
-            loadSpacesForSelector('expensesListSpacesGrid', true); // ← ДОБАВЬТЕ ЭТУ СТРОКУ
+            loadSpacesForSelector('expensesListSpacesGrid', true);
         }
+
 
         // ===== CHARTS =====
                 let analyticsChart = null;
@@ -4040,36 +4029,6 @@
                 }
 
 
-                
-
-                // Вызовите в initializeApp
-                function initializeApp() {
-                    // ... существующий код
-                    addDebugDeleteButton(); // Добавьте эту строку
-                }
-                // === ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ДЛЯ УДАЛЕНИЯ ТРАТ ===
-                document.addEventListener('click', function(event) {
-                    // Проверяем, была ли нажата кнопка удаления траты
-                    const deleteBtn = event.target.closest('.delete-expense-btn');
-                    
-                    if (deleteBtn) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        
-                        // Получаем ID траты из data-атрибута
-                        const expenseId = deleteBtn.getAttribute('data-expense-id');
-                        
-                        if (expenseId) {
-                            console.log('🎯 Delete button clicked, expenseId:', expenseId);
-                            showMessage(`🗑️ Удаляем трату ID: ${expenseId}`);
-                            deleteExpense(expenseId);
-                        } else {
-                            console.error('❌ No expense ID found on button');
-                            showMessage('❌ Ошибка: ID траты не найден', 'error');
-                        }
-                    }
-                });
-
                 // === УПРОЩЕННАЯ ФУНКЦИЯ УДАЛЕНИЯ ===
                 async function deleteExpense(expenseId) {
                     console.log('=== 🗑️ DELETE EXPENSE DEBUG FRONTEND ===');
@@ -4133,6 +4092,10 @@
                         showMessage(`❌ Ошибка: ${error.message}`, 'error');
                     }
                 }
+                // === ИНИЦИАЛИЗАЦИЯ СВАЙПА ===
+                console.log('🚀 Initializing swipe navigation...');
+                setupSwipeNavigation();
+                console.log('✅ Swipe navigation setup complete');
     </script>
 </body>
 </html>
