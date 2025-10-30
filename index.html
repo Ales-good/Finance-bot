@@ -604,20 +604,26 @@
 
         /* Swipe support */
         .tab-content {
-            transition: transform 0.2s ease-out;
-            touch-action: pan-y pinch-zoom;
+            display: none;
+            /* ДОБАВЬТЕ ЭТИ СТРОКИ: */
+            transform: translateX(0);
+            transition: transform 0.3s ease, opacity 0.3s ease;
         }
 
         body {
             overflow-x: hidden;
         }
-
         .container {
-            width: 100%;
             max-width: 400px;
             margin: 0 auto;
+            /* ДОБАВЬТЕ ЭТИ СТРОКИ: */
+            overflow-x: hidden;
             position: relative;
         }
+
+        .tab-content.active {
+            display: block;
+        }      
 
         .swipe-left {
             transform: translateX(-100%);
@@ -1226,10 +1232,11 @@
         function setupSwipeNavigation() {
             let startX = 0;
             let startY = 0;
+            let currentX = 0;
             const minSwipeDistance = 50;
             const maxVerticalSwipe = 30;
 
-            // ВСЕ вкладки в правильном порядке
+            // Правильный порядок вкладок согласно DOM
             const tabs = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'];
 
             function getCurrentTab() {
@@ -1237,22 +1244,45 @@
                 return activeTab ? activeTab.id : 'dashboard';
             }
 
+            function switchToTab(tabName) {
+                console.log('🔄 Switching to tab via swipe:', tabName);
+                showTab(tabName);
+            }
+
             document.addEventListener('touchstart', e => {
-                // Игнорируем свайпы на элементах ввода
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                // Игнорируем свайпы на элементах ввода и кнопках
+                if (e.target.tagName === 'INPUT' || 
+                    e.target.tagName === 'TEXTAREA' || 
+                    e.target.tagName === 'SELECT' ||
+                    e.target.closest('button') ||
+                    e.target.closest('.keypad-btn') ||
+                    e.target.closest('.space-card') ||
+                    e.target.closest('.category-item')) {
                     return;
                 }
+                
                 startX = e.touches[0].clientX;
                 startY = e.touches[0].clientY;
+                currentX = startX;
+            });
+
+            document.addEventListener('touchmove', e => {
+                if (!startX) return;
+                
+                currentX = e.touches[0].clientX;
+                const diffX = startX - currentX;
+                
+                // Небольшая визуальная обратная связь при свайпе
+                if (Math.abs(diffX) > 10) {
+                    const activeContent = document.querySelector('.tab-content.active');
+                    if (activeContent) {
+                        activeContent.style.transform = `translateX(${diffX * 0.3}px)`;
+                    }
+                }
             });
 
             document.addEventListener('touchend', e => {
-                // Игнорируем свайпы на элементах ввода
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-                    return;
-                }
-
-                if (!e.changedTouches[0]) return;
+                if (!startX || !e.changedTouches[0]) return;
                 
                 const endX = e.changedTouches[0].clientX;
                 const endY = e.changedTouches[0].clientY;
@@ -1260,8 +1290,15 @@
                 const diffX = startX - endX;
                 const diffY = startY - endY;
 
-                // Игнорируем если это вертикальный скролл
+                // Сбрасываем трансформацию
+                const activeContent = document.querySelector('.tab-content.active');
+                if (activeContent) {
+                    activeContent.style.transform = 'translateX(0)';
+                }
+
+                // Игнорируем если это вертикальный скролл или маленький свайп
                 if (Math.abs(diffY) > maxVerticalSwipe || Math.abs(diffX) < minSwipeDistance) {
+                    startX = 0;
                     return;
                 }
 
@@ -1272,6 +1309,7 @@
                 
                 if (currentIndex === -1) {
                     console.error('❌ Tab not found:', currentTab);
+                    startX = 0;
                     return;
                 }
 
@@ -1288,27 +1326,30 @@
                 }
 
                 if (newIndex !== currentIndex) {
-                    // Визуальная обратная связь
-                    const activeContent = document.querySelector('.tab-content.active');
+                    // Плавная анимация перехода
                     if (activeContent) {
-                        activeContent.style.transform = diffX > 0 ? 'translateX(-20px)' : 'translateX(20px)';
-                        activeContent.style.opacity = '0.7';
-                        
-                        setTimeout(() => {
-                            showTab(tabs[newIndex]);
-                            // Сбрасываем трансформацию после переключения
-                            setTimeout(() => {
-                                const newActiveContent = document.querySelector('.tab-content.active');
-                                if (newActiveContent) {
-                                    newActiveContent.style.transform = 'translateX(0)';
-                                    newActiveContent.style.opacity = '1';
-                                }
-                            }, 50);
-                        }, 150);
-                    } else {
-                        showTab(tabs[newIndex]);
+                        activeContent.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+                        activeContent.style.transform = diffX > 0 ? 'translateX(-100%)' : 'translateX(100%)';
+                        activeContent.style.opacity = '0';
                     }
+                    
+                    setTimeout(() => {
+                        switchToTab(tabs[newIndex]);
+                        
+                        // Сбрасываем анимацию для новой вкладки
+                        setTimeout(() => {
+                            const newActiveContent = document.querySelector('.tab-content.active');
+                            if (newActiveContent) {
+                                newActiveContent.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+                                newActiveContent.style.transform = 'translateX(0)';
+                                newActiveContent.style.opacity = '1';
+                            }
+                        }, 50);
+                        
+                    }, 150);
                 }
+
+                startX = 0;
             });
 
             // Добавляем CSS для свайпа
@@ -1317,7 +1358,7 @@
                 style.id = 'swipe-styles';
                 style.textContent = `
                     .tab-content {
-                        transition: all 0.3s ease !important;
+                        transition: transform 0.3s ease, opacity 0.3s ease !important;
                         will-change: transform, opacity;
                     }
                 `;
@@ -1329,9 +1370,12 @@
         function showTab(tabName) {
             console.log('🔄 Switching to tab:', tabName);
             
-            // Скрываем все вкладки
+            // Сбрасываем анимации у всех вкладок
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.remove('active');
+                tab.style.transform = 'translateX(0)';
+                tab.style.opacity = '1';
+                tab.style.transition = 'none';
             });
             
             // Убираем активный класс со всех табов
@@ -1348,10 +1392,12 @@
                 const currentTabs = targetTab.querySelector('.tabs');
                 if (currentTabs) {
                     const tabs = currentTabs.querySelectorAll('.tab');
-                    const tabIndex = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'].indexOf(tabName);
-                    if (tabIndex !== -1 && tabs[tabIndex]) {
-                        tabs[tabIndex].classList.add('active');
-                    }
+                    tabs.forEach((tab, index) => {
+                        const targetIndex = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'].indexOf(tabName);
+                        if (index === targetIndex) {
+                            tab.classList.add('active');
+                        }
+                    });
                 }
                 
                 // Загружаем контент для конкретных вкладок
@@ -1371,7 +1417,6 @@
                         loadSpaces();
                         break;
                     case 'dashboard':
-                        // Для дашборда просто обновляем данные если нужно
                         if (state.currentSpaceId) {
                             loadDashboardKPI();
                         }
