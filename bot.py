@@ -1,5 +1,5 @@
 # Flask imports
-from flask import Flask, request, jsonify, Response  # ← Важно: Response здесь
+from flask import Flask, request, jsonify, Response, send_file  # ← ДОБАВЬТЕ send_file
 import logging
 from threading import Thread
 import time
@@ -28,29 +28,7 @@ from flask_cors import CORS
 import hashlib
 import hmac
 import asyncio
-import traceback  # ← Добавьте если используете traceback
-
-
-# ДОБАВЬТЕ ПОСЛЕ ИМПОРТОВ И ДО ОСНОВНЫХ API МАРШРУТОВ
-
-@app.route('/')
-def index():
-    """Главная страница с Web App"""
-    try:
-        return send_file('index.html')
-    except FileNotFoundError:
-        # Fallback если HTML файла нет
-        return {
-            "status": "ok", 
-            "message": "Finance Bot API is running",
-            "webapp_url": "https://web-production-4c423.up.railway.app/webapp"
-        }
-
-@app.route('/webapp')
-def webapp():
-    """Web App endpoint"""
-    return send_file('index.html')
-
+import traceback
 
 # Настройка логирования
 logging.basicConfig(
@@ -74,6 +52,26 @@ if not BOT_TOKEN:
 # ===== НОВЫЕ КОНСТАНТЫ ДЛЯ УВЕДОМЛЕНИЙ =====
 BUDGET_ALERT_THRESHOLDS = [0.8, 0.9, 1.0]  # 80%, 90%, 100%
 DAILY_REPORT_HOUR = 20  # Время отправки ежедневного отчета (20:00)
+
+# ===== ВАЖНО: ДОБАВЬТЕ МАРШРУТЫ ПОСЛЕ СОЗДАНИЯ flask_app =====
+
+@flask_app.route('/')  # ← ИСПОЛЬЗУЙТЕ flask_app вместо app
+def index():
+    """Главная страница с Web App"""
+    try:
+        return send_file('index.html')
+    except FileNotFoundError:
+        # Fallback если HTML файла нет
+        return {
+            "status": "ok", 
+            "message": "Finance Bot API is running",
+            "webapp_url": "https://web-production-4c423.up.railway.app/webapp"
+        }
+
+@flask_app.route('/webapp')  # ← ИСПОЛЬЗУЙТЕ flask_app вместо app
+def webapp():
+    """Web App endpoint"""
+    return send_file('index.html')
 
 # ===== УЛУЧШЕННАЯ ВАЛИДАЦИЯ WEBAPP DATA =====
 def validate_webapp_data(init_data):
