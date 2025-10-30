@@ -43,7 +43,7 @@ CORS(flask_app)
 
 # ===== КОНФИГУРАЦИЯ =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '7911885739:AAGrMekWmLgz_ej8JDFqG-CbDA5Nie7vKFc')
-WEB_APP_URL = os.environ.get('WEB_APP_URL', 'https://web-production-4c423.up.railway.app')
+WEB_APP_URL = os.environ.get('WEB_APP_URL', 'https://web-production-4c423.up.railway.app/webapp')
 DEV_MODE = os.environ.get('DEV_MODE', 'False').lower() == 'true'  # Режим разработки
 
 if not BOT_TOKEN:
@@ -2431,7 +2431,19 @@ async def check_if_new_user(user_id: int) -> bool:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+     # Проверяем URL
+    web_app_url = WEB_APP_URL
+    if not web_app_url.startswith('https://'):
+        logger.error(f"❌ Invalid Web App URL: {web_app_url}")
+        await update.message.reply_text(
+            "❌ Ошибка конфигурации бота. Свяжитесь с администратором."
+        )
+        return
     
+    keyboard = [
+        [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=web_app_url))]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     # ДИАГНОСТИКА
     print(f"=== 🚀 START COMMAND CALLED ===")
     print(f"👤 User: {user.id} - {user.first_name}")
