@@ -1514,14 +1514,15 @@ def api_get_expenses_list():
         
         conn = get_db_connection()
         
+        # ВАЖНО: Добавляем e.id в SELECT!
         if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name
+            query = '''SELECT e.id, e.date, e.amount, e.currency, e.category, e.description, e.user_name
                       FROM expenses e
                       WHERE e.space_id = ? AND e.date >= DATE('now', ?)
                       ORDER BY e.date DESC'''
             df = pd.read_sql_query(query, conn, params=(space_id, f'-{period} days'))
         else:
-            query = '''SELECT e.date, e.amount, e.currency, e.category, e.description, e.user_name
+            query = '''SELECT e.id, e.date, e.amount, e.currency, e.category, e.description, e.user_name
                       FROM expenses e
                       WHERE e.space_id = %s AND e.date >= CURRENT_DATE - INTERVAL '%s days'
                       ORDER BY e.date DESC'''
@@ -1529,24 +1530,25 @@ def api_get_expenses_list():
         
         conn.close()
         
-        # Конвертируем в список словарей
+        # Преобразуем в список словарей
         expenses = []
         for _, row in df.iterrows():
-            expense = {
-                'date': row['date'].isoformat() if hasattr(row['date'], 'isoformat') else str(row['date']),
-                'amount': float(row['amount']),
+            expenses.append({
+                'id': row['id'],  # ТЕПЕРЬ ID БУДЕТ ПЕРЕДАВАТЬСЯ!
+                'date': row['date'],
+                'amount': row['amount'],
                 'currency': row['currency'],
                 'category': row['category'],
-                'description': row['description'] if row['description'] else None,
+                'description': row['description'],
                 'user_name': row['user_name']
-            }
-            expenses.append(expense)
+            })
         
         return jsonify({'expenses': expenses})
         
     except Exception as e:
-        logger.error(f"❌ API Error in get_expenses_list: {e}")
+        print(f"Error in get_expenses_list: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+    
 # ===== СУЩЕСТВУЮЩИЕ API ENDPOINTS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 @flask_app.route('/delete_expense', methods=['POST', 'OPTIONS'])
 def api_delete_expense():
