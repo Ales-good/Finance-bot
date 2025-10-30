@@ -398,70 +398,100 @@ def init_db():
             
         else:
             # PostgreSQL - ИСПРАВЛЕННЫЙ код
-            c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces (
-                         id SERIAL PRIMARY KEY,
-                         name TEXT NOT NULL,
-                         description TEXT,
-                         space_type TEXT DEFAULT 'personal',
-                         created_by BIGINT,
-                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                         invite_code TEXT UNIQUE,
-                         is_active BOOLEAN DEFAULT TRUE
-                     )''')
+            logger.info("🗃️ Создание таблиц в PostgreSQL...")
             
-            c.execute('''CREATE TABLE IF NOT EXISTS space_members (
-                         id SERIAL PRIMARY KEY,
-                         space_id INTEGER REFERENCES financial_spaces(id),
-                         user_id BIGINT,
-                         user_name TEXT,
-                         role TEXT DEFAULT 'member',
-                         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                     )''')
+            # СОЗДАЕМ ТАБЛИЦЫ ПО ОДНОЙ в правильном порядке
+            tables_sql = [
+                # 1. financial_spaces - ДОЛЖНА БЫТЬ ПЕРВОЙ (главная таблица)
+                '''CREATE TABLE IF NOT EXISTS financial_spaces (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    space_type TEXT DEFAULT 'personal',
+                    created_by BIGINT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    invite_code TEXT UNIQUE,
+                    is_active BOOLEAN DEFAULT TRUE
+                )''',
+                
+                # 2. space_members - зависит от financial_spaces
+                '''CREATE TABLE IF NOT EXISTS space_members (
+                    id SERIAL PRIMARY KEY,
+                    space_id INTEGER REFERENCES financial_spaces(id),
+                    user_id BIGINT,
+                    user_name TEXT,
+                    role TEXT DEFAULT 'member',
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )''',
+                
+                # 3. expenses - зависит от financial_spaces
+                '''CREATE TABLE IF NOT EXISTS expenses (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    user_name TEXT,
+                    space_id INTEGER REFERENCES financial_spaces(id),
+                    amount REAL,
+                    category TEXT,
+                    description TEXT,
+                    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    currency TEXT DEFAULT 'RUB'
+                )''',
+                
+                # 4. budgets - зависит от financial_spaces
+                '''CREATE TABLE IF NOT EXISTS budgets (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    space_id INTEGER REFERENCES financial_spaces(id),
+                    amount REAL,
+                    month_year TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    currency TEXT DEFAULT 'RUB'
+                )''',
+                
+                # 5. budget_alerts - зависит от financial_spaces
+                '''CREATE TABLE IF NOT EXISTS budget_alerts (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    space_id INTEGER REFERENCES financial_spaces(id),
+                    budget_amount REAL,
+                    spent_amount REAL,
+                    percentage REAL,
+                    alert_type TEXT,
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )''',
+                
+                # 6. user_categories - зависит от financial_spaces
+                '''CREATE TABLE IF NOT EXISTS user_categories (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    space_id INTEGER REFERENCES financial_spaces(id),
+                    category_name TEXT,
+                    category_icon TEXT,
+                    is_custom BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )'''
+            ]
             
-            c.execute('''CREATE TABLE IF NOT EXISTS expenses (
-                         id SERIAL PRIMARY KEY,
-                         user_id BIGINT,
-                         user_name TEXT,
-                         space_id INTEGER REFERENCES financial_spaces(id),
-                         amount REAL,
-                         category TEXT,
-                         description TEXT,
-                         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                         currency TEXT DEFAULT 'RUB'
-                     )''')
+            # ВЫПОЛНЯЕМ КАЖДЫЙ CREATE TABLE отдельно с обработкой ошибок
+            table_names = [
+                "financial_spaces", "space_members", "expenses", 
+                "budgets", "budget_alerts", "user_categories"
+            ]
             
-            c.execute('''CREATE TABLE IF NOT EXISTS budgets (
-                         id SERIAL PRIMARY KEY,
-                         user_id BIGINT,
-                         space_id INTEGER REFERENCES financial_spaces(id),
-                         amount REAL,
-                         month_year TEXT,
-                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                         currency TEXT DEFAULT 'RUB'
-                     )''')
+            for i, (sql, table_name) in enumerate(zip(tables_sql, table_names)):
+                try:
+                    c.execute(sql)
+                    logger.info(f"✅ Таблица {i+1}/6: {table_name}")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка создания таблицы {table_name}: {e}")
+                    # Продолжаем создавать остальные таблицы
+                    continue
             
-            c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts (
-                         id SERIAL PRIMARY KEY,
-                         user_id BIGINT,
-                         space_id INTEGER REFERENCES financial_spaces(id),
-                         budget_amount REAL,
-                         spent_amount REAL,
-                         percentage REAL,
-                         alert_type TEXT,
-                         sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                     )''')
-            
-            c.execute('''CREATE TABLE IF NOT EXISTS user_categories (
-                         id SERIAL PRIMARY KEY,
-                         user_id BIGINT,
-                         space_id INTEGER REFERENCES financial_spaces(id),
-                         category_name TEXT,
-                         category_icon TEXT,
-                         is_custom BOOLEAN DEFAULT TRUE,
-                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                     )''')
+            conn.commit()
+            logger.info("✅ Все таблицы созданы/проверены")
         
-        # Проверяем создание таблиц
+        # ПРОВЕРЯЕМ СОЗДАНИЕ ТАБЛИЦ
+        logger.info("🔍 Проверка существования таблиц...")
         if db_type == "sqlite":
             c.execute("SELECT name FROM sqlite_master WHERE type='table'")
         else:
@@ -472,7 +502,8 @@ def init_db():
         for table in tables:
             logger.info(f"   - {table[0]}")
         
-        # Добавляем стандартные категории если их нет
+        # ДОБАВЛЯЕМ СТАНДАРТНЫЕ КАТЕГОРИИ ЕСЛИ ИХ НЕТ
+        logger.info("📝 Добавление стандартных категорий...")
         default_categories = [
             ('Продукты', '🛒'),
             ('Кафе', '☕'),
@@ -486,27 +517,48 @@ def init_db():
             ('Другое', '❓')
         ]
         
+        # ДЛЯ POSTGRESQL: сначала создаем системное пространство если нужно
+        if db_type == "postgresql":
+            try:
+                # Пытаемся создать системное пространство для категорий
+                c.execute('''
+                    INSERT INTO financial_spaces (id, name, description, space_type, created_by, invite_code, is_active)
+                    VALUES (0, 'Системное пространство', 'Для стандартных категорий', 'system', 0, 'SYSTEM_0', TRUE)
+                    ON CONFLICT (id) DO NOTHING
+                ''')
+                logger.info("✅ Системное пространство для категорий создано/проверено")
+            except Exception as e:
+                logger.warning(f"⚠️ Системное пространство: {e}")
+        
+        # ДОБАВЛЯЕМ КАТЕГОРИИ
+        categories_added = 0
         for category_name, icon in default_categories:
-            if db_type == "sqlite":
-                c.execute('''INSERT OR IGNORE INTO user_categories 
-                             (user_id, space_id, category_name, category_icon, is_custom) 
-                             VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
-            else:
-                # Для PostgreSQL используем ON CONFLICT
-                c.execute('''INSERT INTO user_categories 
-                             (user_id, space_id, category_name, category_icon, is_custom) 
-                             VALUES (0, 0, %s, %s, FALSE)
-                             ON CONFLICT DO NOTHING''', (category_name, icon))
+            try:
+                if db_type == "sqlite":
+                    c.execute('''INSERT OR IGNORE INTO user_categories 
+                                 (user_id, space_id, category_name, category_icon, is_custom) 
+                                 VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
+                else:
+                    c.execute('''INSERT INTO user_categories 
+                                 (user_id, space_id, category_name, category_icon, is_custom) 
+                                 VALUES (0, 0, %s, %s, FALSE)
+                                 ON CONFLICT DO NOTHING''', (category_name, icon))
+                categories_added += 1
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось добавить категорию '{category_name}': {e}")
+                continue
         
         conn.commit()
-        logger.info("✅ База данных успешно инициализирована")
+        logger.info(f"✅ Добавлено стандартных категорий: {categories_added}/{len(default_categories)}")
+        logger.info("🎉 База данных успешно инициализирована!")
         
     except Exception as e:
-        logger.error(f"❌ Ошибка инициализации базы данных: {e}")
+        logger.error(f"❌ Критическая ошибка инициализации базы данных: {e}")
         import traceback
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
         if conn:
             conn.rollback()
+        # НЕ ПЕРЕДАЕМ ОШИБКУ ДАЛЬШЕ - пробуем работать в любом случае
     finally:
         if conn:
             conn.close()
@@ -1406,7 +1458,93 @@ def admin_check_tables():
         
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
-# ===== НОВЫЕ API ДЛЯ РАСШИРЕННОЙ АНАЛИТИКИ =====
+# ===== ОБНУЛЕНИЕ БД ПЕРЕСОСДАНИЕ!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! =====
+@flask_app.route('/admin/reset-db')
+def admin_reset_db():
+    """ПОЛНЫЙ сброс и пересоздание базы данных"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # УДАЛЯЕМ ВСЕ ТАБЛИЦЫ (в правильном порядке из-за foreign keys)
+        tables = [
+            'budget_alerts', 'user_categories', 'expenses', 
+            'budgets', 'space_members', 'financial_spaces'
+        ]
+        
+        for table in tables:
+            try:
+                cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+                logger.info(f"🗑️ Удалена таблица: {table}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка удаления {table}: {e}")
+        
+        conn.commit()
+        
+        # ПЕРЕСОЗДАЕМ ВСЕ ТАБЛИЦЫ
+        init_db()
+        
+        return jsonify({
+            "status": "success", 
+            "message": "База данных полностью пересоздана"
+        })
+        
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+@flask_app.route('/admin/init-db')
+def admin_init_db():
+    """Принудительная инициализация базы данных"""
+    try:
+        init_db()
+        return jsonify({"status": "success", "message": "База данных инициализирована"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+@flask_app.route('/admin/check-db')
+def admin_check_db():
+    """Проверка состояния базы данных"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if isinstance(conn, sqlite3.Connection):
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            # Считаем записи
+            cursor.execute("SELECT COUNT(*) FROM financial_spaces")
+            spaces_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM expenses")
+            expenses_count = cursor.fetchone()[0]
+            
+        else:
+            cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            cursor.execute("SELECT COUNT(*) FROM financial_spaces")
+            spaces_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM expenses")
+            expenses_count = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return jsonify({
+            "status": "success",
+            "database_type": "SQLite" if isinstance(conn, sqlite3.Connection) else "PostgreSQL",
+            "tables_count": len(tables),
+            "tables": tables,
+            "spaces_count": spaces_count,
+            "expenses_count": expenses_count
+        })
+        
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+        
+
 @flask_app.route('/get_advanced_analytics', methods=['POST'])
 def api_get_advanced_analytics():
     """Расширенная аналитика с графиками и сравнениями"""
