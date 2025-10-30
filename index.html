@@ -604,7 +604,27 @@
 
         /* Swipe support */
         .tab-content {
-            touch-action: pan-y;
+            transition: transform 0.2s ease-out;
+            touch-action: pan-y pinch-zoom;
+        }
+
+        body {
+            overflow-x: hidden;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .swipe-left {
+            transform: translateX(-100%);
+        }
+
+        .swipe-right {
+            transform: translateX(100%);
         }
         .expense-item {
             transition: all 0.3s ease;
@@ -1206,9 +1226,10 @@
         function setupSwipeNavigation() {
             let startX = 0;
             let startY = 0;
-            const minSwipeDistance = 80; // Увеличили с 50 до 80
-            const maxVerticalSwipe = 30; // Максимальное вертикальное отклонение
+            const minSwipeDistance = 50;
+            const maxVerticalSwipe = 30;
 
+            // ВСЕ вкладки в правильном порядке
             const tabs = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'];
 
             function getCurrentTab() {
@@ -1222,6 +1243,8 @@
             });
 
             document.addEventListener('touchend', e => {
+                if (!e.changedTouches[0]) return;
+                
                 const endX = e.changedTouches[0].clientX;
                 const endY = e.changedTouches[0].clientY;
                 
@@ -1236,6 +1259,9 @@
                 if (Math.abs(diffX) > minSwipeDistance) {
                     const currentTab = getCurrentTab();
                     const currentIndex = tabs.indexOf(currentTab);
+                    
+                    if (currentIndex === -1) return; // если вкладка не найдена
+
                     let newIndex;
 
                     if (diffX > 0) {
@@ -1248,25 +1274,91 @@
 
                     if (newIndex !== currentIndex) {
                         showTab(tabs[newIndex]);
+                        
+                        // Визуальная обратная связь
+                        const activeContent = document.querySelector('.tab-content.active');
+                        activeContent.style.transform = diffX > 0 ? 'translateX(-10px)' : 'translateX(10px)';
+                        setTimeout(() => {
+                            activeContent.style.transform = 'translateX(0)';
+                        }, 200);
                     }
                 }
             });
-        
 
-            // Добавляем CSS для улучшения свайпа
-            const style = document.createElement('style');
-            style.textContent = `
-                .tab-content {
-                    transition: transform 0.3s ease;
+            // Добавляем CSS для свайпа
+            if (!document.querySelector('#swipe-styles')) {
+                const style = document.createElement('style');
+                style.id = 'swipe-styles';
+                style.textContent = `
+                    .tab-content {
+                        transition: transform 0.3s ease;
+                    }
+                    .swipe-left {
+                        transform: translateX(-100%);
+                    }
+                    .swipe-right {
+                        transform: translateX(100%);
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+        }
+
+        // Убедитесь что функция showTab правильно обрабатывает все вкладки
+        function showTab(tabName) {
+            console.log('🔄 Switching to tab:', tabName);
+            
+            // Скрываем все вкладки
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Убираем активный класс со всех табов
+            document.querySelectorAll('.tabs .tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Показываем нужную вкладку
+            const targetTab = document.getElementById(tabName);
+            if (targetTab) {
+                targetTab.classList.add('active');
+                
+                // Активируем соответствующий таб в текущей вкладке
+                const currentTabs = targetTab.querySelector('.tabs');
+                if (currentTabs) {
+                    const tabs = currentTabs.querySelectorAll('.tab');
+                    const tabIndex = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'].indexOf(tabName);
+                    if (tabIndex !== -1 && tabs[tabIndex]) {
+                        tabs[tabIndex].classList.add('active');
+                    }
                 }
-                .swipe-left {
-                    transform: translateX(-100%);
+                
+                // Загружаем контент для конкретных вкладок
+                console.log('Loading tab content for:', tabName);
+                switch(tabName) {
+                    case 'expenses':
+                        loadExpensesTab();
+                        break;
+                    case 'analytics':
+                        loadAnalytics();
+                        break;
+                    case 'expensesList':
+                        loadSpacesForSelector('expensesListSpacesGrid', true);
+                        loadExpensesList();
+                        break;
+                    case 'spaces':
+                        loadSpaces();
+                        break;
+                    case 'dashboard':
+                        // Для дашборда просто обновляем данные если нужно
+                        if (state.currentSpaceId) {
+                            loadDashboardKPI();
+                        }
+                        break;
                 }
-                .swipe-right {
-                    transform: translateX(100%);
-                }
-            `;
-            document.head.appendChild(style);
+            } else {
+                console.error('❌ Tab not found:', tabName);
+            }
         }
 
         // ===== CURRENCY MANAGEMENT =====
