@@ -2355,74 +2355,10 @@ def api_remove_member():
 
 # ===== TELEGRAM BOT HANDLERS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 async def check_if_new_user(user_id: int) -> bool:
-    """Проверяет, является ли пользователь новым (по таблице пользователей)"""
-    conn = get_db_connection()
-    try:
-        # Сначала проверяем существующую таблицу space_members
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT COUNT(*) as count FROM space_members WHERE user_id = ?'''
-            result = pd.read_sql_query(query, conn, params=(user_id,))
-        else:
-            query = '''SELECT COUNT(*) as count FROM space_members WHERE user_id = %s'''
-            result = pd.read_sql_query(query, conn, params=(user_id,))
-        
-        member_count = result.iloc[0]['count']
-        
-        # Если пользователь не состоит в пространствах, проверяем таблицу пользователей
-        if member_count == 0:
-            # Проверяем, есть ли пользователь в таблице бота (если есть такая)
-            try:
-                if isinstance(conn, sqlite3.Connection):
-                    user_query = '''SELECT COUNT(*) as count FROM bot_users WHERE user_id = ?'''
-                    user_result = pd.read_sql_query(user_query, conn, params=(user_id,))
-                else:
-                    user_query = '''SELECT COUNT(*) as count FROM bot_users WHERE user_id = %s'''
-                    user_result = pd.read_sql_query(user_query, conn, params=(user_id,))
-                
-                # Если нет записи в bot_users - пользователь новый
-                return user_result.iloc[0]['count'] == 0
-                
-            except Exception:
-                # Если таблицы bot_users нет, считаем по space_members
-                return True
-        
-        return False
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка проверки нового пользователя: {e}")
-        return True
-    finally:
-        conn.close()
+    """Упрощенная проверка - всегда показываем расширенное приветствие"""
+    return True  # Или False если хотите всегда короткое приветствие
 
 
-async def check_if_new_user(user_id: int) -> bool:
-    """Проверяет, является ли пользователь новым"""
-    conn = get_db_connection()
-    try:
-        if isinstance(conn, sqlite3.Connection):
-            # Для SQLite
-            query = '''
-                SELECT COUNT(*) as count FROM space_members 
-                WHERE user_id = ?
-            '''
-            result = pd.read_sql_query(query, conn, params=(user_id,))
-        else:
-            # Для PostgreSQL
-            query = '''
-                SELECT COUNT(*) as count FROM space_members 
-                WHERE user_id = %s
-            '''
-            result = pd.read_sql_query(query, conn, params=(user_id,))
-        
-        # Если пользователь не состоит ни в одном пространстве - он новый
-        return result.iloc[0]['count'] == 0
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка проверки нового пользователя: {e}")
-        # В случае ошибки считаем пользователя новым
-        return True
-    finally:
-        conn.close()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -2486,25 +2422,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML'
     )
 
-async def check_if_new_user(user_id):
-    """Проверяет, новый ли пользователь"""
-    conn = get_db_connection()
-    try:
-        if isinstance(conn, sqlite3.Connection):
-            query = '''SELECT 1 FROM space_members WHERE user_id = ? LIMIT 1'''
-            df = pd.read_sql_query(query, conn, params=(user_id,))
-        else:
-            query = '''SELECT 1 FROM space_members WHERE user_id = %s LIMIT 1'''
-            df = pd.read_sql_query(query, conn, params=(user_id,))
-        
-        # Если пользователь не найден в space_members - он новый
-        return df.empty
-        
-    except Exception as e:
-        logger.error(f"❌ Error checking if user is new: {e}")
-        return True  # В случае ошибки считаем пользователя новым
-    finally:
-        conn.close()
+
         
 @flask_app.route('/delete_user_category', methods=['POST'])
 def api_delete_user_category():
