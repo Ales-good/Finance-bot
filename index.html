@@ -1205,9 +1205,12 @@
 
         function setupSwipeNavigation() {
             let startX = 0;
+            let startY = 0;
+            const minSwipeDistance = 80; // Увеличили с 50 до 80
+            const maxVerticalSwipe = 30; // Максимальное вертикальное отклонение
+
             const tabs = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'];
 
-            // Функция для получения текущей активной вкладки
             function getCurrentTab() {
                 const activeTab = document.querySelector('.tab-content.active');
                 return activeTab ? activeTab.id : 'dashboard';
@@ -1215,18 +1218,27 @@
 
             document.addEventListener('touchstart', e => {
                 startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
             });
 
             document.addEventListener('touchend', e => {
                 const endX = e.changedTouches[0].clientX;
-                const diff = startX - endX;
+                const endY = e.changedTouches[0].clientY;
+                
+                const diffX = startX - endX;
+                const diffY = startY - endY;
 
-                if (Math.abs(diff) > 50) {
+                // Игнорируем если это вертикальный скролл
+                if (Math.abs(diffY) > maxVerticalSwipe) {
+                    return;
+                }
+
+                if (Math.abs(diffX) > minSwipeDistance) {
                     const currentTab = getCurrentTab();
                     const currentIndex = tabs.indexOf(currentTab);
                     let newIndex;
 
-                    if (diff > 0) {
+                    if (diffX > 0) {
                         // Свайп влево - следующая вкладка
                         newIndex = Math.min(currentIndex + 1, tabs.length - 1);
                     } else {
@@ -1239,6 +1251,7 @@
                     }
                 }
             });
+        
 
             // Добавляем CSS для улучшения свайпа
             const style = document.createElement('style');
@@ -2381,7 +2394,7 @@
                         <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
                         <h3 style="color: #28a745; margin-bottom: 16px;">Трата добавлена!</h3>
                         <div style="text-align: left; background: var(--border-color); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-                            <div><strong>💸 Сумма:</strong> ${amount} ${CURRENCIES[state.currentCurrency].symbol}</div>
+                            <div><strong>💸 Сумма:</strong> ${amount}</div> <!-- УБРАЛИ СИМВОЛ ВАЛЮТЫ -->
                             <div><strong>📂 Категория:</strong> ${category}</div>
                             ${description ? `<div><strong>📝 Описание:</strong> ${description}</div>` : ''}
                         </div>
@@ -2460,7 +2473,7 @@
                     throw new Error(errorData.error || 'Ошибка установки бюджета');
                 }
         
-                showMessage(`Бюджет ${amount} ${CURRENCIES[budgetCurrency].symbol} установлен!`);
+                showMessage(`Бюджет ${amount} установлен!`);
                 document.getElementById('budgetAmount').value = '';
                 loadDashboard(); // Обновляем статистику
         
@@ -3315,15 +3328,7 @@
                     </div>
                     ${descriptionHtml}
                     
-                    <!-- ДИАГНОСТИЧЕСКАЯ ИНФОРМАЦИЯ -->
-                    <div style="margin-top: 8px; padding: 4px; background: #f8f9fa; border-radius: 4px; font-size: 10px; color: #666;">
-                        <strong>ID:</strong> ${expense.id} | 
-                        <strong>Space:</strong> ${state.currentSpaceId} |
-                        <button onclick="console.log('Expense details:', ${JSON.stringify(expense).replace(/"/g, '&quot;')})" 
-                                style="background: #6c757d; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 9px;">
-                            🔍 Debug
-                        </button>
-                    </div>
+                    
                 `;
                 
                 container.appendChild(expenseItem);
