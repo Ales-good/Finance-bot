@@ -254,11 +254,52 @@ def get_user_from_init_data(init_data):
     return None
 
 # ===== НАСТРОЙКА БАЗЫ ДАННЫХ =====
+
+
+def check_database_connection():
+    """Проверка подключения к базе данных"""
+    logger.info("🔍 Проверка подключения к БД...")
+    
+    if 'DATABASE_URL' not in os.environ:
+        logger.error("❌ DATABASE_URL не найден в переменных окружения!")
+        return False
+    
+    db_url = os.environ['DATABASE_URL']
+    logger.info(f"📊 DATABASE_URL: {db_url}")
+    
+    try:
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            logger.error("❌❌❌ ИСПОЛЬЗУЕТСЯ SQLITE! PostgreSQL недоступен!")
+            logger.error("❌❌❌ Проверь DATABASE_URL в настройках Railway!")
+            return False
+        else:
+            logger.info("✅ Успешное подключение к PostgreSQL!")
+            
+            # Проверяем доступность таблиц
+            cursor = conn.cursor()
+            cursor.execute("SELECT NOW() as time, version() as version")
+            result = cursor.fetchone()
+            logger.info(f"🕒 Время БД: {result[0]}")
+            logger.info(f"📋 Версия PostgreSQL: {result[1].split(',')[0]}")
+            
+            conn.close()
+            return True
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
+        return False
+
 def get_db_connection():
-    """Подключение к базе данных"""
-    if 'DATABASE_URL' in os.environ:
-        try:
+    """Подключение к базе данных с улучшенной диагностикой"""
+    try:
+        if 'DATABASE_URL' in os.environ:
             database_url = os.environ['DATABASE_URL']
+            logger.info(f"🔗 Попытка подключения к PostgreSQL...")
+            logger.info(f"📡 HOST: {urlparse(database_url).hostname}")
+            logger.info(f"🎯 PORT: {urlparse(database_url).port}")
+            
             parsed_url = urlparse(database_url)
             conn = psycopg2.connect(
                 database=parsed_url.path[1:],
@@ -266,14 +307,17 @@ def get_db_connection():
                 password=parsed_url.password,
                 host=parsed_url.hostname,
                 port=parsed_url.port,
-                sslmode='require'
+                sslmode='require',
+                connect_timeout=10
             )
-            logger.info("✅ Подключено к PostgreSQL")
+            logger.info("✅ Успешное подключение к PostgreSQL!")
             return conn
-        except Exception as e:
-            logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
+        else:
+            logger.warning("⚠️ DATABASE_URL не найден, используем SQLite")
             return sqlite3.connect('finance.db', check_same_thread=False)
-    else:
+    except Exception as e:
+        logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
+        logger.warning("🔄 Используем SQLite как fallback")
         return sqlite3.connect('finance.db', check_same_thread=False)
 
 def init_db():
@@ -3027,7 +3071,13 @@ def main():
         logger.error("❌ BOT_TOKEN не найден!")
         return
     
-    # Инициализация базы данных ПЕРВЫМ делом
+    # ПРОВЕРКА ПОДКЛЮЧЕНИЯ К БД ПЕРВЫМ ДЕЛОМ
+    if not check_database_connection():
+        logger.error("🔴 КРИТИЧЕСКАЯ ОШИБКА: Не удалось подключиться к PostgreSQL!")
+        logger.error("🔴 Проверь DATABASE_URL в настройках Railway!")
+        return
+    
+    # Инициализация базы данных
     logger.info("🗃️ Инициализация базы данных...")
     init_db()
     
