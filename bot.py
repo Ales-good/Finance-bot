@@ -1070,6 +1070,47 @@ def get_user_budget(user_id, space_id):
     finally:
         conn.close()
 
+# ===== Миграция API endpoints =====
+# ===== Диагностика =====
+@flask_app.route('/debug/database')
+def debug_database():
+    """Диагностика подключения к БД"""
+    try:
+        conn = get_db_connection()
+        
+        if isinstance(conn, sqlite3.Connection):
+            db_type = "SQLite"
+            # Проверяем SQLite
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+        else:
+            db_type = "PostgreSQL"
+            # Проверяем PostgreSQL
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+            """)
+            tables = cursor.fetchall()
+        
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'database_type': db_type,
+            'tables': [table[0] for table in tables],
+            'tables_count': len(tables),
+            'database_url_exists': 'DATABASE_URL' in os.environ
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
 # ===== НОВЫЕ API ДЛЯ РАСШИРЕННОЙ АНАЛИТИКИ =====
 @flask_app.route('/get_advanced_analytics', methods=['POST'])
 def api_get_advanced_analytics():
@@ -2878,12 +2919,30 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===== ОСНОВНАЯ ФУНКЦИЯ =====
 def main():
     """Основная функция запуска бота"""
-    # Проверяем наличие токена
+    # Детальная диагностика при старте
+    logger.info("🔧 Запуск диагностики...")
+    
+    # Проверяем наличие критических переменных
+    required_vars = ['BOT_TOKEN', 'DATABASE_URL']
+    for var in required_vars:
+        if var not in os.environ:
+            logger.error(f"❌ Критическая переменная {var} не найдена!")
+        else:
+            logger.info(f"✅ {var} = {'*' * 10 if var == 'BOT_TOKEN' else os.environ[var][:50]}...")
+    
     if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN не найден! Убедитесь, что переменная окружения BOT_TOKEN установлена.")
+        logger.error("❌ BOT_TOKEN не найден! Бот не может запуститься.")
         return
     
+    # Проверяем подключение к БД
+    logger.info("🔍 Проверка подключения к БД...")
+    if test_postgresql_connection():
+        logger.info("✅ PostgreSQL подключение успешно")
+    else:
+        logger.warning("⚠️ Используется SQLite вместо PostgreSQL")
+    
     # Инициализация базы данных
+    logger.info("🗃️ Инициализация базы данных...")
     init_db()
     
     # Запускаем планировщик уведомлений
@@ -2894,8 +2953,8 @@ def main():
     
     # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("test", test_welcome))  # Добавьте эту строку
-    application.add_handler(CommandHandler("debug", debug_user))   # И эту
+    application.add_handler(CommandHandler("test", test_welcome))
+    application.add_handler(CommandHandler("debug", debug_user))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
@@ -2906,16 +2965,17 @@ def main():
     port = int(os.environ.get('PORT', 5000))
     
     def run_flask():
+        logger.info(f"🌐 Запуск Flask API на порту {port}")
         flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
     
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    logger.info(f"🌐 Flask API запущен на порту {port}")
+    
+    logger.info("🤖 Запуск бота...")
     logger.info(f"🔧 Режим разработки: {DEV_MODE}")
-    logger.info("🔔 Планировщик уведомлений активирован")
+    logger.info(f"🌐 Web App URL: {WEB_APP_URL}")
     
     # Запускаем бота
-    logger.info("🤖 Бот запускается...")
     application.run_polling()
 
 if __name__ == '__main__':
