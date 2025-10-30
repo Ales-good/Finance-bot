@@ -1238,11 +1238,20 @@
             }
 
             document.addEventListener('touchstart', e => {
+                // Игнорируем свайпы на элементах ввода
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                    return;
+                }
                 startX = e.touches[0].clientX;
                 startY = e.touches[0].clientY;
             });
 
             document.addEventListener('touchend', e => {
+                // Игнорируем свайпы на элементах ввода
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                    return;
+                }
+
                 if (!e.changedTouches[0]) return;
                 
                 const endX = e.changedTouches[0].clientX;
@@ -1252,35 +1261,52 @@
                 const diffY = startY - endY;
 
                 // Игнорируем если это вертикальный скролл
-                if (Math.abs(diffY) > maxVerticalSwipe) {
+                if (Math.abs(diffY) > maxVerticalSwipe || Math.abs(diffX) < minSwipeDistance) {
                     return;
                 }
 
-                if (Math.abs(diffX) > minSwipeDistance) {
-                    const currentTab = getCurrentTab();
-                    const currentIndex = tabs.indexOf(currentTab);
-                    
-                    if (currentIndex === -1) return; // если вкладка не найдена
+                const currentTab = getCurrentTab();
+                console.log('📱 Swipe detected. Current tab:', currentTab, 'DiffX:', diffX);
+                
+                const currentIndex = tabs.indexOf(currentTab);
+                
+                if (currentIndex === -1) {
+                    console.error('❌ Tab not found:', currentTab);
+                    return;
+                }
 
-                    let newIndex;
+                let newIndex;
 
-                    if (diffX > 0) {
-                        // Свайп влево - следующая вкладка
-                        newIndex = Math.min(currentIndex + 1, tabs.length - 1);
-                    } else {
-                        // Свайп вправо - предыдущая вкладка
-                        newIndex = Math.max(currentIndex - 1, 0);
-                    }
+                if (diffX > 0) {
+                    // Свайп влево - следующая вкладка
+                    newIndex = Math.min(currentIndex + 1, tabs.length - 1);
+                    console.log('⬅️ Swipe left to:', tabs[newIndex]);
+                } else {
+                    // Свайп вправо - предыдущая вкладка
+                    newIndex = Math.max(currentIndex - 1, 0);
+                    console.log('➡️ Swipe right to:', tabs[newIndex]);
+                }
 
-                    if (newIndex !== currentIndex) {
-                        showTab(tabs[newIndex]);
+                if (newIndex !== currentIndex) {
+                    // Визуальная обратная связь
+                    const activeContent = document.querySelector('.tab-content.active');
+                    if (activeContent) {
+                        activeContent.style.transform = diffX > 0 ? 'translateX(-20px)' : 'translateX(20px)';
+                        activeContent.style.opacity = '0.7';
                         
-                        // Визуальная обратная связь
-                        const activeContent = document.querySelector('.tab-content.active');
-                        activeContent.style.transform = diffX > 0 ? 'translateX(-10px)' : 'translateX(10px)';
                         setTimeout(() => {
-                            activeContent.style.transform = 'translateX(0)';
-                        }, 200);
+                            showTab(tabs[newIndex]);
+                            // Сбрасываем трансформацию после переключения
+                            setTimeout(() => {
+                                const newActiveContent = document.querySelector('.tab-content.active');
+                                if (newActiveContent) {
+                                    newActiveContent.style.transform = 'translateX(0)';
+                                    newActiveContent.style.opacity = '1';
+                                }
+                            }, 50);
+                        }, 150);
+                    } else {
+                        showTab(tabs[newIndex]);
                     }
                 }
             });
@@ -1291,13 +1317,8 @@
                 style.id = 'swipe-styles';
                 style.textContent = `
                     .tab-content {
-                        transition: transform 0.3s ease;
-                    }
-                    .swipe-left {
-                        transform: translateX(-100%);
-                    }
-                    .swipe-right {
-                        transform: translateX(100%);
+                        transition: all 0.3s ease !important;
+                        will-change: transform, opacity;
                     }
                 `;
                 document.head.appendChild(style);
