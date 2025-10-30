@@ -3340,24 +3340,7 @@
                 console.log(`Expense ID: ${exp.id}, Amount: ${exp.amount}, Category: ${exp.category}`);
             });
             
-            // Временная диагностическая кнопка
-            const debugBtn = document.createElement('button');
-            debugBtn.textContent = '🐛 Check Expense IDs';
-            debugBtn.className = 'btn btn-outline';
-            debugBtn.style.marginTop = '16px';
-            debugBtn.onclick = function() {
-                const items = document.querySelectorAll('.expense-item');
-                console.log('=== CHECKING RENDERED EXPENSE IDs ===');
-                items.forEach(item => {
-                    const id = item.id.replace('expense-', '');
-                    console.log(`Rendered expense ID: ${id}`);
-                });
-                
-                if (expenses.length > 0) {
-                    alert(`Первая трата в списке:\nID: ${expenses[0].id}\nСумма: ${expenses[0].amount}\nКатегория: ${expenses[0].category}`);
-                }
-            };
-            container.appendChild(debugBtn);
+            
         }
 
         // Добавьте эту функцию обертку
@@ -4008,31 +3991,7 @@
                 }
 
 
-                // Добавьте эту функцию тестовую кнопку для проверки
-                function addDebugDeleteButton() {
-                    const debugBtn = document.createElement('button');
-                    debugBtn.textContent = '🧪 Тест удаления';
-                    debugBtn.style.cssText = `
-                        position: fixed; 
-                        bottom: 10px; 
-                        right: 10px; 
-                        z-index: 9999; 
-                        padding: 10px; 
-                        background: #007bff; 
-                        color: white; 
-                        border: none; 
-                        border-radius: 5px;
-                        font-size: 12px;
-                    `;
-                    debugBtn.onclick = function() {
-                        // Используйте реальный ID траты из вашей базы
-                        const testId = 1; // ЗАМЕНИТЕ НА РЕАЛЬНЫЙ ID ТРАТЫ
-                        console.log('🧪 Testing delete with ID:', testId);
-                        showMessage(`🧪 Тестируем удаление траты ID: ${testId}`);
-                        deleteExpense(testId);
-                    };
-                    document.body.appendChild(debugBtn);
-                }
+                
 
                 // Вызовите в initializeApp
                 function initializeApp() {
