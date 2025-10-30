@@ -278,14 +278,23 @@ def get_db_connection():
 
 def init_db():
     """Инициализация базы данных"""
+    logger.info("🔍 Инициализация базы данных...")
+    
     conn = get_db_connection()
     
     try:
+        # СНАЧАЛА проверяем тип подключения
         if isinstance(conn, sqlite3.Connection):
+            logger.info("📁 Используется SQLite")
+            db_type = "sqlite"
+        else:
+            logger.info("🐘 Используется PostgreSQL")
+            db_type = "postgresql"
+        
+        c = conn.cursor()
+        
+        if db_type == "sqlite":
             # SQLite
-            c = conn.cursor()
-            
-            # Таблица финансовых пространств
             c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
                          (id INTEGER PRIMARY KEY AUTOINCREMENT,
                           name TEXT NOT NULL,
@@ -296,7 +305,6 @@ def init_db():
                           invite_code TEXT UNIQUE,
                           is_active BOOLEAN DEFAULT TRUE)''')
             
-            # Таблица участников пространств
             c.execute('''CREATE TABLE IF NOT EXISTS space_members
                          (id INTEGER PRIMARY KEY AUTOINCREMENT,
                           space_id INTEGER,
@@ -306,7 +314,6 @@ def init_db():
                           joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                           FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
             
-            # Таблица расходов
             c.execute('''CREATE TABLE IF NOT EXISTS expenses
                          (id INTEGER PRIMARY KEY AUTOINCREMENT,
                           user_id INTEGER, 
@@ -319,7 +326,6 @@ def init_db():
                           currency TEXT DEFAULT 'RUB',
                           FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
             
-            # Таблица бюджетов
             c.execute('''CREATE TABLE IF NOT EXISTS budgets
                          (id INTEGER PRIMARY KEY AUTOINCREMENT,
                           user_id INTEGER,
@@ -330,7 +336,6 @@ def init_db():
                           currency TEXT DEFAULT 'RUB',
                           FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
             
-            # Таблица уведомлений о бюджете
             c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
                          (id INTEGER PRIMARY KEY AUTOINCREMENT,
                           user_id INTEGER,
@@ -342,7 +347,6 @@ def init_db():
                           sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                           FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
             
-            # Таблица категорий пользователя
             c.execute('''CREATE TABLE IF NOT EXISTS user_categories
                          (id INTEGER PRIMARY KEY AUTOINCREMENT,
                           user_id INTEGER,
@@ -354,80 +358,80 @@ def init_db():
                           FOREIGN KEY (space_id) REFERENCES financial_spaces (id))''')
             
         else:
-            # PostgreSQL
-            c = conn.cursor()
+            # PostgreSQL - ИСПРАВЛЕННЫЙ код
+            c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces (
+                         id SERIAL PRIMARY KEY,
+                         name TEXT NOT NULL,
+                         description TEXT,
+                         space_type TEXT DEFAULT 'personal',
+                         created_by BIGINT,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         invite_code TEXT UNIQUE,
+                         is_active BOOLEAN DEFAULT TRUE
+                     )''')
             
-            c.execute('''CREATE TABLE IF NOT EXISTS financial_spaces
-                         (id SERIAL PRIMARY KEY,
-                          name TEXT NOT NULL,
-                          description TEXT,
-                          space_type TEXT DEFAULT 'personal',
-                          created_by BIGINT,
-                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                          invite_code TEXT UNIQUE,
-                          is_active BOOLEAN DEFAULT TRUE)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS space_members (
+                         id SERIAL PRIMARY KEY,
+                         space_id INTEGER REFERENCES financial_spaces(id),
+                         user_id BIGINT,
+                         user_name TEXT,
+                         role TEXT DEFAULT 'member',
+                         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                     )''')
             
-            c.execute('''CREATE TABLE IF NOT EXISTS space_members
-                         (id SERIAL PRIMARY KEY,
-                          space_id INTEGER REFERENCES financial_spaces(id),
-                          user_id BIGINT,
-                          user_name TEXT,
-                          role TEXT DEFAULT 'member',
-                          joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS expenses (
+                         id SERIAL PRIMARY KEY,
+                         user_id BIGINT,
+                         user_name TEXT,
+                         space_id INTEGER REFERENCES financial_spaces(id),
+                         amount REAL,
+                         category TEXT,
+                         description TEXT,
+                         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         currency TEXT DEFAULT 'RUB'
+                     )''')
             
-            c.execute('''CREATE TABLE IF NOT EXISTS expenses
-                         (id SERIAL PRIMARY KEY,
-                          user_id BIGINT, 
-                          user_name TEXT,
-                          space_id INTEGER REFERENCES financial_spaces(id),
-                          amount REAL, 
-                          category TEXT, 
-                          description TEXT, 
-                          date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                          currency TEXT DEFAULT 'RUB')''')
+            c.execute('''CREATE TABLE IF NOT EXISTS budgets (
+                         id SERIAL PRIMARY KEY,
+                         user_id BIGINT,
+                         space_id INTEGER REFERENCES financial_spaces(id),
+                         amount REAL,
+                         month_year TEXT,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         currency TEXT DEFAULT 'RUB'
+                     )''')
             
-            c.execute('''CREATE TABLE IF NOT EXISTS budgets
-                         (id SERIAL PRIMARY KEY,
-                          user_id BIGINT,
-                          space_id INTEGER REFERENCES financial_spaces(id),
-                          amount REAL,
-                          month_year TEXT,
-                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                          currency TEXT DEFAULT 'RUB')''')
+            c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts (
+                         id SERIAL PRIMARY KEY,
+                         user_id BIGINT,
+                         space_id INTEGER REFERENCES financial_spaces(id),
+                         budget_amount REAL,
+                         spent_amount REAL,
+                         percentage REAL,
+                         alert_type TEXT,
+                         sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                     )''')
             
-            # Таблица уведомлений о бюджете
-            c.execute('''CREATE TABLE IF NOT EXISTS budget_alerts
-                         (id SERIAL PRIMARY KEY,
-                          user_id BIGINT,
-                          space_id INTEGER REFERENCES financial_spaces(id),
-                          budget_amount REAL,
-                          spent_amount REAL,
-                          percentage REAL,
-                          alert_type TEXT,
-                          sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
-            # Таблица категорий пользователя
-            c.execute('''CREATE TABLE IF NOT EXISTS user_categories
-                         (id SERIAL PRIMARY KEY,
-                          user_id BIGINT,
-                          space_id INTEGER REFERENCES financial_spaces(id),
-                          category_name TEXT,
-                          category_icon TEXT,
-                          is_custom BOOLEAN DEFAULT TRUE,
-                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS user_categories (
+                         id SERIAL PRIMARY KEY,
+                         user_id BIGINT,
+                         space_id INTEGER REFERENCES financial_spaces(id),
+                         category_name TEXT,
+                         category_icon TEXT,
+                         is_custom BOOLEAN DEFAULT TRUE,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                     )''')
         
-        # Проверяем создание таблицы финансовых пространств
-        if isinstance(conn, sqlite3.Connection):
-            c.execute('''SELECT name FROM sqlite_master WHERE type='table' AND name='financial_spaces' ''')
-            table_exists = c.fetchone() is not None
+        # Проверяем создание таблиц
+        if db_type == "sqlite":
+            c.execute("SELECT name FROM sqlite_master WHERE type='table'")
         else:
-            c.execute('''SELECT table_name FROM information_schema.tables WHERE table_name = 'financial_spaces' ''')
-            table_exists = c.fetchone() is not None
-            
-        if not table_exists:
-            logger.error("❌ Таблица financial_spaces не создана!")
-        else:
-            logger.info("✅ Таблица financial_spaces существует")
+            c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+        
+        tables = c.fetchall()
+        logger.info(f"📊 Найдено таблиц в базе: {len(tables)}")
+        for table in tables:
+            logger.info(f"   - {table[0]}")
         
         # Добавляем стандартные категории если их нет
         default_categories = [
@@ -444,12 +448,19 @@ def init_db():
         ]
         
         for category_name, icon in default_categories:
-            c.execute('''INSERT OR IGNORE INTO user_categories 
-                         (user_id, space_id, category_name, category_icon, is_custom) 
-                         VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
+            if db_type == "sqlite":
+                c.execute('''INSERT OR IGNORE INTO user_categories 
+                             (user_id, space_id, category_name, category_icon, is_custom) 
+                             VALUES (0, 0, ?, ?, FALSE)''', (category_name, icon))
+            else:
+                # Для PostgreSQL используем ON CONFLICT
+                c.execute('''INSERT INTO user_categories 
+                             (user_id, space_id, category_name, category_icon, is_custom) 
+                             VALUES (0, 0, %s, %s, FALSE)
+                             ON CONFLICT DO NOTHING''', (category_name, icon))
         
         conn.commit()
-        logger.info("✅ База данных инициализирована с новыми таблицами")
+        logger.info("✅ База данных успешно инициализирована")
         
     except Exception as e:
         logger.error(f"❌ Ошибка инициализации базы данных: {e}")
@@ -3012,34 +3023,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===== ОСНОВНАЯ ФУНКЦИЯ =====
 def main():
     """Основная функция запуска бота"""
-    # Детальная диагностика при старте
-    logger.info("🔧 Запуск диагностики...")
-    
-    # Проверяем наличие критических переменных
-    required_vars = ['BOT_TOKEN', 'DATABASE_URL']
-    for var in required_vars:
-        if var not in os.environ:
-            logger.error(f"❌ Критическая переменная {var} не найдена!")
-        else:
-            logger.info(f"✅ {var} = {'*' * 10 if var == 'BOT_TOKEN' else os.environ[var][:50]}...")
-    
     if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN не найден! Бот не может запуститься.")
+        logger.error("❌ BOT_TOKEN не найден!")
         return
     
-    # Проверяем подключение к БД
-    logger.info("🔍 Проверка подключения к БД...")
-    if test_postgresql_connection():
-        logger.info("✅ PostgreSQL подключение успешно")
-    else:
-        logger.warning("⚠️ Используется SQLite вместо PostgreSQL")
-    
-    # Инициализация базы данных
+    # Инициализация базы данных ПЕРВЫМ делом
     logger.info("🗃️ Инициализация базы данных...")
     init_db()
-    
-    # Запускаем планировщик уведомлений
-    start_notification_scheduler()
     
     # Создаем приложение бота
     application = Application.builder().token(BOT_TOKEN).build()
@@ -3058,18 +3048,33 @@ def main():
     port = int(os.environ.get('PORT', 5000))
     
     def run_flask():
-        logger.info(f"🌐 Запуск Flask API на порту {port}")
         flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
     
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
+    logger.info(f"🌐 Flask API запущен на порту {port}")
     
+    # Запускаем бота с обработкой ошибок
     logger.info("🤖 Запуск бота...")
-    logger.info(f"🔧 Режим разработки: {DEV_MODE}")
-    logger.info(f"🌐 Web App URL: {WEB_APP_URL}")
     
-    # Запускаем бота
-    application.run_polling()
+    try:
+        # Очищаем предыдущие обновления
+        asyncio.run(application.bot.delete_webhook(drop_pending_updates=True))
+        logger.info("✅ Предыдущие обновления очищены")
+        
+        # Запускаем polling
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            close_loop=False
+        )
+    except Exception as e:
+        logger.error(f"🔴 Ошибка запуска бота: {e}")
+        logger.info("🔄 Перезапуск через 10 секунд...")
+        time.sleep(10)
+        main()  # Рекурсивный перезапуск
+    except Exception as e:
+        logger.error(f"🔴 Критическая ошибка: {e}")
+        raise
 
 if __name__ == '__main__':
     main()
