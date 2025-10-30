@@ -53,6 +53,99 @@ if not BOT_TOKEN:
 BUDGET_ALERT_THRESHOLDS = [0.8, 0.9, 1.0]  # 80%, 90%, 100%
 DAILY_REPORT_HOUR = 20  # Время отправки ежедневного отчета (20:00)
 
+
+# Проверка подключения к PostgreSQL при старте
+def test_postgresql_connection():
+    """Тестирование подключения к PostgreSQL"""
+    try:
+        if 'DATABASE_URL' in os.environ:
+            conn = get_db_connection()
+            if conn and not isinstance(conn, sqlite3.Connection):
+                logger.info("✅ PostgreSQL подключение успешно")
+                conn.close()
+                return True
+            else:
+                logger.warning("⚠️ Используется SQLite вместо PostgreSQL")
+                return False
+        else:
+            logger.warning("⚠️ DATABASE_URL не найден, используется SQLite")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
+        return False
+
+# Проверяем при старте
+test_postgresql_connection()
+
+# Убедись что миграции работают правильно
+def migrate_from_sqlite_to_postgresql():
+    """Миграция данных из SQLite в PostgreSQL если нужно"""
+    if 'DATABASE_URL' not in os.environ:
+        return
+    
+    try:
+        # Проверяем, есть ли данные в PostgreSQL
+        conn_pg = get_db_connection()
+        if isinstance(conn_pg, sqlite3.Connection):
+            return  # Это SQLite, не мигрируем
+            
+        cursor_pg = conn_pg.cursor()
+        
+        # Проверяем, есть ли уже данные
+        cursor_pg.execute("SELECT COUNT(*) FROM financial_spaces")
+        count = cursor_pg.fetchone()[0]
+        
+        if count > 0:
+            logger.info("✅ В PostgreSQL уже есть данные, миграция не нужна")
+            conn_pg.close()
+            return
+        
+        # Проверяем, есть ли данные в SQLite
+        sqlite_path = 'finance.db'
+        if os.path.exists(sqlite_path):
+            conn_sqlite = sqlite3.connect(sqlite_path)
+            cursor_sqlite = conn_sqlite.cursor()
+            
+            # Мигрируем пространства
+            cursor_sqlite.execute("SELECT * FROM financial_spaces WHERE is_active = 1")
+            spaces = cursor_sqlite.fetchall()
+            
+            for space in spaces:
+                cursor_pg.execute('''
+                    INSERT INTO financial_spaces (id, name, description, space_type, created_by, created_at, invite_code, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ''', space)
+            
+            # Мигрируем участников
+            cursor_sqlite.execute("SELECT * FROM space_members")
+            members = cursor_sqlite.fetchall()
+            
+            for member in members:
+                cursor_pg.execute('''
+                    INSERT INTO space_members (id, space_id, user_id, user_name, role, joined_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                ''', member)
+            
+            # Мигрируем траты
+            cursor_sqlite.execute("SELECT * FROM expenses")
+            expenses = cursor_sqlite.fetchall()
+            
+            for expense in expenses:
+                cursor_pg.execute('''
+                    INSERT INTO expenses (id, user_id, user_name, space_id, amount, category, description, date, currency)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ''', expense)
+            
+            conn_pg.commit()
+            conn_sqlite.close()
+            logger.info("✅ Миграция данных из SQLite в PostgreSQL завершена")
+        
+        conn_pg.close()
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка миграции: {e}")
+
+
 # ===== ВАЖНО: ДОБАВЬТЕ МАРШРУТЫ ПОСЛЕ СОЗДАНИЯ flask_app =====
 
 @flask_app.route('/')  # ← ИСПОЛЬЗУЙТЕ flask_app вместо app
