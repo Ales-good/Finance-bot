@@ -472,27 +472,27 @@ def generate_budget_alert(percentage, budget, spent, space_name, threshold):
         return (
             f"⚠️ **Близко к лимиту бюджета!**\n\n"
             f"Пространство: {space_name}\n"
-            f"Бюджет: {budget:.2f} ₽\n"
-            f"Потрачено: {spent:.2f} ₽ ({percentage:.1%})\n"
-            f"Осталось: {budget - spent:.2f} ₽\n\n"
+            f"Бюджет: {budget:.2f}\n"  # УБРАЛИ ₽
+            f"Потрачено: {spent:.2f} ({percentage:.1%})\n"  # УБРАЛИ ₽
+            f"Осталось: {budget - spent:.2f}\n\n"  # УБРАЛИ ₽
             f"Вы израсходовали 80% бюджета!"
         )
     elif threshold == 0.9:
         return (
             f"🚨 **Почти превысили бюджет!**\n\n"
             f"Пространство: {space_name}\n"
-            f"Бюджет: {budget:.2f} ₽\n"
-            f"Потрачено: {spent:.2f} ₽ ({percentage:.1%})\n"
-            f"Осталось: {budget - spent:.2f} ₽\n\n"
+            f"Бюджет: {budget:.2f}\n"  # УБРАЛИ ₽
+            f"Потрачено: {spent:.2f} ({percentage:.1%})\n"  # УБРАЛИ ₽
+            f"Осталось: {budget - spent:.2f}\n\n"  # УБРАЛИ ₽
             f"Осталось всего 10% бюджета!"
         )
     else:  # 100%
         return (
             f"🔴 **Бюджет превышен!**\n\n"
             f"Пространство: {space_name}\n"
-            f"Бюджет: {budget:.2f} ₽\n"
-            f"Потрачено: {spent:.2f} ₽ ({percentage:.1%})\n"
-            f"Превышение: {spent - budget:.2f} ₽\n\n"
+            f"Бюджет: {budget:.2f}\n"  # УБРАЛИ ₽
+            f"Потрачено: {spent:.2f} ({percentage:.1%})\n"  # УБРАЛИ ₽
+            f"Превышение: {spent - budget:.2f}\n\n"  # УБРАЛИ ₽
             f"Вы превысили установленный бюджет!"
         )
 
@@ -577,8 +577,8 @@ def generate_daily_report(user_id):
         
         report = (
             f"📊 <b>Ежедневный финансовый отчет</b>\n\n"
-            f"💸 <b>Сегодня:</b> {today_spent:.2f} ₽\n"
-            f"📅 <b>За неделю:</b> {week_spent:.2f} ₽\n"
+            f"💸 <b>Сегодня:</b> {today_spent:.2f} \n"
+            f"📅 <b>За неделю:</b> {week_spent:.2f} \n"
             f"👥 <b>Активных пространств:</b> {active_spaces}\n\n"
             f"<i>Хороших финансовых решений! 💫</i>"
         )
@@ -1384,8 +1384,8 @@ def api_export_to_excel():
                 'Значение': [
                     len(df),
                     f"{total_with_comments} ({total_with_comments/len(df)*100:.1f}%)",
-                    f"{df['amount'].sum():.2f} ₽",
-                    f"{df['amount'].mean():.2f} ₽",
+                    f"{df['amount'].sum():.2f} ",
+                    f"{df['amount'].mean():.2f} ",
                     f"Последние {period} дней"
                 ]
             }
@@ -2354,6 +2354,76 @@ def api_remove_member():
         return jsonify({'error': 'Internal server error'}), 500
 
 # ===== TELEGRAM BOT HANDLERS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
+async def check_if_new_user(user_id: int) -> bool:
+    """Проверяет, является ли пользователь новым (по таблице пользователей)"""
+    conn = get_db_connection()
+    try:
+        # Сначала проверяем существующую таблицу space_members
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT COUNT(*) as count FROM space_members WHERE user_id = ?'''
+            result = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            query = '''SELECT COUNT(*) as count FROM space_members WHERE user_id = %s'''
+            result = pd.read_sql_query(query, conn, params=(user_id,))
+        
+        member_count = result.iloc[0]['count']
+        
+        # Если пользователь не состоит в пространствах, проверяем таблицу пользователей
+        if member_count == 0:
+            # Проверяем, есть ли пользователь в таблице бота (если есть такая)
+            try:
+                if isinstance(conn, sqlite3.Connection):
+                    user_query = '''SELECT COUNT(*) as count FROM bot_users WHERE user_id = ?'''
+                    user_result = pd.read_sql_query(user_query, conn, params=(user_id,))
+                else:
+                    user_query = '''SELECT COUNT(*) as count FROM bot_users WHERE user_id = %s'''
+                    user_result = pd.read_sql_query(user_query, conn, params=(user_id,))
+                
+                # Если нет записи в bot_users - пользователь новый
+                return user_result.iloc[0]['count'] == 0
+                
+            except Exception:
+                # Если таблицы bot_users нет, считаем по space_members
+                return True
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка проверки нового пользователя: {e}")
+        return True
+    finally:
+        conn.close()
+
+
+async def check_if_new_user(user_id: int) -> bool:
+    """Проверяет, является ли пользователь новым"""
+    conn = get_db_connection()
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            # Для SQLite
+            query = '''
+                SELECT COUNT(*) as count FROM space_members 
+                WHERE user_id = ?
+            '''
+            result = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            # Для PostgreSQL
+            query = '''
+                SELECT COUNT(*) as count FROM space_members 
+                WHERE user_id = %s
+            '''
+            result = pd.read_sql_query(query, conn, params=(user_id,))
+        
+        # Если пользователь не состоит ни в одном пространстве - он новый
+        return result.iloc[0]['count'] == 0
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка проверки нового пользователя: {e}")
+        # В случае ошибки считаем пользователя новым
+        return True
+    finally:
+        conn.close()
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
