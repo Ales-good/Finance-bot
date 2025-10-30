@@ -2424,22 +2424,29 @@ def api_delete_user_category():
     
 # ===== TELEGRAM BOT HANDLERS (СОХРАНЕНЫ БЕЗ ИЗМЕНЕНИЙ) =====
 async def check_if_new_user(user_id: int) -> bool:
-    """Упрощенная проверка - всегда показываем расширенное приветствие"""
-    return True  # Или False если хотите всегда короткое приветствие
+    """Проверяет, новый ли пользователь"""
+    conn = get_db_connection()
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            query = '''SELECT COUNT(*) as count FROM space_members WHERE user_id = ?'''
+            result = pd.read_sql_query(query, conn, params=(user_id,))
+        else:
+            query = '''SELECT COUNT(*) as count FROM space_members WHERE user_id = %s'''
+            result = pd.read_sql_query(query, conn, params=(user_id,))
+        
+        count = result.iloc[0]['count']
+        return count == 0  # Если нет записей - новый пользователь
+    except Exception as e:
+        logger.error(f"❌ Error checking if user is new: {e}")
+        return True  # В случае ошибки считаем новым
+    finally:
+        conn.close()
 
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-     # Проверяем URL
-    web_app_url = WEB_APP_URL
-    if not web_app_url.startswith('https://'):
-        logger.error(f"❌ Invalid Web App URL: {web_app_url}")
-        await update.message.reply_text(
-            "❌ Ошибка конфигурации бота. Свяжитесь с администратором."
-        )
-        return
-    
+        
     keyboard = [
         [KeyboardButton("📊 Открыть финансовый трекер", web_app=WebAppInfo(url=web_app_url))]
     ]
@@ -2809,8 +2816,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📊 Аналитика и статистика\n"
             "🎯 Установка бюджетов\n"
             "👥 Управление группами\n"
-            "🧾 Распознавание чеков\n"
-            "🎤 Голосовой ввод\n"
             "🔔 Умные уведомления о бюджете"
         )
     else:
