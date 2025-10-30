@@ -30,6 +30,28 @@ import hmac
 import asyncio
 import traceback  # ← Добавьте если используете traceback
 
+
+# ДОБАВЬТЕ ПОСЛЕ ИМПОРТОВ И ДО ОСНОВНЫХ API МАРШРУТОВ
+
+@app.route('/')
+def index():
+    """Главная страница с Web App"""
+    try:
+        return send_file('index.html')
+    except FileNotFoundError:
+        # Fallback если HTML файла нет
+        return {
+            "status": "ok", 
+            "message": "Finance Bot API is running",
+            "webapp_url": "https://web-production-4c423.up.railway.app/webapp"
+        }
+
+@app.route('/webapp')
+def webapp():
+    """Web App endpoint"""
+    return send_file('index.html')
+
+
 # Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
