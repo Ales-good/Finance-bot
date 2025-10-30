@@ -3225,30 +3225,11 @@
 
         function displayExpensesList(expenses) {
             console.log('=== displayExpensesList called ===');
-            console.log('Expenses type:', typeof expenses);
-            console.log('Expenses length:', expenses?.length);
-            
-            if (!expenses) {
-                console.error('❌ Expenses is null or undefined');
-                showMessage('❌ Ошибка: данные трат не получены', 'error');
-                return;
-            }
-            
-            if (!Array.isArray(expenses)) {
-                console.error('❌ Expenses is not an array:', expenses);
-                showMessage('❌ Ошибка: неверный формат данных', 'error');
-                return;
-            }
-            console.log('=== displayExpensesList called ===');
             console.log('Expenses data:', expenses);
             
-            // Визуальное уведомление
-            showMessage('📝 Загружаем список трат...');
-            
             const container = document.getElementById('expensesListContainer');
-            console.log('Container found:', !!container);    
+            console.log('Container found:', !!container);
 
-            
             if (!expenses || expenses.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
@@ -3262,7 +3243,7 @@
                 return;
             }
 
-            // Статистика (без изменений)
+            // Статистика
             const totalAmount = expenses.reduce((sum, expense) => sum + expense.amount, 0);
             const expensesWithComments = expenses.filter(expense => expense.description && expense.description.trim() !== '').length;
 
@@ -3283,8 +3264,10 @@
                 </div>
             `;
 
-            // Список трат с кнопками удаления - ДОБАВЛЯЕМ ID ЭЛЕМЕНТАМ
+            // Список трат с кнопками удаления
             expenses.forEach(expense => {
+                console.log(`🔄 Processing expense:`, expense); // ДИАГНОСТИКА
+                
                 const date = new Date(expense.date);
                 const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                 
@@ -3298,14 +3281,14 @@
 
                 const expenseItem = document.createElement('div');
                 expenseItem.className = 'expense-item';
-                expenseItem.id = `expense-${expense.id}`; // ДОБАВЛЯЕМ ID
+                expenseItem.id = `expense-${expense.id}`; // ИСПОЛЬЗУЕМ expense.id
                 expenseItem.style.background = 'var(--card-bg)';
                 expenseItem.style.padding = '16px';
                 expenseItem.style.marginBottom = '12px';
                 expenseItem.style.borderRadius = '12px';
                 expenseItem.style.border = '1px solid var(--border-color)';
                 expenseItem.style.position = 'relative';
-                expenseItem.style.transition = 'all 0.3s ease'; // Добавляем анимацию
+                expenseItem.style.transition = 'all 0.3s ease';
 
                 expenseItem.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
@@ -3322,20 +3305,54 @@
                             <div style="font-weight: 700; color: #dc3545; font-size: 18px;">
                                 ${expense.amount}
                             </div>
-                            <!-- ИСПРАВЛЕННАЯ КНОПКА -->
-                            <button class="delete-expense-btn"
-                                    data-expense-id="${expense.id}"
-                                    style="background: #ff4444; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-left: 8px;"
-                                    title="Удалить трату">
+                            <button onclick="deleteExpense(${expense.id})" 
+                                    style="background: #ff4444; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-left: 8px; transition: all 0.2s ease;"
+                                    title="Удалить трату"
+                                    class="delete-expense-btn">
                                 🗑️
                             </button>
                         </div>
                     </div>
                     ${descriptionHtml}
+                    
+                    <!-- ДИАГНОСТИЧЕСКАЯ ИНФОРМАЦИЯ -->
+                    <div style="margin-top: 8px; padding: 4px; background: #f8f9fa; border-radius: 4px; font-size: 10px; color: #666;">
+                        <strong>ID:</strong> ${expense.id} | 
+                        <strong>Space:</strong> ${state.currentSpaceId} |
+                        <button onclick="console.log('Expense details:', ${JSON.stringify(expense).replace(/"/g, '&quot;')})" 
+                                style="background: #6c757d; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 9px;">
+                            🔍 Debug
+                        </button>
+                    </div>
                 `;
                 
                 container.appendChild(expenseItem);
             });
+
+            // ДИАГНОСТИКА - проверяем какие ID были отображены
+            console.log('=== EXPENSE IDs DISPLAYED ===');
+            expenses.forEach(exp => {
+                console.log(`Expense ID: ${exp.id}, Amount: ${exp.amount}, Category: ${exp.category}`);
+            });
+            
+            // Временная диагностическая кнопка
+            const debugBtn = document.createElement('button');
+            debugBtn.textContent = '🐛 Check Expense IDs';
+            debugBtn.className = 'btn btn-outline';
+            debugBtn.style.marginTop = '16px';
+            debugBtn.onclick = function() {
+                const items = document.querySelectorAll('.expense-item');
+                console.log('=== CHECKING RENDERED EXPENSE IDs ===');
+                items.forEach(item => {
+                    const id = item.id.replace('expense-', '');
+                    console.log(`Rendered expense ID: ${id}`);
+                });
+                
+                if (expenses.length > 0) {
+                    alert(`Первая трата в списке:\nID: ${expenses[0].id}\nСумма: ${expenses[0].amount}\nКатегория: ${expenses[0].category}`);
+                }
+            };
+            container.appendChild(debugBtn);
         }
 
         // Добавьте эту функцию обертку
