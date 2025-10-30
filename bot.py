@@ -255,7 +255,30 @@ def get_user_from_init_data(init_data):
 
 # ===== НАСТРОЙКА БАЗЫ ДАННЫХ =====
 
-
+def get_db_connection():
+    """Подключение только к PostgreSQL (без SQLite fallback)"""
+    if 'DATABASE_URL' not in os.environ:
+        raise Exception("❌ DATABASE_URL не найден! Добавь в Railway Variables")
+    
+    database_url = os.environ['DATABASE_URL']
+    logger.info(f"🔗 Подключение к PostgreSQL: {database_url}")
+    
+    try:
+        parsed_url = urlparse(database_url)
+        conn = psycopg2.connect(
+            database=parsed_url.path[1:],
+            user=parsed_url.username,
+            password=parsed_url.password,
+            host=parsed_url.hostname,
+            port=parsed_url.port,
+            sslmode='require'
+        )
+        logger.info("✅ Успешное подключение к PostgreSQL!")
+        return conn
+    except Exception as e:
+        logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
+        raise
+    
 def check_database_connection():
     """Проверка подключения к базе данных"""
     logger.info("🔍 Проверка подключения к БД...")
@@ -291,29 +314,7 @@ def check_database_connection():
         logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
         return False
 
-def get_db_connection():
-    """Подключение только к PostgreSQL (без SQLite fallback)"""
-    if 'DATABASE_URL' not in os.environ:
-        raise Exception("❌ DATABASE_URL не найден! Добавь в Railway Variables")
-    
-    database_url = os.environ['DATABASE_URL']
-    logger.info(f"🔗 Подключение к PostgreSQL: {database_url}")
-    
-    try:
-        parsed_url = urlparse(database_url)
-        conn = psycopg2.connect(
-            database=parsed_url.path[1:],
-            user=parsed_url.username,
-            password=parsed_url.password,
-            host=parsed_url.hostname,
-            port=parsed_url.port,
-            sslmode='require'
-        )
-        logger.info("✅ Успешное подключение к PostgreSQL!")
-        return conn
-    except Exception as e:
-        logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
-        raise
+
 
 def init_db():
     """Инициализация базы данных"""
@@ -1460,14 +1461,7 @@ def admin_check_tables():
         return jsonify({"status": "error", "error": str(e)}), 500
 # ===== ОБНУЛЕНИЕ БД ПЕРЕСОСДАНИЕ!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! =====
 
-@flask_app.route('/admin/init-db')
-def admin_init_db():
-    """Принудительная инициализация базы данных"""
-    try:
-        init_db()
-        return jsonify({"status": "success", "message": "База данных инициализирована"})
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
+
 
 @flask_app.route('/admin/check-db')
 def admin_check_db():
