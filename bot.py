@@ -1459,38 +1459,7 @@ def admin_check_tables():
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 # ===== ОБНУЛЕНИЕ БД ПЕРЕСОСДАНИЕ!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! =====
-@flask_app.route('/admin/reset-db')
-def admin_reset_db():
-    """ПОЛНЫЙ сброс и пересоздание базы данных"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # УДАЛЯЕМ ВСЕ ТАБЛИЦЫ (в правильном порядке из-за foreign keys)
-        tables = [
-            'budget_alerts', 'user_categories', 'expenses', 
-            'budgets', 'space_members', 'financial_spaces'
-        ]
-        
-        for table in tables:
-            try:
-                cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-                logger.info(f"🗑️ Удалена таблица: {table}")
-            except Exception as e:
-                logger.error(f"❌ Ошибка удаления {table}: {e}")
-        
-        conn.commit()
-        
-        # ПЕРЕСОЗДАЕМ ВСЕ ТАБЛИЦЫ
-        init_db()
-        
-        return jsonify({
-            "status": "success", 
-            "message": "База данных полностью пересоздана"
-        })
-        
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
+
 @flask_app.route('/admin/init-db')
 def admin_init_db():
     """Принудительная инициализация базы данных"""
