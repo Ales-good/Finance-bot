@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Finance Tracker</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -40,7 +40,7 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: var(--bg-color);
             min-height: 100vh;
-            padding: 20px;
+            padding: 10px;
             color: var(--text-primary);
             transition: all 0.3s ease;
         }
@@ -48,13 +48,15 @@
         .container {
             max-width: 400px;
             margin: 0 auto;
+            overflow-x: hidden;
+            position: relative;
         }
 
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
 
         .theme-toggle {
@@ -76,16 +78,52 @@
             background: var(--primary-gradient);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 24px;
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 700;
+        }
+
+        /* ===== КОМПАКТНАЯ ВЕРХНЯЯ НАВИГАЦИЯ ===== */
+        .top-nav {
+            display: flex;
+            background: var(--card-bg);
+            border-radius: 30px;
+            padding: 6px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow);
+            position: sticky;
+            top: 10px;
+            z-index: 100;
+        }
+
+        .nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 6px 2px;
+            border-radius: 24px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 10px;
+            color: var(--text-muted);
+            min-width: 0;
+        }
+
+        .nav-item span:first-child {
+            font-size: 20px;
+            margin-bottom: 2px;
+        }
+
+        .nav-item.active {
+            background: var(--primary-gradient);
+            color: white;
         }
 
         .card {
             background: var(--card-bg);
             border-radius: 20px;
-            padding: 24px;
-            margin-bottom: 16px;
+            padding: 16px;
+            margin-bottom: 12px;
             box-shadow: var(--shadow);
             transition: all 0.3s ease;
         }
@@ -94,13 +132,13 @@
             background: var(--primary-gradient);
             color: white;
             border: none;
-            padding: 14px 24px;
+            padding: 12px 16px;
             border-radius: 12px;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
             width: 100%;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             transition: transform 0.2s, opacity 0.2s;
         }
 
@@ -130,34 +168,14 @@
             color: var(--text-primary);
         }
 
+        .btn-small {
+            padding: 8px 12px;
+            font-size: 12px;
+            width: auto;
+        }
+
         .tabs {
-            display: flex;
-            background: var(--card-bg);
-            border-radius: 12px;
-            padding: 4px;
-            margin-bottom: 16px;
-            overflow-x: auto;
-            position: relative;
-        }
-
-        .tab {
-            flex: 1;
-            padding: 12px;
-            text-align: center;
-            background: none;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 500;
-            color: var(--text-secondary);
-            transition: all 0.3s;
-            min-width: 80px;
-            white-space: nowrap;
-        }
-
-        .tab.active {
-            background: var(--primary-gradient);
-            color: white;
+            display: none; /* Скрываем старые табы */
         }
 
         .tab-content {
@@ -168,17 +186,344 @@
             display: block;
         }
 
-        /* Dashboard Styles */
+        /* ===== КОМПАКТНЫЕ ГРИДЫ ===== */
+        .spaces-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .spaces-grid.quick-grid {
+            grid-template-columns: repeat(4, 1fr) !important;
+        }
+
+        .spaces-grid.quick-grid .space-card {
+            padding: 8px !important;
+            min-height: 60px !important;
+        }
+
+        .spaces-grid.quick-grid .space-icon {
+            font-size: 18px !important;
+            margin-bottom: 4px !important;
+        }
+
+        .spaces-grid.quick-grid .space-name {
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+        }
+
+        .spaces-grid.quick-grid .space-meta {
+            display: none !important;
+        }
+
+        .space-card {
+            background: var(--bg-color);
+            padding: 8px 4px;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+            min-height: 60px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border: 1px solid var(--border-color);
+            position: relative;
+        }
+
+        .space-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary-gradient);
+        }
+
+        .space-card.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            transform: scale(0.98);
+        }
+
+        .space-card.loading::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.8);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        [data-theme="dark"] .space-card.loading::after {
+            background: rgba(0,0,0,0.6);
+        }
+
+        .space-icon {
+            font-size: 20px;
+            margin-bottom: 4px;
+        }
+
+        .space-name {
+            font-weight: 600;
+            font-size: 10px;
+            line-height: 1.2;
+            word-break: break-word;
+            max-width: 100%;
+        }
+
+        .space-meta {
+            font-size: 8px;
+            color: var(--text-muted);
+            line-height: 1.1;
+        }
+
+        /* ===== Currency Selector ===== */
+        .currency-selector {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+            overflow-x: auto;
+            padding: 4px 0;
+        }
+
+        .currency-flag {
+            padding: 6px 12px;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--card-bg);
+            cursor: pointer;
+            transition: all 0.3s;
+            white-space: nowrap;
+            font-size: 12px;
+        }
+
+        .currency-flag.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+        }
+
+        /* ===== КОМПАКТНЫЙ КАЛЬКУЛЯТОР ===== */
+        .amount-input-container {
+            position: relative;
+            margin-bottom: 12px;
+        }
+
+        .amount-display {
+            background: var(--bg-color);
+            padding: 10px 12px;
+            border-radius: 12px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid var(--border-color);
+        }
+
+        .amount-display input {
+            font-size: 24px;
+            font-weight: 600;
+            border: none;
+            outline: none;
+            width: 80%;
+            text-align: right;
+            background: transparent;
+            color: var(--text-primary);
+        }
+
+        .amount-currency {
+            font-size: 16px;
+            color: var(--text-muted);
+            margin-left: 4px;
+        }
+
+        .currency-selector {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 8px;
+        }
+
+        .numeric-keypad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .keypad-btn {
+            padding: 12px;
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            background: var(--card-bg);
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .keypad-btn:hover {
+            background: var(--border-color);
+        }
+
+        .keypad-btn:active {
+            transform: scale(0.95);
+        }
+
+        .keypad-btn.clear {
+            grid-column: span 3;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+            color: white;
+            border: none;
+        }
+
+        .calculator-buttons {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+        }
+
+        .calc-btn {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 10px 0;
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .calc-btn:active {
+            background: var(--border-color);
+            transform: scale(0.95);
+        }
+
+        .calc-btn.zero {
+            grid-column: span 2;
+        }
+
+        .calc-btn.action {
+            background: var(--primary-gradient);
+            color: white;
+            border: none;
+        }
+
+        .calc-btn.clear {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+            color: white;
+            border: none;
+        }
+
+        /* ===== КОМПАКТНЫЕ КАТЕГОРИИ ===== */
+        .categories-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 6px;
+            margin: 10px 0;
+            max-height: 130px;
+            overflow-y: auto;
+            padding: 4px;
+        }
+
+        .category-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 6px 2px;
+            background: var(--bg-color);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+            font-size: 10px;
+            text-align: center;
+            min-height: 50px;
+            justify-content: center;
+        }
+
+        .category-item:hover {
+            border-color: #667eea;
+        }
+
+        .category-item.active, .category-item.selected {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+        }
+
+        .category-icon {
+            font-size: 18px;
+            margin-bottom: 2px;
+        }
+
+        .category-name {
+            font-size: 8px;
+            font-weight: 500;
+            color: var(--text-primary);
+            word-break: break-word;
+            max-width: 100%;
+            line-height: 1.2;
+        }
+
+        /* ===== АНАЛИТИКА ===== */
+        .chart-container {
+            position: relative;
+            height: 150px;
+            margin-bottom: 12px;
+        }
+
+        .analytics-filters {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+            overflow-x: auto;
+            padding: 4px 0;
+        }
+
+        .filter-btn {
+            padding: 6px 12px;
+            border: 2px solid var(--border-color);
+            border-radius: 20px;
+            background: var(--card-bg);
+            cursor: pointer;
+            transition: all 0.3s;
+            white-space: nowrap;
+            font-size: 11px;
+        }
+
+        .filter-btn.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
         .dashboard-stats {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
         }
 
         .stat-card {
-            background: var(--card-bg);
-            padding: 16px;
+            background: var(--bg-color);
+            padding: 10px;
             border-radius: 12px;
             text-align: center;
             border-left: 4px solid;
@@ -201,309 +546,100 @@
         }
 
         .stat-value {
-            font-size: 20px;
+            font-size: 16px;
             font-weight: 700;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
         }
 
         .stat-label {
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-
-        /* Spaces Grid */
-        .spaces-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-
-        /* Маленькие иконки пространств для всех вкладок */
-        .spaces-grid.quick-grid {
-            grid-template-columns: repeat(4, 1fr) !important;
-        }
-
-        .spaces-grid.quick-grid .space-card {
-            padding: 8px !important;
-            min-height: 60px !important;
-        }
-
-        .spaces-grid.quick-grid .space-icon {
-            font-size: 18px !important;
-            margin-bottom: 4px !important;
-        }
-
-        .spaces-grid.quick-grid .space-name {
-            font-size: 11px !important;
-            line-height: 1.2 !important;
-            margin-bottom: 0 !important;
-        }
-
-        .spaces-grid.quick-grid .space-meta {
-            display: none !important;
-        }
-
-        .space-card {
-            background: var(--card-bg);
-            padding: 12px;
-            border-radius: 12px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 2px solid transparent;
-            min-height: 70px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            position: relative; /* Добавляем это */
-        }
-
-        .space-card:hover {
-            transform: translateY(-2px);
-            border-color: var(--primary-gradient);
-        }
-
-        /* ЗАМЕНИТЕ этот блок */
-        .space-card.active {
-            border-color: #667eea;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
-            transform: scale(0.98); /* Добавляем легкое уменьшение для акцента */
-        }
-
-        /* ДОБАВЬТЕ этот новый блок */
-        .space-card.loading::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(255,255,255,0.8);
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        [data-theme="dark"] .space-card.loading::after {
-            background: rgba(0,0,0,0.6);
-        }
-
-        .space-icon {
-            font-size: 20px;
-            margin-bottom: 6px;
-        }
-
-        .space-name {
-            font-weight: 600;
-            font-size: 12px;
-            margin-bottom: 2px;
-            line-height: 1.2;
-        }
-
-        .space-meta {
             font-size: 10px;
             color: var(--text-muted);
-            line-height: 1.1;
         }
 
-        /* Currency Selector */
-        .currency-selector {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 16px;
-            overflow-x: auto;
-            padding: 8px 0;
-        }
-
-        .currency-flag {
-            padding: 8px 16px;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            background: var(--card-bg);
-            cursor: pointer;
-            transition: all 0.3s;
-            white-space: nowrap;
-        }
-
-        .currency-flag.active {
-            border-color: #667eea;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
-        }
-
-        /* Amount Input */
-        .amount-input-container {
-            position: relative;
-            margin-bottom: 16px;
-        }
-
-        .amount-display {
-            font-size: 48px;
-            font-weight: 700;
-            text-align: center;
-            margin-bottom: 16px;
-            color: var(--text-primary);
-            min-height: 60px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .amount-currency {
-            font-size: 24px;
-            color: var(--text-muted);
-            margin-left: 8px;
-        }
-
-        .numeric-keypad {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            margin-bottom: 16px;
-        }
-
-        .keypad-btn {
-            padding: 16px;
-            border: 2px solid var(--border-color);
+        .month-card {
+            background: var(--bg-color);
             border-radius: 12px;
-            background: var(--card-bg);
-            font-size: 18px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-align: center;
-        }
-
-        .keypad-btn:hover {
-            background: var(--border-color);
-        }
-
-        .keypad-btn:active {
-            transform: scale(0.95);
-        }
-
-        .keypad-btn.clear {
-            grid-column: span 3;
-            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-            color: white;
-            border: none;
-        }
-
-        /* Analytics */
-        .chart-container {
-            position: relative;
-            height: 200px;
-            margin-bottom: 20px;
-        }
-
-        .analytics-filters {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 16px;
-            overflow-x: auto;
-        }
-
-        .filter-btn {
-            padding: 8px 16px;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            background: var(--card-bg);
-            cursor: pointer;
-            transition: all 0.3s;
-            white-space: nowrap;
-        }
-
-        .filter-btn.active {
-            border-color: #667eea;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
-        }
-
-        /* Category Management */
-        .categories-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            margin-bottom: 16px;
-        }
-
-        .category-item {
             padding: 12px;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
+            margin-bottom: 8px;
+            border-left: 4px solid;
         }
 
-        .category-item:hover {
-            border-color: #667eea;
+        .month-card.current {
+            border-left-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
         }
 
-        .category-item.active {
-            border-color: #667eea;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+        .progress-bar {
+            height: 6px;
+            background: var(--border-color);
+            border-radius: 3px;
+            margin: 8px 0;
+            overflow: hidden;
         }
 
-        .category-icon {
-            font-size: 24px;
-            margin-bottom: 4px;
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 3px;
+            transition: width 0.3s ease;
         }
 
-        /* Invite Section */
+        /* ===== Invite Section ===== */
         .invite-section {
             background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 193, 7, 0.2));
-            padding: 16px;
+            padding: 12px;
             border-radius: 12px;
-            margin-bottom: 16px;
+            margin: 12px 0;
             border-left: 4px solid #ffc107;
         }
 
         .invite-actions {
             display: flex;
             gap: 8px;
-            margin-top: 12px;
+            margin-top: 8px;
         }
 
-        /* Members List */
+        /* ===== Members List ===== */
         .members-list {
             max-height: 200px;
             overflow-y: auto;
+            margin-bottom: 12px;
         }
 
         .member-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 0;
+            padding: 8px 0;
             border-bottom: 1px solid var(--border-color);
+            font-size: 13px;
         }
 
         .member-role {
             background: var(--primary-gradient);
             color: white;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
         }
 
-        /* Loading and States */
+        /* ===== Loading and States ===== */
         .loading {
             text-align: center;
             color: var(--text-muted);
-            padding: 40px;
+            padding: 30px;
+            font-size: 14px;
         }
 
         .empty-state {
             text-align: center;
-            padding: 40px 20px;
+            padding: 30px 20px;
             color: var(--text-muted);
         }
 
         .empty-state-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
+            font-size: 40px;
+            margin-bottom: 12px;
             opacity: 0.5;
         }
 
@@ -512,18 +648,19 @@
         }
 
         .message {
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            border-left: 4px solid;
             position: fixed;
-            top: 20px;
+            top: 60px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 1000;
-            max-width: 90%;
+            padding: 10px 20px;
+            border-radius: 30px;
+            background: var(--card-bg);
+            box-shadow: var(--shadow);
             text-align: center;
+            max-width: 90%;
             animation: slideDown 0.3s ease;
+            font-size: 14px;
         }
 
         @keyframes slideDown {
@@ -538,45 +675,42 @@
         }
 
         .message.success {
-            background: rgba(40, 167, 69, 0.95);
-            border-left-color: #28a745;
+            background: #28a745;
             color: white;
         }
 
         .message.error {
-            background: rgba(220, 53, 69, 0.95);
-            border-left-color: #dc3545;
+            background: #dc3545;
             color: white;
         }
 
         [data-theme="dark"] .message.success {
             background: rgba(40, 167, 69, 0.9);
-            color: #ffffff;
         }
 
         [data-theme="dark"] .message.error {
             background: rgba(220, 53, 69, 0.9);
-            color: #ffffff;
         }
 
-        /* Form Elements */
+        /* ===== Form Elements ===== */
         .form-group {
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
 
         label {
             display: block;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             color: var(--text-secondary);
             font-weight: 500;
+            font-size: 12px;
         }
 
         input, select, textarea {
             width: 100%;
-            padding: 12px 16px;
+            padding: 10px 12px;
             border: 2px solid var(--border-color);
             border-radius: 12px;
-            font-size: 16px;
+            font-size: 14px;
             transition: border-color 0.3s;
             background: var(--card-bg);
             color: var(--text-primary);
@@ -587,53 +721,25 @@
             border-color: #667eea;
         }
 
-        /* Responsive */
-        @media (max-width: 480px) {
-            .spaces-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .categories-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            
-            .dashboard-stats {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* Swipe support */
-        .tab-content {
-            display: none;
-            /* ДОБАВЬТЕ ЭТИ СТРОКИ: */
-            transform: translateX(0);
-            transition: transform 0.3s ease, opacity 0.3s ease;
-        }
-
-        body {
-            overflow-x: hidden;
-        }
-        .container {
-            max-width: 400px;
-            margin: 0 auto;
-            /* ДОБАВЬТЕ ЭТИ СТРОКИ: */
-            overflow-x: hidden;
-            position: relative;
-        }
-
-        .tab-content.active {
-            display: block;
-        }      
-
-        .swipe-left {
-            transform: translateX(-100%);
-        }
-
-        .swipe-right {
-            transform: translateX(100%);
-        }
+        /* ===== СПИСОК ТРАТ ===== */
         .expense-item {
+            background: var(--bg-color);
+            padding: 10px;
+            border-radius: 12px;
+            margin-bottom: 6px;
+            border: 1px solid var(--border-color);
             transition: all 0.3s ease;
+        }
+
+        .delete-expense-btn {
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s;
         }
 
         .delete-expense-btn:hover {
@@ -644,6 +750,54 @@
         .delete-expense-btn:active {
             transform: scale(0.95);
         }
+
+        /* ===== Quick Actions ===== */
+        .quick-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* ===== Swipe support ===== */
+        body {
+            overflow-x: hidden;
+        }
+
+        .container {
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        .swipe-left {
+            transform: translateX(-100%);
+        }
+
+        .swipe-right {
+            transform: translateX(100%);
+        }
+
+        /* ===== АДАПТАЦИЯ ===== */
+        @media (max-width: 360px) {
+            .categories-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+            
+            .spaces-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            
+            .nav-item span:first-child {
+                font-size: 18px;
+            }
+            
+            .nav-item {
+                font-size: 8px;
+            }
+            
+            .dashboard-stats {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -653,36 +807,46 @@
             <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
         </div>
 
-        <!-- Dashboard Tab -->
-        <div id="dashboard" class="tab-content active">
-            <div class="tabs">
-                <button class="tab active">🏠</button>
-                <button class="tab" onclick="showTab('spaces')">👥</button>
-                <button class="tab" onclick="showTab('expenses')">💸</button>
-                <button class="tab" onclick="showTab('analytics')">📊</button>
-                <button class="tab" onclick="showTab('expensesList')">📝</button>
+        <!-- КОМПАКТНАЯ ВЕРХНЯЯ НАВИГАЦИЯ -->
+        <div class="top-nav">
+            <div class="nav-item active" onclick="showTab('dashboard')">
+                <span>🏠</span>
+                <span>Главная</span>
             </div>
+            <div class="nav-item" onclick="showTab('spaces')">
+                <span>👥</span>
+                <span>Команды</span>
+            </div>
+            <div class="nav-item" onclick="showTab('expenses')">
+                <span>💸</span>
+                <span>Траты</span>
+            </div>
+            <div class="nav-item" onclick="showTab('analytics')">
+                <span>📊</span>
+                <span>Аналитика</span>
+            </div>
+            <div class="nav-item" onclick="showTab('expensesList')">
+                <span>📋</span>
+                <span>История</span>
+            </div>
+        </div>
 
-
-            <!-- Добавьте эту кнопку сразу после табов -->
-            <div style="display: flex; justify-content: flex-end; margin-bottom: 16px;">
-                <button class="btn btn-outline" onclick="refreshDashboard()" style="width: auto; padding: 8px 16px;">
+        <!-- ГЛАВНАЯ (DASHBOARD) -->
+        <div id="dashboard" class="tab-content active">
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                <button class="btn-small btn-outline" onclick="refreshDashboard()" style="padding: 6px 12px;">
                     🔄 Обновить данные
                 </button>
             </div>
 
-            <!-- Быстрый выбор пространства -->
             <div class="card">
-                <h3>🏠 Мои пространства</h3>
-                <div id="quickSpacesGrid" class="spaces-grid quick-grid">
-                    <!-- Будут загружены скриптом -->
-                </div>
-                <div style="margin-top: 12px; text-align: center;">
-                    <button class="btn btn-outline" onclick="showTab('spaces')">👥 Управление пространствами</button>
+                <h3 style="font-size: 16px; margin-bottom: 12px;">🏠 Мои пространства</h3>
+                <div id="quickSpacesGrid" class="spaces-grid quick-grid"></div>
+                <div style="margin-top: 8px; text-align: center;">
+                    <button class="btn-small btn-outline" onclick="showTab('spaces')">👥 Управление</button>
                 </div>
             </div>
 
-            <!-- KPI дашборда -->
             <div id="dashboardKPI" class="hidden">
                 <div class="dashboard-stats">
                     <div class="stat-card primary">
@@ -691,7 +855,7 @@
                     </div>
                     <div class="stat-card success">
                         <div class="stat-value" id="budgetProgress">0%</div>
-                        <div class="stat-label" id="budgetDetails">Бюджет 0/0</div>
+                        <div class="stat-label" id="budgetDetails">0/0</div>
                     </div>
                     <div class="stat-card warning">
                         <div class="stat-value" id="weekSpent">0</div>
@@ -704,44 +868,34 @@
                 </div>
 
                 <div class="card">
-                    <h3>📊 Быстрые действия</h3>
+                    <h3 style="font-size: 16px; margin-bottom: 12px;">📊 Быстрые действия</h3>
                     <div class="quick-actions">
-                        <button class="btn" onclick="showTab('expenses')">💸 Добавить трату</button>
-                        <button class="btn btn-secondary" onclick="showTab('analytics')">📊 Детальная аналитика</button>
-                        <button class="btn btn-success" onclick="shareBotLink()">📱 Пригласить друзей</button>
+                        <button class="btn btn-small" onclick="showTab('expenses')">💸 Добавить трату</button>
+                        <button class="btn btn-small btn-secondary" onclick="showTab('analytics')">📊 Детальная аналитика</button>
+                        <button class="btn btn-small btn-success" onclick="shareBotLink()">📱 Пригласить друзей</button>
                     </div>
                 </div>
-
-                
             </div>
 
-            <!-- Состояние когда нет выбранного пространства -->
             <div id="noSpaceSelected" class="card">
                 <div class="empty-state">
                     <div class="empty-state-icon">🏠</div>
-                    <h3>Выберите пространство</h3>
-                    <p>Выберите пространство из списка выше чтобы увидеть статистику</p>
+                    <h3 style="font-size: 16px;">Выберите пространство</h3>
+                    <p style="font-size: 12px;">Выберите пространство из списка выше чтобы увидеть статистику</p>
                 </div>
             </div>
         </div>
 
-        <!-- Spaces Tab -->
+        <!-- ПРОСТРАНСТВА -->
         <div id="spaces" class="tab-content">
-            <div class="tabs">
-                <button class="tab" onclick="showTab('dashboard')">🏠</button>
-                <button class="tab active">👥</button>
-                <button class="tab" onclick="showTab('expenses')">💸</button>
-                <button class="tab" onclick="showTab('analytics')">📊</button>
-                <button class="tab" onclick="showTab('expensesList')">📝</button>
-            </div>
             <div class="card">
-                <h2>Мои пространства</h2>
+                <h3 style="font-size: 16px; margin-bottom: 12px;">Мои пространства</h3>
                 <div id="spacesList" class="spaces-grid quick-grid loading">Загрузка...</div>
-                <button class="btn" onclick="showCreateSpaceForm()">➕ Создать пространство</button>
+                <button class="btn btn-small" onclick="showCreateSpaceForm()">➕ Создать пространство</button>
             </div>
             
             <div id="createSpaceForm" class="card hidden">
-                <h3>Создать пространство</h3>
+                <h3 style="font-size: 16px; margin-bottom: 12px;">Создать пространство</h3>
                 <div class="form-group">
                     <label>Название:</label>
                     <input type="text" id="spaceName" placeholder="Например: Семья">
@@ -757,164 +911,143 @@
                 </div>
                 <div class="form-group">
                     <label>Описание:</label>
-                    <textarea id="spaceDescription" placeholder="Описание пространства" rows="3"></textarea>
+                    <textarea id="spaceDescription" placeholder="Описание пространства" rows="2"></textarea>
                 </div>
-                <button class="btn" onclick="createSpace()">Создать</button>
-                <button class="btn btn-secondary" onclick="hideCreateSpaceForm()">Отмена</button>
+                <button class="btn btn-small" onclick="createSpace()">Создать</button>
+                <button class="btn btn-small btn-secondary" onclick="hideCreateSpaceForm()">Отмена</button>
             </div>
 
             <div id="spaceDetails" class="card hidden">
-                <h3 id="currentSpaceName"></h3>
-                <div id="spaceInfo"></div>
+                <h3 id="currentSpaceName" style="font-size: 16px;"></h3>
+                <div id="spaceInfo" style="font-size: 13px; margin: 10px 0;"></div>
                 
                 <div class="invite-section">
-                    <h4>🤝 Пригласить участников</h4>
+                    <h4 style="font-size: 14px; margin-bottom: 8px;">🤝 Пригласить участников</h4>
                     <div class="form-group">
                         <label>Код приглашения:</label>
-                        <input type="text" id="currentInviteCode" readonly>
+                        <input type="text" id="currentInviteCode" readonly style="font-size: 12px;">
                         <div class="invite-actions">
-                            <button class="btn btn-small" onclick="copyInviteCode()">📋 Копировать код</button>
-                            <button class="btn btn-small btn-success" onclick="shareInviteLink()">🔗 Копировать ссылку</button>
+                            <button class="btn-small" onclick="copyInviteCode()">📋 Копировать код</button>
+                            <button class="btn-small btn-success" onclick="shareInviteLink()">🔗 Копировать ссылку</button>
                         </div>
-                        <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
-                            Отправьте ссылку друзьям, чтобы они присоединились к пространству
+                        <p style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+                            Отправьте ссылку друзьям, чтобы они присоединились
                         </p>
                     </div>
                 </div>
 
-                <h4>Участники</h4>
+                <h4 style="font-size: 14px; margin-bottom: 8px;">Участники</h4>
                 <div id="spaceMembersList" class="members-list"></div>
                 
-                <div class="action-buttons">
-                    <button class="btn btn-danger" onclick="leaveSpace()">🚪 Покинуть пространство</button>
-                    <button class="btn btn-danger" onclick="deleteSpace()">🗑️ Удалить пространство</button>
-                    <button class="btn btn-secondary" onclick="hideSpaceDetails()">← Назад</button>
-                    
+                <div style="display: flex; gap: 6px; margin-top: 12px;">
+                    <button class="btn-small btn-danger" onclick="leaveSpace()">🚪 Покинуть</button>
+                    <button class="btn-small btn-danger" onclick="deleteSpace()">🗑️ Удалить</button>
+                    <button class="btn-small btn-secondary" onclick="hideSpaceDetails()">← Назад</button>
                 </div>
             </div>
 
-            <!-- Присоединение к пространству (перемещено вниз) -->
             <div class="card">
-                <h3>Присоединиться к пространству</h3>
+                <h3 style="font-size: 16px; margin-bottom: 12px;">Присоединиться к пространству</h3>
                 <div class="form-group">
                     <label>Код приглашения:</label>
                     <input type="text" id="inviteCodeInput" placeholder="Введите код приглашения">
                 </div>
-                <button class="btn" onclick="joinSpace()">Присоединиться</button>
+                <button class="btn btn-small" onclick="joinSpace()">Присоединиться</button>
             </div>
         </div>
 
-        <!-- Expenses Tab -->
+        <!-- ДОБАВЛЕНИЕ ТРАТЫ -->
         <div id="expenses" class="tab-content">
-            <div class="tabs">
-                <button class="tab" onclick="showTab('dashboard')">🏠</button>
-                <button class="tab" onclick="showTab('spaces')">👥</button>
-                <button class="tab active">💸</button>
-                <button class="tab" onclick="showTab('analytics')">📊</button>
-                <button class="tab" onclick="showTab('expensesList')">📝</button>
-            </div>
-    
             <div class="card">
-                <h2>💸 Добавить трату</h2>
+                <h3 style="font-size: 16px; margin-bottom: 12px;">💸 Добавить трату</h3>
         
                 <div class="form-group">
                     <label>Пространство:</label>
-                    <div id="expenseSpacesGrid" class="spaces-grid quick-grid">
-                        <!-- Spaces will be loaded here -->
-                    </div>
+                    <div id="expenseSpacesGrid" class="spaces-grid quick-grid"></div>
                 </div>
-
-                
 
                 <div class="amount-input-container">
                     <div class="amount-display">
-                        <span id="currentAmount">0</span>
-                        <span class="amount-currency" id="amountCurrency">₽</span>
+                        <span class="currency-selector" onclick="toggleCurrency()" id="currencySymbol">₽</span>
+                        <input type="text" id="amountInput" value="0" readonly>
                     </div>
 
-                    <!-- Поле для ручного ввода -->
                     <div class="form-group" style="margin-bottom: 12px;">
                         <input type="number" id="manualAmountInput" placeholder="Или введите сумму вручную" 
-                            style="text-align: center; font-size: 18px; padding: 12px;"
-                            oninput="updateAmountFromInput(this.value)">
+                               style="text-align: center; font-size: 16px; padding: 10px;"
+                               oninput="updateAmountFromInput(this.value)">
                     </div>
 
-                    <div class="numeric-keypad" id="numericKeypad">
-                        <!-- Keypad will be generated by JavaScript -->
+                    <div class="calculator-buttons">
+                        <button class="calc-btn" onclick="addToAmount(7)">7</button>
+                        <button class="calc-btn" onclick="addToAmount(8)">8</button>
+                        <button class="calc-btn" onclick="addToAmount(9)">9</button>
+                        <button class="calc-btn clear" onclick="clearAmount()">C</button>
+                        
+                        <button class="calc-btn" onclick="addToAmount(4)">4</button>
+                        <button class="calc-btn" onclick="addToAmount(5)">5</button>
+                        <button class="calc-btn" onclick="addToAmount(6)">6</button>
+                        <button class="calc-btn action" onclick="backspace()">⌫</button>
+                        
+                        <button class="calc-btn" onclick="addToAmount(1)">1</button>
+                        <button class="calc-btn" onclick="addToAmount(2)">2</button>
+                        <button class="calc-btn" onclick="addToAmount(3)">3</button>
+                        <button class="calc-btn action" onclick="addDecimal()">.</button>
+                        
+                        <button class="calc-btn zero" onclick="addToAmount(0)">0</button>
+                        <button class="calc-btn action" onclick="addToAmount(0, true)">00</button>
                     </div>
                 </div>
 
-                <!-- ЭТОТ БЛОК ДОЛЖЕН БЫТЬ - КАТЕГОРИИ -->
                 <div class="form-group">
                     <label>Категория:</label>
-                    <div id="categoriesGrid" class="categories-grid">
-                        <!-- Categories will be loaded here -->
-                    </div>
+                    <div id="categoriesGrid" class="categories-grid"></div>
                     
-                    <!-- ОБНОВЛЕННАЯ КНОПКА С УПРАВЛЕНИЕМ КАТЕГОРИЯМИ -->
-                    <div style="display: flex; gap: 8px; margin-top: 8px;">
-                        <button class="btn btn-outline" onclick="showAddCategoryForm()" style="width: auto; padding: 8px 16px;">
-                            ➕ Создать категорию
-                        </button>
-                        <button class="btn btn-outline" onclick="showManageCategories()" style="width: auto; padding: 8px 16px; background: #ffebee; color: #c62828;">
-                            🗑️ Управление категориями
-                        </button>
+                    <div style="display: flex; gap: 6px; margin-top: 8px;">
+                        <button class="btn-small btn-outline" onclick="showAddCategoryForm()">➕ Создать категорию</button>
+                        <button class="btn-small btn-outline" onclick="showManageCategories()" style="background: #ffebee; color: #c62828;">🗑️ Управление</button>
                     </div>
                 </div>
+
+                <div class="form-group">
+                    <label>Описание (комментарий):</label>
+                    <input type="text" id="expenseDescription" placeholder="Краткое описание траты">
+                    <small style="color: var(--text-muted); font-size: 10px; margin-top: 2px; display: block;">
+                        Этот комментарий будет виден в аналитике
+                    </small>
+                </div>
+
+                <button class="btn btn-success btn-small" onclick="addExpense()">💾 Сохранить трату</button>
             </div>
 
-            <!-- ФОРМА СОЗДАНИЯ КАТЕГОРИИ -->
-            <div id="addCategoryForm" class="card hidden" style="margin-top: 12px;">
-                <h4>➕ Создать категорию</h4>
+            <div id="addCategoryForm" class="card hidden" style="margin-top: 8px;">
+                <h4 style="font-size: 14px; margin-bottom: 8px;">➕ Создать категорию</h4>
                 <div class="form-group">
                     <label>Название категории:</label>
                     <input type="text" id="newCategoryName" placeholder="Например: Такси">
                 </div>
                 <div class="form-group">
                     <label>Иконка:</label>
-                    <div class="categories-grid" id="iconSelector">
-                        <!-- Иконки будут загружены скриптом -->
-                    </div>
+                    <div id="iconSelector" class="categories-grid"></div>
                 </div>
-                <div style="display: flex; gap: 8px;">
-                    <button class="btn btn-success" onclick="createCustomCategory()">Создать</button>
-                    <button class="btn btn-secondary" onclick="hideAddCategoryForm()">Отмена</button>
+                <div style="display: flex; gap: 6px;">
+                    <button class="btn-small btn-success" onclick="createCustomCategory()">Создать</button>
+                    <button class="btn-small btn-secondary" onclick="hideAddCategoryForm()">Отмена</button>
                 </div>
-            </div>    
-                <div class="form-group">
-                    <label>Описание (комментарий):</label>
-                    <input type="text" id="expenseDescription" placeholder="Краткое описание траты">
-                    <small style="color: var(--text-muted); font-size: 12px; margin-top: 4px; display: block;">
-                        Этот комментарий будет виден в аналитике
-                    </small>
-                </div>
-
-                <button class="btn btn-success" onclick="addExpense()">💾 Сохранить трату</button>
             </div>
         </div>
 
-        <!-- Analytics Tab -->
+        <!-- АНАЛИТИКА -->
         <div id="analytics" class="tab-content">
-            <div class="tabs">
-                <button class="tab" onclick="showTab('dashboard')">🏠</button>
-                <button class="tab" onclick="showTab('spaces')">👥</button>
-                <button class="tab" onclick="showTab('expenses')">💸</button>
-                <button class="tab active">📊</button>
-                <button class="tab" onclick="showTab('expensesList')">📝</button>
-            </div>
             <div class="card">
-                <h2>📊 Аналитика</h2>
-                
-                <div style="display: flex; justify-content: flex-end; margin-bottom: 16px;">
-                    <button class="btn btn-outline" onclick="refreshAnalytics()" style="width: auto; padding: 8px 16px;">
-                        🔄 Обновить данные
-                    </button>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h3 style="font-size: 16px;">📊 Аналитика</h3>
+                    <button class="btn-small btn-outline" onclick="refreshAnalytics()">🔄 Обновить</button>
                 </div>
+
                 <div class="form-group">
                     <label>Пространство:</label>
-                    <div id="analyticsSpacesGrid" class="spaces-grid quick-grid">
-                        <!-- Spaces will be loaded here -->
-                    </div>
+                    <div id="analyticsSpacesGrid" class="spaces-grid quick-grid"></div>
                 </div>
 
                 <div class="analytics-filters">
@@ -924,89 +1057,64 @@
                     <div class="filter-btn" data-period="365" onclick="setAnalyticsPeriod(365)">Год</div>
                 </div>
 
-                
-
                 <div class="chart-container">
                     <canvas id="analyticsChart"></canvas>
                 </div>
 
                 <div class="stats-grid">
-                    <div class="stat-card">
+                    <div class="stat-card primary">
                         <div class="stat-value" id="totalSpent">0</div>
                         <div class="stat-label">Всего потрачено</div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card success">
                         <div class="stat-value" id="avgDaily">0</div>
                         <div class="stat-label">В день</div>
                     </div>
                 </div>
 
-                <h3>По категориям</h3>
                 <div id="categoriesAnalytics"></div>
 
-                <!-- Добавь этот блок перед кнопкой экспорта в аналитике -->
-                <div class="card" style="margin-top: 16px;">
-                    <h3>🎯 Установить бюджет</h3>
+                <div class="card" style="margin-top: 12px; padding: 12px;">
+                    <h4 style="font-size: 14px; margin-bottom: 8px;">🎯 Установить бюджет</h4>
                     <div class="form-group">
                         <label>Сумма бюджета:</label>
                         <input type="number" id="budgetAmount" placeholder="Введите сумму бюджета" step="0.01" min="0">
                     </div>
-                    <div class="form-group">
-                        
-                    </div>
-                    <button class="btn btn-success" onclick="setBudget()">💎 Установить бюджет</button>
-                </div>    
-            <div class="card">            
-                <button class="btn btn-outline" onclick="exportToExcel()">📊 Экспорт в Excel</button>
+                    <button class="btn btn-success btn-small" onclick="setBudget()">💎 Установить бюджет</button>
+                </div>
+
+                <button class="btn btn-outline btn-small" onclick="exportToExcel()" style="margin-top: 8px;">📊 Экспорт в Excel</button>
             </div>
         </div>
 
-        
+        <!-- ИСТОРИЯ ТРАТ -->
+        <div id="expensesList" class="tab-content">
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h3 style="font-size: 16px;">📝 История трат</h3>
+                    <button class="btn-small btn-outline" onclick="refreshExpensesList()">🔄 Обновить</button>
+                </div>
+
+                <div class="analytics-filters" style="margin-bottom: 12px;">
+                    <div class="filter-btn active" data-period="7" onclick="setExpensesPeriod(7)">7 дней</div>
+                    <div class="filter-btn" data-period="30" onclick="setExpensesPeriod(30)">30 дней</div>
+                    <div class="filter-btn" data-period="90" onclick="setExpensesPeriod(90)">3 месяца</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Пространство:</label>
+                    <div id="expensesListSpacesGrid" class="spaces-grid quick-grid"></div>
+                </div>
+
+                <div id="expensesListContainer"></div>
+            </div>
+        </div>
 
         <div id="message" class="hidden"></div>
     </div>
 
-        <!-- Expenses List Tab -->
-        <div id="expensesList" class="tab-content">
-            <div class="tabs">
-                <button class="tab" onclick="showTab('dashboard')">🏠</button>
-                <button class="tab" onclick="showTab('spaces')">👥</button>
-                <button class="tab" onclick="showTab('expenses')">💸</button>
-                <button class="tab" onclick="showTab('analytics')">📊</button>
-                <button class="tab active">📝</button>
-            </div>
-            
-            <div class="card">
-                <h2>📝 История трат</h2>
-                
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <div class="analytics-filters">
-                        <div class="filter-btn active" data-period="7" onclick="setExpensesPeriod(7)">7 дней</div>
-                        <div class="filter-btn" data-period="30" onclick="setExpensesPeriod(30)">30 дней</div>
-                        <div class="filter-btn" data-period="90" onclick="setExpensesPeriod(90)">3 месяца</div>
-                    </div>
-                    <button class="btn btn-outline" onclick="refreshExpensesList()" style="width: auto; padding: 8px 16px;">
-                        🔄 Обновить
-                    </button>
-                </div>
-
-                <!-- ДОЛЖЕН БЫТЬ ЭТОТ БЛОК ДЛЯ ВЫБОРА ПРОСТРАНСТВА -->
-                <div class="form-group">
-                    <label>Пространство:</label>
-                    <div id="expensesListSpacesGrid" class="spaces-grid quick-grid">
-                        <!-- Spaces will be loaded here -->
-                    </div>
-                </div>
-
-                <div id="expensesListContainer">
-                    <!-- Список трат будет загружен здесь -->
-                </div>
-            </div>
-        </div>
-
-
-        <script>
-        // === АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ ===
+    <script>
+        // ===== АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ =====
         const APP_VERSION = '1.0.2';
         const currentVersion = localStorage.getItem('appVersion');
 
@@ -1014,8 +1122,7 @@
             console.log(`🔄 Обновляем приложение с ${currentVersion} на ${APP_VERSION}`);
             localStorage.setItem('appVersion', APP_VERSION);
             
-            // Показываем красивое уведомление вместо мгновенной перезагрузки
-            if (currentVersion) { // Не показываем при первом запуске
+            if (currentVersion) {
                 setTimeout(() => {
                     if (confirm('🎉 Доступна новая версия приложения! Обновить сейчас?')) {
                         window.location.reload(true);
@@ -1023,6 +1130,7 @@
                 }, 2000);
             }
         }
+
         // ===== CONFIGURATION =====
         const API_URL = "https://web-production-4c423.up.railway.app";
         const tg = window.Telegram.WebApp;
@@ -1030,12 +1138,10 @@
         tg.enableClosingConfirmation();
 
         // ===== STATE MANAGEMENT =====
-
-        // Добавьте в state management
         let dataCache = {
             spaces: null,
             lastUpdate: null,
-            cacheDuration: 60000 // 1 минута
+            cacheDuration: 60000
         };
 
         async function loadSpacesWithCache() {
@@ -1075,14 +1181,19 @@
             theme: 'light'
         };
 
-        let userData = tg.initDataUnsafe.user;
+        let userData = tg.initDataUnsafe.user || { id: 123456789, first_name: 'User' };
         let currentSpaceData = null;
+        let selectedCategory = null;
+        let selectedIcon = '📁';
+        let expensesListPeriod = 30;
+        let analyticsChart = null;
+        let budgetCurrency = 'RUB';
 
         // ===== CURRENCY CONFIG =====
         const CURRENCIES = {
             RUB: { symbol: '₽', keypad: [1, 5, 10, 50, 100, 500, 1000, 5000] },
-            BYN: { symbol: 'Br', keypad: [1, 5, 10, 20, 50, 100] },
-            KZT: { symbol: '₸', keypad: [100, 500, 1000, 2000, 5000, 10000] }
+            USD: { symbol: '$', keypad: [1, 5, 10, 20, 50, 100] },
+            EUR: { symbol: '€', keypad: [1, 5, 10, 20, 50, 100] }
         };
 
         // ===== INITIALIZATION =====
@@ -1096,19 +1207,18 @@
             }
         }
 
-        // Функция для показа модального окна присоединения
         function showJoinSpaceModal(inviteCode) {
             const modalHtml = `
                 <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
-                    <div class="card" style="max-width: 300px; margin: 20px;">
-                        <h3>🤝 Присоединиться к пространству</h3>
-                        <p>Вы были приглашены в финансовое пространство!</p>
+                    <div class="card" style="max-width: 280px; margin: 20px;">
+                        <h3 style="font-size: 16px;">🤝 Присоединиться к пространству</h3>
+                        <p style="font-size: 13px;">Вы были приглашены в финансовое пространство!</p>
                         <div class="form-group">
                             <label>Код приглашения:</label>
-                            <input type="text" id="autoInviteCode" value="${inviteCode}" readonly>
+                            <input type="text" id="autoInviteCode" value="${inviteCode}" readonly style="font-size: 14px;">
                         </div>
-                        <button class="btn" onclick="joinSpaceFromLink()">Присоединиться</button>
-                        <button class="btn btn-secondary" onclick="closeJoinModal()">Отмена</button>
+                        <button class="btn btn-small" onclick="joinSpaceFromLink()">Присоединиться</button>
+                        <button class="btn btn-small btn-secondary" onclick="closeJoinModal()">Отмена</button>
                     </div>
                 </div>
             `;
@@ -1121,9 +1231,7 @@
 
         function closeJoinModal() {
             const modal = document.getElementById('joinModal');
-            if (modal) {
-                modal.remove();
-            }
+            if (modal) modal.remove();
         }
 
         async function joinSpaceFromLink() {
@@ -1136,10 +1244,7 @@
                 const response = await fetch(`${API_URL}/join_space`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        inviteCode: code
-                    })
+                    body: JSON.stringify({ initData: tg.initData, inviteCode: code })
                 });
 
                 if (!response.ok) {
@@ -1156,10 +1261,11 @@
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
+
         document.addEventListener('DOMContentLoaded', function() {
             loadState();
             initializeApp();
-            // setupSwipeNavigation(); // ← УДАЛИТЕ эту строку! Она теперь вызывается внутри initializeApp()
+            setupSwipeNavigation();
         });
 
         // ===== STATE MANAGEMENT =====
@@ -1168,7 +1274,6 @@
             if (saved) {
                 const parsed = JSON.parse(saved);
                 state = { ...state, ...parsed };
-                
                 document.body.setAttribute('data-theme', state.theme);
                 selectCurrency(state.currentCurrency, false);
             }
@@ -1187,46 +1292,37 @@
 
         // ===== NAVIGATION =====
         function showTab(tabName) {
-            // Скрываем все вкладки
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-    
-            // Убираем активный класс со всех табов во всех вкладках
-            document.querySelectorAll('.tabs .tab').forEach(tab => tab.classList.remove('active'));
-    
-            // Показываем нужную вкладку
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+            
             document.getElementById(tabName).classList.add('active');
-    
-            // Активируем соответствующий таб в текущей вкладке
-            const currentTabs = document.querySelector(`#${tabName} .tabs`);
-            if (currentTabs) {
-                const targetTab = Array.from(currentTabs.querySelectorAll('.tab')).find(tab => 
-                    tab.textContent.includes(getTabLabel(tabName))
-                );
-                if (targetTab) {
-                    targetTab.classList.add('active');
-                }
-            }
+            
+            const navItems = document.querySelectorAll('.nav-item');
+            const tabIndex = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'].indexOf(tabName);
+            if (tabIndex >= 0) navItems[tabIndex].classList.add('active');
 
-            // ДОБАВЬТЕ ЭТОТ КОД - загрузка контента для конкретных вкладок
             console.log('Switching to tab:', tabName);
-            if (tabName === 'expenses') {
-                console.log('Loading expenses tab content...');
-                loadExpensesTab();
-            } else if (tabName === 'analytics') {
-                loadAnalytics();
+            
+            switch(tabName) {
+                case 'expenses':
+                    loadExpensesTab();
+                    break;
+                case 'analytics':
+                    loadAnalytics();
+                    break;
+                case 'expensesList':
+                    loadSpacesForSelector('expensesListSpacesGrid', true);
+                    loadExpensesList();
+                    break;
+                case 'spaces':
+                    loadSpaces();
+                    break;
+                case 'dashboard':
+                    if (state.currentSpaceId) {
+                        loadDashboardKPI();
+                    }
+                    break;
             }
-        }
-        
-
-        // Вспомогательная функция для определения метки таба
-        function getTabLabel(tabName) {
-            const labels = {
-                'dashboard': '🏠',
-                'spaces': '👥', 
-                'expenses': '💸',
-                'analytics': '📊'
-            };
-            return labels[tabName] || tabName;
         }
 
         function setupSwipeNavigation() {
@@ -1235,22 +1331,14 @@
             let startX = 0;
             let startY = 0;
             const minSwipeDistance = 50;
-            
             const tabs = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'];
 
             document.addEventListener('touchstart', e => {
-                // Игнорируем свайпы на интерактивных элементах
-                if (e.target.tagName === 'INPUT' || 
-                    e.target.tagName === 'TEXTAREA' || 
-                    e.target.tagName === 'SELECT' ||
-                    e.target.closest('button') ||
-                    e.target.closest('.keypad-btn')) {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.closest('button') || e.target.closest('.keypad-btn')) {
                     return;
                 }
-                
                 startX = e.touches[0].clientX;
                 startY = e.touches[0].clientY;
-                console.log('👆 Touch start at:', startX, startY);
             });
 
             document.addEventListener('touchend', e => {
@@ -1261,115 +1349,26 @@
                 const diffX = startX - endX;
                 const diffY = startY - endY;
 
-                console.log('🖐️ Touch end. Diff X:', diffX, 'Diff Y:', diffY);
-
-                // Игнорируем вертикальные свайпы и маленькие движения
                 if (Math.abs(diffY) > Math.abs(diffX) || Math.abs(diffX) < minSwipeDistance) {
-                    console.log('❌ Ignored - vertical or small swipe');
                     startX = 0;
                     return;
                 }
 
                 const currentTab = document.querySelector('.tab-content.active');
-                if (!currentTab) {
-                    console.log('❌ No active tab found');
-                    return;
-                }
+                if (!currentTab) return;
 
                 const currentTabId = currentTab.id;
                 const currentIndex = tabs.indexOf(currentTabId);
                 
-                if (currentIndex === -1) {
-                    console.log('❌ Current tab not found in tabs array:', currentTabId);
-                    return;
-                }
+                if (currentIndex === -1) return;
 
                 let newIndex;
-                if (diffX > 0) {
-                    // Свайп влево - следующая вкладка
-                    newIndex = Math.min(currentIndex + 1, tabs.length - 1);
-                    console.log('⬅️ Swipe left to:', tabs[newIndex]);
-                } else {
-                    // Свайп вправо - предыдущая вкладка
-                    newIndex = Math.max(currentIndex - 1, 0);
-                    console.log('➡️ Swipe right to:', tabs[newIndex]);
-                }
+                if (diffX > 0) newIndex = Math.min(currentIndex + 1, tabs.length - 1);
+                else newIndex = Math.max(currentIndex - 1, 0);
 
-                if (newIndex !== currentIndex) {
-                    console.log('✅ Switching from', tabs[currentIndex], 'to', tabs[newIndex]);
-                    showTab(tabs[newIndex]);
-                } else {
-                    console.log('ℹ️ Same tab, no switch needed');
-                }
-
+                if (newIndex !== currentIndex) showTab(tabs[newIndex]);
                 startX = 0;
             });
-
-            // Добавим визуальный индикатор что свайп работает
-            setTimeout(() => {
-                console.log('🎯 Swipe navigation ready! Try swiping left/right');
-            }, 1000);
-        }
-
-        // Убедитесь что функция showTab правильно обрабатывает все вкладки
-        function showTab(tabName) {
-            console.log('🔄 Switching to tab:', tabName);
-            
-            // Сбрасываем анимации у всех вкладок
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-                tab.style.transform = 'translateX(0)';
-                tab.style.opacity = '1';
-                tab.style.transition = 'none';
-            });
-            
-            // Убираем активный класс со всех табов
-            document.querySelectorAll('.tabs .tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Показываем нужную вкладку
-            const targetTab = document.getElementById(tabName);
-            if (targetTab) {
-                targetTab.classList.add('active');
-                
-                // Активируем соответствующий таб в текущей вкладке
-                const currentTabs = targetTab.querySelector('.tabs');
-                if (currentTabs) {
-                    const tabs = currentTabs.querySelectorAll('.tab');
-                    tabs.forEach((tab, index) => {
-                        const targetIndex = ['dashboard', 'spaces', 'expenses', 'analytics', 'expensesList'].indexOf(tabName);
-                        if (index === targetIndex) {
-                            tab.classList.add('active');
-                        }
-                    });
-                }
-                
-                // Загружаем контент для конкретных вкладок
-                console.log('Loading tab content for:', tabName);
-                switch(tabName) {
-                    case 'expenses':
-                        loadExpensesTab();
-                        break;
-                    case 'analytics':
-                        loadAnalytics();
-                        break;
-                    case 'expensesList':
-                        loadSpacesForSelector('expensesListSpacesGrid', true);
-                        loadExpensesList();
-                        break;
-                    case 'spaces':
-                        loadSpaces();
-                        break;
-                    case 'dashboard':
-                        if (state.currentSpaceId) {
-                            loadDashboardKPI();
-                        }
-                        break;
-                }
-            } else {
-                console.error('❌ Tab not found:', tabName);
-            }
         }
 
         // ===== CURRENCY MANAGEMENT =====
@@ -1380,8 +1379,7 @@
                 flag.classList.toggle('active', flag.dataset.currency === currency);
             });
             
-            // УБРАЛИ отображение символа валюты
-            document.getElementById('amountCurrency').textContent = '';
+            document.getElementById('currencySymbol').textContent = CURRENCIES[currency].symbol;
             
             if (updateKeypad) {
                 generateKeypad();
@@ -1392,11 +1390,12 @@
 
         function generateKeypad() {
             const keypad = document.getElementById('numericKeypad');
+            if (!keypad) return;
+            
             const amounts = CURRENCIES[state.currentCurrency].keypad;
             
             keypad.innerHTML = '';
             
-            // Добавляем цифровую клавиатуру
             for (let i = 1; i <= 9; i++) {
                 const button = document.createElement('div');
                 button.className = 'keypad-btn';
@@ -1405,14 +1404,12 @@
                 keypad.appendChild(button);
             }
             
-            // Кнопка 0
             const zeroBtn = document.createElement('div');
             zeroBtn.className = 'keypad-btn';
             zeroBtn.textContent = '0';
             zeroBtn.onclick = () => addToAmount(0);
             keypad.appendChild(zeroBtn);
             
-            // Кнопка очистки
             const clearBtn = document.createElement('div');
             clearBtn.className = 'keypad-btn clear';
             clearBtn.textContent = 'C';
@@ -1423,8 +1420,6 @@
         function addToAmount(value) {
             state.currentAmount = state.currentAmount * 10 + value;
             updateAmountDisplay();
-            
-            // Также обновляем поле ручного ввода
             document.getElementById('manualAmountInput').value = state.currentAmount;
         }
 
@@ -1434,8 +1429,21 @@
             document.getElementById('manualAmountInput').value = '';
         }
 
+        function backspace() {
+            state.currentAmount = Math.floor(state.currentAmount / 10);
+            updateAmountDisplay();
+            document.getElementById('manualAmountInput').value = state.currentAmount;
+        }
+
+        function addDecimal() {
+            if (!state.currentAmount.toString().includes('.')) {
+                state.currentAmount = state.currentAmount + 0.1;
+                updateAmountDisplay();
+            }
+        }
+
         function updateAmountDisplay() {
-            document.getElementById('currentAmount').textContent = state.currentAmount;
+            document.getElementById('amountInput').value = state.currentAmount;
         }
 
         function updateAmountFromInput(value) {
@@ -1446,14 +1454,24 @@
             }
         }
 
+        function toggleCurrency() {
+            const currencies = ['RUB', 'USD', 'EUR'];
+            const currentIndex = currencies.indexOf(state.currentCurrency);
+            state.currentCurrency = currencies[(currentIndex + 1) % currencies.length];
+            document.getElementById('currencySymbol').textContent = CURRENCIES[state.currentCurrency].symbol;
+            saveState();
+        }
+
         // ===== SPACES MANAGEMENT =====
         function displaySpacesGrid(spaces, containerId, isQuick = false) {
             const container = document.getElementById(containerId);
             console.log(`🎯 Displaying ${spaces ? spaces.length : 0} spaces in ${containerId}`);
 
+            if (!container) return;
+
             if (!spaces || spaces.length === 0) {
                 container.innerHTML = `
-                    <div class="empty-state">
+                    <div class="empty-state" style="padding: 20px;">
                         <div class="empty-state-icon">🏠</div>
                         <div>У вас пока нет пространств</div>
                     </div>
@@ -1461,14 +1479,16 @@
                 return;
             }
 
-            const gridClass = isQuick ? 'spaces-grid quick-grid' : 'spaces-grid';
-            container.className = gridClass;
-
             container.innerHTML = spaces.map(space => {
-                // Для вкладки пространств используем showSpaceDetails, для остальных - selectSpace
-                const onClickFunction = containerId === 'spacesList' ? 
-                    `showSpaceDetails(${space.id})` : 
-                    `selectSpace(${space.id})`;
+                let onClickFunction;
+                
+                if (containerId === 'spacesList') {
+                    onClickFunction = `showSpaceDetails(${space.id})`;
+                } else if (containerId === 'expensesListSpacesGrid') {
+                    onClickFunction = `selectSpaceInExpensesList(${space.id})`;
+                } else {
+                    onClickFunction = `selectSpace(${space.id})`;
+                }
                     
                 return `
                     <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
@@ -1493,24 +1513,19 @@
             .then(response => response.json())
             .then(data => {
                 const container = document.getElementById(containerId);
+                if (!container) return;
                 
                 if (!data.spaces || data.spaces.length === 0) {
                     container.innerHTML = '<div class="empty-state">Нет пространств</div>';
                     return;
                 }
 
-                const gridClass = isQuick ? 'spaces-grid quick-grid' : 'spaces-grid';
-                container.className = gridClass;
-
-                // ОПРЕДЕЛЯЕМ КАКОЙ ОБРАБОТЧИК ИСПОЛЬЗОВАТЬ ДЛЯ КАЖДОГО ПРОСТРАНСТВА
                 container.innerHTML = data.spaces.map(space => {
                     let onClickFunction;
                     
                     if (containerId === 'expensesListSpacesGrid') {
-                        // Для истории трат используем специальный обработчик
                         onClickFunction = `selectSpaceInExpensesList(${space.id})`;
                     } else {
-                        // Для остальных случаев используем обычный выбор
                         onClickFunction = `selectSpace(${space.id})`;
                     }
                     
@@ -1531,17 +1546,14 @@
         function loadQuickSpaces() {
             loadSpacesForSelector('quickSpacesGrid', true);
         }
-        // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
+
         function selectSpaceInExpensesList(spaceId) {
             state.currentSpaceId = spaceId;
             saveState();
-            
-            // Обновляем визуальное выделение
             updateSpaceVisualSelection(spaceId);
-            
-            // Перезагружаем историю трат
             loadExpensesList();
         }
+
         async function loadSpaces() {
             console.log('🔄 Loading spaces...');
             
@@ -1561,13 +1573,11 @@
                 const data = await response.json();
                 console.log('🏠 Loaded spaces:', data.spaces);
                 
-                // Отображаем пространства во всех контейнерах
                 displaySpacesGrid(data.spaces, 'spacesList', true);
                 displaySpacesGrid(data.spaces, 'quickSpacesGrid', true);
                 displaySpacesGrid(data.spaces, 'expenseSpacesGrid', true);
                 displaySpacesGrid(data.spaces, 'analyticsSpacesGrid', true);
                 
-                // Автовыбор первого пространства если нет выбранного
                 if (!state.currentSpaceId && data.spaces.length > 0) {
                     console.log('🔍 Auto-selecting first space:', data.spaces[0].id);
                     selectSpace(data.spaces[0].id);
@@ -1581,39 +1591,8 @@
             }
         }
 
-        function updateSpaceSelectors(spaces) {
-            const spaceSelectors = [
-                document.getElementById('analyticsSpacesGrid'),
-                document.getElementById('expenseSpacesGrid'),
-                document.getElementById('dashboardSpaces')
-            ];
-
-            spaceSelectors.forEach(container => {
-                if (!container) return;
-                
-                if (!spaces || spaces.length === 0) {
-                    container.innerHTML = '<div class="empty-state">Нет пространств</div>';
-                    return;
-                }
-
-                container.innerHTML = spaces.map(space => `
-                    <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                         onclick="selectSpace(${space.id})">
-                        <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
-                        <div class="space-name">${space.name}</div>
-                        <div class="space-meta">${space.member_count} участ.</div>
-                    </div>
-                `).join('');
-            });
-        }
-
         function getSpaceIcon(type) {
-            const icons = {
-                'personal': '👤',
-                'family': '👨‍👩‍👧‍👦', 
-                'friends': '👥',
-                'work': '💼'
-            };
+            const icons = { 'personal': '👤', 'family': '👨‍👩‍👧‍👦', 'friends': '👥', 'work': '💼' };
             return icons[type] || '🏠';
         }
 
@@ -1623,17 +1602,11 @@
             state.currentSpaceId = spaceId;
             saveState();
 
-            // Мгновенное визуальное обновление
             updateSpaceVisualSelection(spaceId);
-
-            // Быстрая загрузка данных без полного обновления страницы
             loadSpaceDataImmediately(spaceId);
-            
-            // ОБНОВЛЯЕМ ДАШБОРД ПРИ СМЕНЕ ПРОСТРАНСТВА
             refreshDashboard();
         }
 
-        // ===== Добавим временную диагностическую функцию =====
         async function debugSpaces() {
             console.log('=== 🐛 DEBUG SPACES ===');
             
@@ -1648,7 +1621,6 @@
                 console.log('🔍 Current spaces from server:', data.spaces);
                 console.log('🔍 Current state.spaceId:', state.currentSpaceId);
                 
-                // Покажем пространства в alert для проверки
                 if (data.spaces && data.spaces.length > 0) {
                     const spaceNames = data.spaces.map(s => `${s.name} (ID: ${s.id})`).join(', ');
                     alert(`Ваши пространства: ${spaceNames}`);
@@ -1661,23 +1633,18 @@
                 alert('Ошибка загрузки пространств');
             }
         }
-        
-        
-        // ===== MANUAL REFRESH FOR MAIN =====
+
         async function refreshDashboard() {
             console.log('🔄 Обновляем дашборд...');
             
             try {
                 showMessage('🔄 Обновляем данные...');
                 
-                // Очищаем кэш пространств
                 dataCache.spaces = null;
                 dataCache.lastUpdate = null;
                 
-                // Перезагружаем быстрые пространства
                 await loadQuickSpaces();
                 
-                // Перезагружаем KPI если есть выбранное пространство
                 if (state.currentSpaceId) {
                     await loadDashboardKPI(state.currentSpaceId);
                 }
@@ -1689,7 +1656,7 @@
                 showMessage('❌ Ошибка при обновлении данных', 'error');
             }
         }
-        // ===== MANUAL REFRESH FOR ANALYTICS =====
+
         async function refreshAnalytics() {
             if (!state.currentSpaceId) {
                 showMessage('Выберите пространство для обновления', 'error');
@@ -1699,14 +1666,10 @@
             try {
                 showMessage('🔄 Обновляем данные...');
                 
-                // Очищаем кэш пространств для принудительного обновления
                 dataCache.spaces = null;
                 dataCache.lastUpdate = null;
                 
-                // Перезагружаем пространства
                 await loadSpacesForSelector('analyticsSpacesGrid', true);
-                
-                // Полная перезагрузка аналитики
                 await loadAnalytics();
                 
                 showMessage('✅ Данные успешно обновлены!');
@@ -1717,25 +1680,19 @@
             }
         }
 
-        // Извлечение ID пространства из карточки
         function extractSpaceIdFromCard(card) {
-            // Пробуем разные способы найти ID
             const onclick = card.getAttribute('onclick');
             if (onclick) {
-                const match = onclick.match(/selectSpace\((\d+)\)/) || 
-                             onclick.match(/selectQuickSpace\((\d+)\)/) ||
-                             onclick.match(/showSpaceDetails\((\d+)\)/);
+                const match = onclick.match(/selectSpace\((\d+)\)/) || onclick.match(/selectQuickSpace\((\d+)\)/) || onclick.match(/showSpaceDetails\((\d+)\)/);
                 if (match) return parseInt(match[1]);
             }
     
-            // Альтернативно: data-attribute
             const dataId = card.getAttribute('data-space-id');
             if (dataId) return parseInt(dataId);
     
             return null;
         }
 
-        // Мгновенное обновление визуального выделения
         function updateSpaceVisualSelection(selectedSpaceId) {
             document.querySelectorAll('.space-card').forEach(card => {
                 const cardSpaceId = extractSpaceIdFromCard(card);
@@ -1743,7 +1700,6 @@
             });
         }
 
-        // Индикатор загрузки
         function showLoadingIndicator() {
             let indicator = document.getElementById('quickLoadingIndicator');
             if (!indicator) {
@@ -1753,7 +1709,7 @@
                 indicator.style.cssText = `
                     position: fixed; top: 10px; right: 10px; 
                     background: var(--primary-gradient); color: white;
-                    padding: 8px 12px; border-radius: 20px; font-size: 12px;
+                    padding: 6px 10px; border-radius: 20px; font-size: 11px;
                     z-index: 1000; box-shadow: var(--shadow);
                 `;
                 document.body.appendChild(indicator);
@@ -1762,27 +1718,21 @@
 
         function hideLoadingIndicator() {
             const indicator = document.getElementById('quickLoadingIndicator');
-            if (indicator) {
-                indicator.remove();
-            }
+            if (indicator) indicator.remove();
         }
 
-        // ФУНКЦИЯ быстрой загрузки данных
         async function loadSpaceDataImmediately(spaceId) {
             console.log(`🚀 Быстрая загрузка данных для пространства: ${spaceId}`);
     
-            // Показываем индикатор загрузки
             showLoadingIndicator();
     
             try {
-                // Параллельная загрузка всех необходимых данных
                 await Promise.all([
                     loadDashboardKPI(spaceId),
                     loadRecentExpenses(spaceId),
                     updateAnalyticsIfOpen(spaceId)
                 ]);
         
-                // Обновляем заголовки и информацию
                 updateSpaceInfo(spaceId);
         
             } catch (error) {
@@ -1790,6 +1740,10 @@
             } finally {
                 hideLoadingIndicator();
             }
+        }
+
+        function updateSpaceInfo(spaceId) {
+            // Обновление информации о пространстве
         }
 
         // ===== BUDGET PROGRESS =====
@@ -1800,10 +1754,7 @@
                 const response = await fetch(`${API_URL}/get_analytics`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: spaceId
-                    })
+                    body: JSON.stringify({ initData: tg.initData, spaceId })
                 });
 
                 if (response.ok) {
@@ -1816,11 +1767,9 @@
                         progress = Math.min((spent / budget) * 100, 100);
                     }
                     
-                    // Обновляем оба элемента
                     document.getElementById('budgetProgress').textContent = `${progress.toFixed(0)}%`;
                     document.getElementById('budgetDetails').textContent = `${spent.toFixed(0)}/${budget.toFixed(0)}`;
                     
-                    // Визуальная индикация
                     const progressElement = document.getElementById('budgetProgress');
                     if (progress >= 80) {
                         progressElement.style.color = '#dc3545';
@@ -1839,41 +1788,35 @@
             return 0;
         }
 
-
-        // НОВАЯ ФУНКЦИЯ: Мгновенное обновление всех данных
         function refreshAllData() {
             console.log('🔄 Мгновенное обновление данных для space:', state.currentSpaceId);
             
-            // Обновляем отображение пространств
             document.querySelectorAll('.spaces-grid').forEach(grid => {
                 grid.querySelectorAll('.space-card').forEach(card => {
-                    const cardSpaceId = parseInt(card.onclick.toString().match(/\d+/)[0]);
-                    card.classList.toggle('active', cardSpaceId === state.currentSpaceId);
+                    const match = card.getAttribute('onclick')?.match(/\d+/);
+                    if (match) {
+                        const cardSpaceId = parseInt(match[0]);
+                        card.classList.toggle('active', cardSpaceId === state.currentSpaceId);
+                    }
                 });
             });
             
-            // Мгновенно обновляем дашборд
             loadDashboardKPI();
             
-            // Если активна аналитика - обновляем её
             if (document.getElementById('analytics').classList.contains('active')) {
                 loadAnalytics();
             }
             
-            // Показываем уведомление о смене пространства
             showMessage('✅ Пространство изменено, данные обновляются...');
         }
 
         function showCreateSpaceForm() {
             document.getElementById('createSpaceForm').classList.remove('hidden');
-            document.getElementById('spacesList').classList.add('hidden');
         }
 
         function hideCreateSpaceForm() {
             document.getElementById('createSpaceForm').classList.add('hidden');
-            document.getElementById('spacesList').classList.remove('hidden');
             
-            // Дополнительно гарантируем восстановление кнопки
             const createButton = document.querySelector('.btn[onclick="createSpace()"]');
             if (createButton) {
                 createButton.textContent = 'Создать';
@@ -1891,12 +1834,10 @@
                 return;
             }
 
-            // Сохраняем ссылку на кнопку ДО выполнения асинхронных операций
             const createButton = document.querySelector('.btn[onclick="createSpace()"]');
             const originalText = createButton.textContent;
             
             try {
-                // Показываем индикатор загрузки
                 createButton.textContent = '⏳ Создаем...';
                 createButton.disabled = true;
 
@@ -1905,9 +1846,7 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        name: name,
-                        type: type,
-                        description: description
+                        name, type, description
                     })
                 });
 
@@ -1921,11 +1860,9 @@
                     showMessage(`✅ Пространство "${name}" создано! Код приглашения: ${data.invite_code}`);
                     hideCreateSpaceForm();
                     
-                    // Очищаем форму
                     document.getElementById('spaceName').value = '';
                     document.getElementById('spaceDescription').value = '';
                     
-                    // Перезагружаем пространства с задержкой для обновления БД
                     setTimeout(() => {
                         loadSpaces();
                         loadQuickSpaces();
@@ -1939,7 +1876,6 @@
                 console.error('❌ Create space error:', error);
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
             } finally {
-                // ВОССТАНАВЛИВАЕМ КНОПКУ в блоке finally - это гарантирует выполнение
                 createButton.textContent = 'Создать';
                 createButton.disabled = false;
             }
@@ -1957,10 +1893,7 @@
                     fetch(`${API_URL}/get_space_members`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            initData: tg.initData,
-                            spaceId: spaceId
-                        })
+                        body: JSON.stringify({ initData: tg.initData, spaceId })
                     })
                 ]);
 
@@ -2003,28 +1936,16 @@
                 </div>
             `).join('');
 
-            document.getElementById('spaceMembersList').innerHTML = `
-                <h4>Участники (${members.length}):</h4>
-                ${membersHtml || '<div class="empty-state">Нет участников</div>'}
-            `;
+            document.getElementById('spaceMembersList').innerHTML = membersHtml || '<div class="empty-state">Нет участников</div>';
         }
 
         function getSpaceTypeLabel(type) {
-            const types = {
-                'personal': 'Личное',
-                'family': 'Семья', 
-                'friends': 'Друзья',
-                'work': 'Работа'
-            };
+            const types = { 'personal': 'Личное', 'family': 'Семья', 'friends': 'Друзья', 'work': 'Работа' };
             return types[type] || type;
         }
 
         function getRoleLabel(role) {
-            const roles = {
-                'owner': 'Владелец',
-                'admin': 'Админ',
-                'member': 'Участник'
-            };
+            const roles = { 'owner': 'Владелец', 'admin': 'Админ', 'member': 'Участник' };
             return roles[role] || role;
         }
 
@@ -2042,12 +1963,9 @@
 
         function shareInviteLink() {
             const code = document.getElementById('currentInviteCode').value;
-    
-            // ИСПРАВЛЕНО: Правильная ссылка на вашего бота
-            const botUsername = 'incomeexpensebookBot'; // ЗАМЕНИТЕ на реальный username вашего бота
+            const botUsername = 'incomeexpensebookBot';
             const inviteLink = `https://t.me/${botUsername}?start=invite_${code}`;
     
-            // Копируем в буфер обмена
             navigator.clipboard.writeText(inviteLink).then(() => {
                 showMessage('✅ Ссылка скопирована! Отправьте её друзьям');
             }).catch(err => {
@@ -2070,10 +1988,7 @@
                 const response = await fetch(`${API_URL}/join_space`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        inviteCode: code
-                    })
+                    body: JSON.stringify({ initData: tg.initData, inviteCode: code })
                 });
 
                 console.log('📩 Join response status:', response.status);
@@ -2093,10 +2008,8 @@
                     showMessage(`✅ Вы присоединились к пространству: ${data.space_name}`);
                 }
                 
-                // Очищаем поле ввода
                 document.getElementById('inviteCodeInput').value = '';
                 
-                // Перезагружаем пространства
                 await loadSpaces();
                 await loadQuickSpaces();
                 
@@ -2120,7 +2033,7 @@
                     body: JSON.stringify({
                         initData: tg.initData,
                         spaceId: state.currentSpaceId,
-                        targetUserId: userData.id  // Выходим сами
+                        targetUserId: userData.id
                     })
                 });
 
@@ -2131,14 +2044,14 @@
 
                 showMessage('✅ Вы покинули пространство');
                 hideSpaceDetails();
-                loadSpaces(); // Перезагружаем список
+                loadSpaces();
                 
             } catch (error) {
                 console.error('❌ Error leaving space:', error);
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
-        //Добавьте диагностическую функцию
+
         async function testDatabaseConnection() {
             try {
                 showMessage('🔍 Проверяем соединение с базой данных...');
@@ -2154,7 +2067,6 @@
             }
         }
 
-        
         // ===== EXPENSES TAB =====
         function loadExpensesTab() {
             console.log('=== loadExpensesTab() called ===');
@@ -2163,7 +2075,6 @@
             loadCategories();
         }
 
-        // Функции для работы с категориями
         function showAddCategoryForm() {
             document.getElementById('addCategoryForm').classList.remove('hidden');
             loadIconsForCategory();
@@ -2184,8 +2095,6 @@
                 </div>
             `).join('');
         }
-
-        let selectedIcon = '📁'; // Иконка по умолчанию
 
         function selectCategoryIcon(icon) {
             selectedIcon = icon;
@@ -2215,8 +2124,8 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        spaceId: spaceId,
-                        categoryName: categoryName,
+                        spaceId,
+                        categoryName,
                         categoryIcon: selectedIcon
                     })
                 });
@@ -2228,8 +2137,6 @@
 
                 showMessage(`✅ Категория "${categoryName}" создана!`);
                 hideAddCategoryForm();
-                
-                // Перезагружаем категории
                 loadCategories();
                 
             } catch (error) {
@@ -2237,7 +2144,6 @@
             }
         }
 
-        // ИСПРАВЛЕННАЯ ФУНКЦИЯ loadCategories - БЕЗ ДУБЛИКАТОВ
         async function loadCategories() {
             console.log('=== loadCategories() called ===');
             
@@ -2249,7 +2155,6 @@
             }
 
             try {
-                // Сначала загружаем стандартные категории
                 const defaultCategories = [
                     { name: 'Продукты', icon: '🛒', isCustom: false },
                     { name: 'Кафе', icon: '☕', isCustom: false },
@@ -2263,16 +2168,12 @@
                     { name: 'Другое', icon: '❓', isCustom: false }
                 ];
 
-                // Затем загружаем пользовательские категории с сервера
                 let customCategories = [];
                 try {
                     const response = await fetch(`${API_URL}/get_user_categories`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            initData: tg.initData,
-                            spaceId: state.currentSpaceId
-                        })
+                        body: JSON.stringify({ initData: tg.initData, spaceId: state.currentSpaceId })
                     });
 
                     if (response.ok) {
@@ -2284,132 +2185,56 @@
                     console.error('Ошибка загрузки пользовательских категорий:', error);
                 }
 
-                // УБИРАЕМ ДУБЛИКАТЫ - используем Map для уникальности по имени
                 const categoryMap = new Map();
                 
-                // Сначала добавляем стандартные категории
                 defaultCategories.forEach(cat => {
                     categoryMap.set(cat.name, cat);
                 });
                 
-                // Затем добавляем пользовательские (перезаписывают стандартные с тем же именем)
                 customCategories.forEach(cat => {
                     categoryMap.set(cat.name, { ...cat, isCustom: true });
                 });
 
-                // Преобразуем обратно в массив
                 const allCategories = Array.from(categoryMap.values());
 
-                console.log('📊 Categories statistics:');
-                console.log('Default categories:', defaultCategories.length);
-                console.log('Custom categories:', customCategories.length);
-                console.log('Total unique categories:', allCategories.length);
-                console.log('Categories to load:', allCategories.map(c => c.name));
+                console.log('📊 Categories statistics:', allCategories.length);
 
                 container.innerHTML = allCategories.map(cat => `
-                    <div class="category-item" onclick="selectCategory('${cat.name}')" data-category-name="${cat.name}">
+                    <div class="category-item" onclick="selectCategory('${cat.name}', '${cat.icon}')" data-category-name="${cat.name}">
                         <div class="category-icon">${cat.icon}</div>
                         <div class="category-name">${cat.name}</div>
                     </div>
                 `).join('');
 
-                console.log('✅ Categories HTML generated - NO DUPLICATES');
+                console.log('✅ Categories HTML generated');
 
             } catch (error) {
                 console.error('❌ Error loading categories:', error);
             }
         }
 
-        function confirmDeleteCategory(categoryName) {
-            if (!confirm(`Вы уверены, что хотите удалить категорию "${categoryName}"?\n\nВнимание: это действие нельзя отменить!`)) {
-                return;
-            }
-            
-            deleteCategory(categoryName);
+        function selectCategory(name, icon) {
+            document.querySelectorAll('.category-item').forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+            selectedCategory = { name, icon };
         }
-
-        async function deleteCategory(categoryName) {
-            if (!state.currentSpaceId) {
-                showMessage('Выберите пространство', 'error');
-                return;
-            }
-
-            try {
-                showMessage('⏳ Удаляем категорию...');
-                
-                const response = await fetch(`${API_URL}/delete_user_category`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId,
-                        categoryName: categoryName
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Ошибка удаления категории');
-                }
-
-                const data = await response.json();
-                
-                if (data.success) {
-                    showMessage(`✅ Категория "${categoryName}" удалена!`);
-                    
-                    // Перезагружаем категории
-                    loadCategories();
-                    
-                    // Если есть траты с этой категорией, предлагаем переназначить их
-                    if (data.affected_expenses_count > 0) {
-                        setTimeout(() => {
-                            showMessage(`ℹ️ ${data.affected_expenses_count} трат переназначено в категорию "Другое"`);
-                        }, 1000);
-                    }
-                } else {
-                    throw new Error(data.error || 'Неизвестная ошибка при удалении');
-                }
-                
-            } catch (error) {
-                console.error('❌ Delete category error:', error);
-                showMessage(`❌ Ошибка: ${error.message}`, 'error');
-            }
-        }
-        
-        function selectCategory(category) {
-            document.querySelectorAll('.category-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            event.target.closest('.category-item').classList.add('active');
-
-            // Добавляем визуальную обратную связь
-            const activeItem = event.target.closest('.category-item');
-            activeItem.style.transform = 'scale(0.95)';
-            setTimeout(() => {
-                activeItem.style.transform = 'scale(1)';
-            }, 150);
-        }
-        
 
         async function addExpense() {
             const amount = state.currentAmount;
-            const categoryElement = document.querySelector('.category-item.active');
-            const category = categoryElement ? categoryElement.querySelector('.category-name').textContent : null;
+            const category = selectedCategory?.name;
             const description = document.getElementById('expenseDescription').value.trim();
             const spaceId = state.currentSpaceId;
 
             if (!amount || amount <= 0) {
                 showMessage('Введите сумму траты', 'error');
-                // Анимация поля суммы
-                document.getElementById('currentAmount').style.color = '#dc3545';
+                document.getElementById('amountInput').style.color = '#dc3545';
                 setTimeout(() => {
-                    document.getElementById('currentAmount').style.color = '';
+                    document.getElementById('amountInput').style.color = '';
                 }, 1000);
                 return;
             }
             if (!category) {
                 showMessage('Выберите категорию', 'error');
-                // Анимация категорий
                 document.getElementById('categoriesGrid').style.border = '2px solid #dc3545';
                 setTimeout(() => {
                     document.getElementById('categoriesGrid').style.border = '';
@@ -2422,7 +2247,6 @@
             }
 
             try {
-                // Показываем индикатор загрузки
                 const saveButton = document.querySelector('.btn-success[onclick="addExpense()"]');
                 const originalText = saveButton.textContent;
                 saveButton.textContent = '⏳ Сохраняем...';
@@ -2433,9 +2257,9 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        amount: amount,
-                        category: category,
-                        description: description,
+                        amount,
+                        category,
+                        description,
                         spaceId: parseInt(spaceId),
                         currency: state.currentCurrency
                     })
@@ -2446,42 +2270,38 @@
                     throw new Error(errorData.error || 'Ошибка добавления траты');
                 }
         
-                // УЛУЧШЕННОЕ ПОДТВЕРЖДЕНИЕ
                 showExpenseConfirmation(amount, category, description);
         
-                // Сбрасываем форму
                 clearAmount();
                 document.getElementById('expenseDescription').value = '';
                 document.querySelectorAll('.category-item').forEach(item => {
-                    item.classList.remove('active');
+                    item.classList.remove('selected');
                 });
+                selectedCategory = null;
         
-                // Мгновенно обновляем дашборд
                 loadDashboardKPI();
 
             } catch (error) {
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
             } finally {
-                // Восстанавливаем кнопку
                 const saveButton = document.querySelector('.btn-success[onclick="addExpense()"]');
                 saveButton.textContent = '💾 Сохранить трату';
                 saveButton.disabled = false;
             }
         }
 
-        // НОВАЯ ФУНКЦИЯ: Красивое подтверждение
         function showExpenseConfirmation(amount, category, description) {
             const modalHtml = `
                 <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
-                    <div class="card" style="max-width: 300px; margin: 20px; text-align: center; animation: scaleIn 0.3s ease;">
-                        <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
-                        <h3 style="color: #28a745; margin-bottom: 16px;">Трата добавлена!</h3>
-                        <div style="text-align: left; background: var(--border-color); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-                            <div><strong>💸 Сумма:</strong> ${amount}</div> <!-- УБРАЛИ СИМВОЛ ВАЛЮТЫ -->
+                    <div class="card" style="max-width: 280px; margin: 20px; text-align: center; animation: scaleIn 0.3s ease;">
+                        <div style="font-size: 40px; margin-bottom: 12px;">✅</div>
+                        <h3 style="color: #28a745; margin-bottom: 12px; font-size: 18px;">Трата добавлена!</h3>
+                        <div style="text-align: left; background: var(--border-color); padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 13px;">
+                            <div><strong>💸 Сумма:</strong> ${amount}</div>
                             <div><strong>📂 Категория:</strong> ${category}</div>
                             ${description ? `<div><strong>📝 Описание:</strong> ${description}</div>` : ''}
                         </div>
-                        <button class="btn btn-success" onclick="closeExpenseConfirmation()" style="width: 100%;">Продолжить</button>
+                        <button class="btn btn-success btn-small" onclick="closeExpenseConfirmation()" style="width: 100%;">Продолжить</button>
                     </div>
                 </div>
             `;
@@ -2494,30 +2314,17 @@
 
         function closeExpenseConfirmation() {
             const modal = document.getElementById('expenseConfirmationModal');
-            if (modal) {
-                modal.remove();
-            }
+            if (modal) modal.remove();
         }
 
-        // Добавьте эту анимацию в CSS
         const style = document.createElement('style');
         style.textContent = `
             @keyframes scaleIn {
-                from {
-                    opacity: 0;
-                    transform: scale(0.8);
-                }
-                to {
-                    opacity: 1;
-                    transform: scale(1);
-                }
+                from { opacity: 0; transform: scale(0.8); }
+                to { opacity: 1; transform: scale(1); }
             }
         `;
         document.head.appendChild(style);
-        
-        
-        // ===== BUDGET MANAGEMENT =====
-        let budgetCurrency = 'RUB';
 
         function selectBudgetCurrency(currency) {
             budgetCurrency = currency;
@@ -2545,8 +2352,8 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        spaceId: spaceId,
-                        amount: amount,
+                        spaceId,
+                        amount,
                         currency: budgetCurrency
                     })
                 });
@@ -2558,16 +2365,14 @@
         
                 showMessage(`Бюджет ${amount} установлен!`);
                 document.getElementById('budgetAmount').value = '';
-                loadDashboard(); // Обновляем статистику
         
-                // ОБНОВЛЯЕМ ДАШБОРД СРАЗУ ПОСЛЕ УСТАНОВКИ БЮДЖЕТА
                 loadDashboardKPI();
                 loadBudgetProgress();
             } catch (error) {
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
-        }            
-        // ===== DASHBOARD =====
+        }
+
         async function loadDashboard() {
             await loadSpacesForSelector('dashboardSpaces');
             await loadDashboardStats();
@@ -2584,25 +2389,20 @@
                     body: JSON.stringify({
                         initData: tg.initData,
                         spaceId: state.currentSpaceId,
-                        period: 1 // Сегодня
+                        period: 1
                     })
                 });
 
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // Сегодня
                     const todaySpent = data.overview?.total_spent || 0;
                     document.getElementById('todaySpent').textContent = `${todaySpent.toFixed(0)}`;
                     
-                    // Бюджет
                     const budgetResponse = await fetch(`${API_URL}/get_analytics`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            initData: tg.initData,
-                            spaceId: state.currentSpaceId
-                        })
+                        body: JSON.stringify({ initData: tg.initData, spaceId: state.currentSpaceId })
                     });
                     
                     if (budgetResponse.ok) {
@@ -2613,7 +2413,6 @@
                         document.getElementById('budgetProgress').textContent = `${progress.toFixed(0)}%`;
                     }
                     
-                    // За неделю
                     const weekResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -2629,7 +2428,6 @@
                         document.getElementById('weekSpent').textContent = `${(weekData.overview?.total_spent || 0).toFixed(0)}`;
                     }
                     
-                    // За месяц
                     const monthResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -2652,7 +2450,8 @@
 
         async function loadActiveSpaceInfo() {
             if (!state.currentSpaceId) {
-                document.getElementById('activeSpaceInfo').innerHTML = '<div class="empty-state">Выберите пространство</div>';
+                const el = document.getElementById('activeSpaceInfo');
+                if (el) el.innerHTML = '<div class="empty-state">Выберите пространство</div>';
                 return;
             }
 
@@ -2667,17 +2466,21 @@
                     const data = await response.json();
                     const space = data.spaces.find(s => s.id === state.currentSpaceId);
                     if (space) {
-                        document.getElementById('activeSpaceInfo').innerHTML = `
-                            <div class="space-card active">
-                                <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
-                                <div class="space-name">${space.name}</div>
-                                <div class="space-meta">${space.member_count} участников</div>
-                            </div>
-                        `;
+                        const el = document.getElementById('activeSpaceInfo');
+                        if (el) {
+                            el.innerHTML = `
+                                <div class="space-card active">
+                                    <div class="space-icon">${getSpaceIcon(space.space_type)}</div>
+                                    <div class="space-name">${space.name}</div>
+                                    <div class="space-meta">${space.member_count} участников</div>
+                                </div>
+                            `;
+                        }
                     }
                 }
             } catch (error) {
-                document.getElementById('activeSpaceInfo').innerHTML = '<div class="empty-state">Ошибка загрузки</div>';
+                const el = document.getElementById('activeSpaceInfo');
+                if (el) el.innerHTML = '<div class="empty-state">Ошибка загрузки</div>';
             }
         }
 
@@ -2693,13 +2496,13 @@
                 console.log('🔍 Membership debug:', data);
                 
                 alert(`Диагностика членства:
-        User ID: ${data.user_id}
-        Всего членств: ${data.debug_info.total_memberships}
-        Пространство "Семья" существует: ${data.debug_info.family_space_exists}
-        Пространство активно: ${data.debug_info.family_is_active}
-        Пользователь в пространстве: ${data.debug_info.user_in_family}
+User ID: ${data.user_id}
+Всего членств: ${data.debug_info.total_memberships}
+Пространство "Семья" существует: ${data.debug_info.family_space_exists}
+Пространство активно: ${data.debug_info.family_is_active}
+Пользователь в пространстве: ${data.debug_info.user_in_family}
 
-        Все членства: ${JSON.stringify(data.all_memberships, null, 2)}`);
+Все членства: ${JSON.stringify(data.all_memberships, null, 2)}`);
                 
             } catch (error) {
                 console.error('Debug error:', error);
@@ -2711,16 +2514,12 @@
         async function deleteExpense(expenseId) {
             console.log('=== 🗑️ DELETE EXPENSE FUNCTION CALLED ===');
             console.log('📋 Expense ID:', expenseId);
-            console.log('👤 User ID:', tg.initDataUnsafe.user?.id);
-            console.log('🏠 Current space ID:', state.currentSpaceId);
 
-            if (!expenseId || expenseId === 'undefined' || expenseId === 'null') {
-                console.error('❌ Invalid expense ID:', expenseId);
-                showMessage('❌ Ошибка: неверный ID траты', 'error');
+            if (!expenseId) {
+                showMessage('❌ Ошибка: ID траты не указан', 'error');
                 return;
             }
 
-            // Преобразуем ID в число на всякий случай
             expenseId = parseInt(expenseId);
             
             if (isNaN(expenseId)) {
@@ -2737,13 +2536,9 @@
             try {
                 console.log('🔄 Starting delete request...');
                 
-                const requestBody = {
-                    initData: tg.initData,
-                    expenseId: expenseId
-                };
+                const requestBody = { initData: tg.initData, expenseId };
                 
                 console.log('📤 Request body:', requestBody);
-                console.log('🌐 API URL:', `${API_URL}/delete_expense`);
 
                 const response = await fetch(`${API_URL}/delete_expense`, {
                     method: 'POST',
@@ -2752,7 +2547,6 @@
                 });
 
                 console.log('📩 Response status:', response.status);
-                console.log('📩 Response headers:', response.headers);
                 
                 const responseText = await response.text();
                 console.log('📦 Raw response:', responseText);
@@ -2774,32 +2568,30 @@
                     console.log('✅ Expense deleted successfully');
                     showMessage('✅ Трата удалена');
                     
-                    // Находим и удаляем элемент из DOM
                     const expenseElement = document.getElementById(`expense-${expenseId}`);
                     if (expenseElement) {
                         console.log('🎯 Found expense element, removing...');
-                        expenseElement.style.opacity = '0.5';
+                        expenseElement.style.opacity = '0';
                         expenseElement.style.transition = 'opacity 0.3s ease';
                         
                         setTimeout(() => {
                             expenseElement.remove();
                             console.log('✅ Element removed from DOM');
                             
-                            // Проверяем, не пустой ли список
-                            const remainingItems = document.querySelectorAll('.expense-item');
-                            if (remainingItems.length === 0) {
-                                console.log('📝 List is empty, showing empty state');
-                                container.innerHTML = `
-                                    <div class="empty-state">
-                                        <div class="empty-state-icon">📝</div>
-                                        <div>Нет трат</div>
-                                    </div>
-                                `;
+                            if (document.querySelectorAll('.expense-item').length === 0) {
+                                const container = document.getElementById('expensesListContainer');
+                                if (container) {
+                                    container.innerHTML = `
+                                        <div class="empty-state">
+                                            <div class="empty-state-icon">📝</div>
+                                            <div>Нет трат</div>
+                                        </div>
+                                    `;
+                                }
                             }
                         }, 300);
                     } else {
                         console.warn('⚠️ Expense element not found in DOM, reloading list...');
-                        // Если элемент не найден, перезагружаем список
                         loadExpensesList();
                     }
                     
@@ -2809,133 +2601,135 @@
                 
             } catch (error) {
                 console.error('❌ Error deleting expense:', error);
-                console.error('🔍 Error details:', {
-                    name: error.name,
-                    message: error.message,
-                    stack: error.stack
-                });
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
 
         function displayAnalytics(data) {
-            // Общие суммы - БЕЗ символов валюты
             document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
             document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
 
-            // Рендерим график
             renderAnalyticsChart(data);
 
-            // Категории
             const container = document.getElementById('categoriesAnalytics');
+            if (!container) return;
+            
             if (!data.categories || data.categories.length === 0) {
                 container.innerHTML = '<div class="empty-state">Нет данных о расходах</div>';
                 return;
             }
 
-            // Очищаем контейнер
             container.innerHTML = '';
 
-            // Добавляем заголовок для категорий
-            const categoriesTitle = document.createElement('h3');
-            categoriesTitle.textContent = '📊 По категориям';
-            categoriesTitle.style.marginBottom = '16px';
-            container.appendChild(categoriesTitle);
-
-            // Отображаем категории
-            data.categories.forEach(cat => {
-                const categoryItem = document.createElement('div');
-                categoryItem.className = 'category-item';
-                categoryItem.style.display = 'flex';
-                categoryItem.style.justifyContent = 'space-between';
-                categoryItem.style.alignItems = 'center';
-                categoryItem.style.padding = '12px';
-                categoryItem.style.marginBottom = '8px';
-                categoryItem.style.background = 'var(--card-bg)';
-                categoryItem.style.borderRadius = '8px';
-                categoryItem.style.border = '1px solid var(--border-color)';
-
-                categoryItem.innerHTML = `
-                    <div>
-                        <div style="font-weight: 700; font-size: 14px;">${cat.name}</div>
-                        <div style="font-size: 12px; color: var(--text-muted);">${cat.count} трат</div>
+            // Текущий месяц
+            if (data.current_month) {
+                const monthCard = document.createElement('div');
+                monthCard.className = 'month-card current';
+                monthCard.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <h4 style="font-size: 14px;">📅 ${data.current_month.month}</h4>
+                        <span style="font-weight: 700; color: #dc3545;">${data.current_month.total_spent.toFixed(0)}</span>
                     </div>
-                    <div style="text-align: right;">
-                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${cat.total.toFixed(0)}</div>
-                        <div style="font-size: 12px; color: var(--text-muted);">${((cat.total / data.overview.total_spent) * 100).toFixed(1)}%</div>
-                    </div>
+                    ${data.current_month.categories.slice(0, 5).map(c => `
+                        <div style="display: flex; justify-content: space-between; font-size: 11px; padding: 4px 0;">
+                            <span>${c.name}</span>
+                            <span>${c.total.toFixed(0)} (${c.percentage.toFixed(1)}%)</span>
+                        </div>
+                    `).join('')}
                 `;
-                container.appendChild(categoryItem);
-            });
+                container.appendChild(monthCard);
+            }
 
-            // Добавляем разделитель
-            const divider = document.createElement('div');
-            divider.style.height = '1px';
-            divider.style.background = 'var(--border-color)';
-            divider.style.margin = '20px 0';
-            container.appendChild(divider);
+            // Сравнение месяцев
+            if (data.monthly_comparison && data.monthly_comparison.length > 0) {
+                const comparisonCard = document.createElement('div');
+                comparisonCard.className = 'card';
+                comparisonCard.style.padding = '12px';
+                comparisonCard.innerHTML = '<h4 style="font-size: 14px; margin-bottom: 8px;">📊 Сравнение месяцев</h4>';
+                
+                data.monthly_comparison.forEach((month, i) => {
+                    const prev = i > 0 ? data.monthly_comparison[i-1] : null;
+                    const change = prev ? ((month.total_spent - prev.total_spent) / prev.total_spent * 100).toFixed(1) : null;
+                    
+                    comparisonCard.innerHTML += `
+                        <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border-color);">
+                            <span style="font-size: 12px;">${month.month}</span>
+                            <div style="text-align: right;">
+                                <div style="font-size: 12px;">${month.total_spent.toFixed(0)}</div>
+                                ${change ? `<div style="font-size: 10px; color: ${change > 0 ? '#dc3545' : '#28a745'};">${change > 0 ? '↑' : '↓'} ${Math.abs(change)}%</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                container.appendChild(comparisonCard);
+            }
 
-            // Добавляем последние траты с описаниями
-            const recentTitle = document.createElement('h3');
-            recentTitle.textContent = '📝 Последние траты';
-            recentTitle.style.marginBottom = '16px';
-            container.appendChild(recentTitle);
+            // Категории
+            if (data.categories && data.categories.length > 0) {
+                const categoriesCard = document.createElement('div');
+                categoriesCard.className = 'card';
+                categoriesCard.style.padding = '12px';
+                categoriesCard.innerHTML = '<h4 style="font-size: 14px; margin-bottom: 8px;">📂 По категориям</h4>';
+                
+                data.categories.forEach(cat => {
+                    categoriesCard.innerHTML += `
+                        <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
+                            <span>${cat.name}</span>
+                            <span style="font-weight: 700;">${cat.total.toFixed(0)} (${cat.percentage.toFixed(1)}%)</span>
+                        </div>
+                    `;
+                });
+                container.appendChild(categoriesCard);
+            }
 
-            // Проверяем есть ли данные о последних тратах
+            // Последние траты
             if (data.recent_expenses && data.recent_expenses.length > 0) {
+                const recentTitle = document.createElement('h4');
+                recentTitle.style.fontSize = '14px';
+                recentTitle.style.margin = '12px 0 8px';
+                recentTitle.textContent = '📝 Последние траты';
+                container.appendChild(recentTitle);
+                
                 data.recent_expenses.forEach(expense => {
-                    const expenseItem = document.createElement('div');
-                    expenseItem.className = 'expense-item';
-                    expenseItem.style.display = 'flex';
-                    expenseItem.style.justifyContent = 'space-between';
-                    expenseItem.style.alignItems = 'flex-start';
-                    expenseItem.style.padding = '12px';
-                    expenseItem.style.marginBottom = '8px';
-                    expenseItem.style.background = 'var(--card-bg)';
-                    expenseItem.style.borderRadius = '8px';
-                    expenseItem.style.border = '1px solid var(--border-color)';
-
                     const date = new Date(expense.created_at);
                     const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 
                     const description = expense.description ? 
-                        `<div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px; margin-top: 4px; font-style: italic;">
-                            💬 "${expense.description}"
-                        </div>` : 
-                        '<div style="font-size: 12px; color: var(--text-muted); padding-left: 26px; margin-top: 4px;">Без комментария</div>';
+                        `<div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-style: italic;">💬 "${expense.description}"</div>` : 
+                        '<div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Без комментария</div>';
 
+                    const expenseItem = document.createElement('div');
+                    expenseItem.className = 'expense-item';
+                    expenseItem.id = `expense-${expense.id}`;
                     expenseItem.innerHTML = `
-                        <div style="flex: 1;">
-                            <div style="display: flex; align-items: center; margin-bottom: 4px;">
-                                <div style="font-size: 18px; margin-right: 8px;">${getCategoryIcon(expense.category)}</div>
-                                <div>
-                                    <div style="font-weight: 700; font-size: 14px;">${expense.category}</div>
-                                    <div style="font-size: 11px; color: var(--text-muted);">${formattedDate}</div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                                    <div style="font-size: 16px;">${getCategoryIcon(expense.category)}</div>
+                                    <div>
+                                        <div style="font-weight: 700; font-size: 13px;">${expense.category}</div>
+                                        <div style="font-size: 9px; color: var(--text-muted);">${formattedDate}</div>
+                                    </div>
                                 </div>
+                                ${description}
                             </div>
-                            ${description}
-                        </div>
-                        <div style="text-align: right; min-width: 100px; display: flex; align-items: center; gap: 8px;">
-                            <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount}</div>
-                            <button onclick="deleteExpense(${expense.id})" 
-                                    style="background: #ff4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;"
-                                    title="Удалить трату">
-                                🗑️
-                            </button>
+                            <div style="text-align: right;">
+                                <div style="font-weight: 700; color: #dc3545; font-size: 14px;">${expense.amount}</div>
+                                <button class="delete-expense-btn" onclick="deleteExpense(${expense.id})">🗑️</button>
+                            </div>
                         </div>
                     `;
                     container.appendChild(expenseItem);
                 });
             } else {
-                // Если нет данных о последних тратах, пробуем загрузить их отдельно
                 loadRecentExpensesForAnalytics();
             }
         }
 
-
         async function loadAnalytics() {
             if (!state.currentSpaceId) {
-                document.getElementById('categoriesAnalytics').innerHTML = '<div class="empty-state">Выберите пространство</div>';
+                const container = document.getElementById('categoriesAnalytics');
+                if (container) container.innerHTML = '<div class="empty-state">Выберите пространство</div>';
                 return;
             }
 
@@ -2947,7 +2741,8 @@
                     body: JSON.stringify({
                         initData: tg.initData,
                         spaceId: state.currentSpaceId,
-                        period: state.analyticsPeriod
+                        period: state.analyticsPeriod,
+                        comparisonMonths: 3
                     })
                 });
 
@@ -2956,57 +2751,49 @@
                 const data = await response.json();
                 displayAnalytics(data);
             } catch (error) {
-                document.getElementById('categoriesAnalytics').innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
+                const container = document.getElementById('categoriesAnalytics');
+                if (container) container.innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
             }
         }
 
-
         function setAnalyticsPeriod(period) {
             state.analyticsPeriod = period;
-            document.querySelectorAll('.filter-btn').forEach(btn => {
+            document.querySelectorAll('#analytics .filter-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.period == period);
             });
             loadAnalytics();
         }
-        
+
         function renderCategoryChart(categories) {
-            const ctx = document.createElement('canvas');
-            ctx.id = 'categoryChart';
-            ctx.style.maxHeight = '250px';
-    
             const container = document.getElementById('categoriesAnalytics');
-            container.innerHTML = '<h3>📊 Распределение по категориям</h3>';
-            container.appendChild(ctx);
+            if (!container) return;
+            
+            const canvas = document.createElement('canvas');
+            canvas.id = 'categoryChart';
+            canvas.style.maxHeight = '200px';
+            canvas.style.marginBottom = '16px';
     
-            const categoryChart = new Chart(ctx, {
+            container.appendChild(canvas);
+    
+            new Chart(canvas, {
                 type: 'doughnut',
                 data: {
                     labels: categories.map(cat => cat.name),
                     datasets: [{
                         data: categories.map(cat => cat.total),
-                        backgroundColor: [
-                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
-                            '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF',
-                            '#4BC0C0', '#FF6384'
-                        ]
+                        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384']
                     }]
                 },
                 options: {
                     responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
-                        }
-                    }
+                    plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } }
                 }
             });
         }
 
-
         function updateAnalyticsIfOpen(spaceId) {
             const analyticsTab = document.getElementById('analytics');
-            if (analyticsTab.classList.contains('active')) {
-                // Быстрая перезагрузка аналитики
+            if (analyticsTab && analyticsTab.classList.contains('active')) {
                 loadAnalyticsQuick(spaceId);
             }
         }
@@ -3020,37 +2807,33 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        spaceId: spaceId,
+                        spaceId,
                         period: state.analyticsPeriod
                     })
                 });
 
                 if (response.ok) {
                     const data = await response.json();
-                    // Быстрое обновление без полного рендеринга
                     updateAnalyticsDisplayQuick(data);
                 }
             } catch (error) {
                 console.error('Быстрая загрузка аналитики:', error);
             }
         }
-        
+
         function updateAnalyticsDisplayQuick(data) {
-            document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
-            document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
+            const totalSpent = document.getElementById('totalSpent');
+            const avgDaily = document.getElementById('avgDaily');
             
-            if (window.analyticsChart && data.daily_data) {
-                window.analyticsChart.data.datasets[0].data = data.daily_data.map(item => item.total);
-                window.analyticsChart.update('none');
+            if (totalSpent) totalSpent.textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
+            if (avgDaily) avgDaily.textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
+            
+            if (analyticsChart && data.daily_data) {
+                analyticsChart.data.datasets[0].data = data.daily_data.map(item => item.total);
+                analyticsChart.update('none');
             }
         }
-        
-        
 
-
-        
-
-        // Функция для плавного удаления элемента
         function fadeOutAndRemove(element, callback) {
             element.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
             element.style.opacity = '0';
@@ -3062,10 +2845,6 @@
             }, 300);
         }
 
-        
-
-        
-        // Функция для загрузки последних трат если их нет в data
         async function loadRecentExpensesForAnalytics() {
             if (!state.currentSpaceId) return;
 
@@ -3086,28 +2865,22 @@
                 }
             } catch (error) {
                 console.error('Error loading recent expenses for analytics:', error);
-                // Показываем сообщение что нет трат
                 const container = document.getElementById('categoriesAnalytics');
-                const noExpenses = document.createElement('div');
-                noExpenses.className = 'empty-state';
-                noExpenses.innerHTML = `
-                    <div class="empty-state-icon">📝</div>
-                    <div>Нет данных о тратах</div>
-                `;
-                container.appendChild(noExpenses);
+                if (container) {
+                    const noExpenses = document.createElement('div');
+                    noExpenses.className = 'empty-state';
+                    noExpenses.innerHTML = `
+                        <div class="empty-state-icon">📝</div>
+                        <div>Нет данных о тратах</div>
+                    `;
+                    container.appendChild(noExpenses);
+                }
             }
         }
 
-        // Функция для отображения загруженных трат
         function displayRecentExpensesInAnalytics(expenses) {
             const container = document.getElementById('categoriesAnalytics');
-
-            // Находим где вставить (после категорий)
-            const recentTitle = document.createElement('h3');
-            recentTitle.textContent = '📝 Последние траты';
-            recentTitle.style.marginBottom = '16px';
-            recentTitle.style.marginTop = '20px';
-            container.appendChild(recentTitle);
+            if (!container) return;
 
             if (!expenses || expenses.length === 0) {
                 const noExpenses = document.createElement('div');
@@ -3118,65 +2891,52 @@
             }
 
             expenses.forEach(expense => {
-                const expenseItem = document.createElement('div');
-                expenseItem.className = 'expense-item';
-                expenseItem.style.display = 'flex';
-                expenseItem.style.justifyContent = 'space-between';
-                expenseItem.style.alignItems = 'flex-start';
-                expenseItem.style.padding = '12px';
-                expenseItem.style.marginBottom = '8px';
-                expenseItem.style.background = 'var(--card-bg)';
-                expenseItem.style.borderRadius = '8px';
-                expenseItem.style.border = '1px solid var(--border-color)';
-
                 const date = new Date(expense.date || expense.created_at);
                 const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 
-                // ВАЖНО: Добавляем отображение описания с улучшенным форматированием
                 const description = expense.description ? 
-                    `<div style="font-size: 13px; color: var(--text-secondary); padding-left: 26px; margin-top: 4px; font-style: italic;">
-                        💬 "${expense.description}"
-                    </div>` : 
-                    '<div style="font-size: 12px; color: var(--text-muted); padding-left: 26px; margin-top: 4px;">Без комментария</div>';
+                    `<div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-style: italic;">💬 "${expense.description}"</div>` : 
+                    '<div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Без комментария</div>';
 
+                const expenseItem = document.createElement('div');
+                expenseItem.className = 'expense-item';
                 expenseItem.innerHTML = `
-                    <div style="flex: 1;">
-                        <div style="display: flex; align-items: center; margin-bottom: 4px;">
-                            <div style="font-size: 18px; margin-right: 8px;">${getCategoryIcon(expense.category)}</div>
-                            <div>
-                                <div style="font-weight: 700; font-size: 14px;">${expense.category}</div>
-                                <div style="font-size: 11px; color: var(--text-muted);">${formattedDate} • ${expense.user_name || ''}</div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                                <div style="font-size: 16px;">${getCategoryIcon(expense.category)}</div>
+                                <div>
+                                    <div style="font-weight: 700; font-size: 13px;">${expense.category}</div>
+                                    <div style="font-size: 9px; color: var(--text-muted);">${formattedDate} • ${expense.user_name || ''}</div>
+                                </div>
                             </div>
+                            ${description}
                         </div>
-                        ${description}
-                    </div>
-                    <div style="text-align: right; min-width: 100px; display: flex; align-items: center; gap: 8px;">
-                        <div style="font-weight: 700; color: #dc3545; font-size: 16px;">${expense.amount}</div>
-                        <button onclick="deleteExpense(${expense.id})" 
-                                style="background: #ff4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;"
-                                title="Удалить трату">
-                            🗑️
-                        </button>
+                        <div style="text-align: right;">
+                            <div style="font-weight: 700; color: #dc3545; font-size: 14px;">${expense.amount}</div>
+                            <button class="delete-expense-btn" onclick="deleteExpense(${expense.id})">🗑️</button>
+                        </div>
                     </div>
                 `;
                 container.appendChild(expenseItem);
             });
         }
 
-        
-
         function renderComparisonChart(currentData, previousData) {
-            const ctx = document.createElement('canvas');
-            ctx.id = 'comparisonChart';
-            ctx.style.maxHeight = '250px';
-    
             const container = document.getElementById('categoriesAnalytics');
+            if (!container) return;
+            
+            const canvas = document.createElement('canvas');
+            canvas.id = 'comparisonChart';
+            canvas.style.maxHeight = '200px';
+            canvas.style.marginBottom = '16px';
+    
             const comparisonDiv = document.createElement('div');
-            comparisonDiv.innerHTML = '<h3>📈 Сравнение с предыдущим периодом</h3>';
-            comparisonDiv.appendChild(ctx);
+            comparisonDiv.innerHTML = '<h4 style="font-size: 14px; margin: 12px 0 8px;">📈 Сравнение с предыдущим периодом</h4>';
+            comparisonDiv.appendChild(canvas);
             container.appendChild(comparisonDiv);
     
-            const comparisonChart = new Chart(ctx, {
+            new Chart(canvas, {
                 type: 'bar',
                 data: {
                     labels: ['Текущий период', 'Предыдущий период'],
@@ -3187,13 +2947,11 @@
                     }]
                 },
                 options: {
-                    responsive: true
+                    responsive: true,
+                    plugins: { legend: { labels: { font: { size: 10 } } } }
                 }
             });
-        }    
-
-
-        
+        }
 
         async function exportToExcel() {
             console.log('=== 🎯 EXPORT TO EXCEL START ===');
@@ -3225,10 +2983,8 @@
                 console.log('📦 Server response:', result);
 
                 if (result.sent_via_bot) {
-                    // Файл отправлен через бота
                     showMessage('✅ Файл отправлен в чат с ботом! Проверьте Telegram.');
                     
-                    // Можно предложить открыть чат с ботом
                     setTimeout(() => {
                         if (confirm('Открыть чат с ботом для получения файла?')) {
                             window.open('https://t.me/incomeexpensebookBot', '_blank');
@@ -3236,7 +2992,6 @@
                     }, 1000);
                     
                 } else if (result.download_url) {
-                    // Пробуем скачать через data URL
                     console.log('📥 Trying data URL download...');
                     const a = document.createElement('a');
                     a.href = result.download_url;
@@ -3260,11 +3015,8 @@
                 showMessage(`❌ ${error.message}`, 'error');
             }
         }
-        
-        
-        // ===== ANALYTICS вкладка трат с комментами =====
-        let expensesListPeriod = 30;
 
+        // ===== EXPENSES LIST =====
         function setExpensesPeriod(period) {
             expensesListPeriod = period;
             document.querySelectorAll('#expensesList .filter-btn').forEach(btn => {
@@ -3276,8 +3028,10 @@
         async function loadExpensesList() {
             if (!state.currentSpaceId) {
                 console.log('❌ No space selected');
-                document.getElementById('expensesListContainer').innerHTML = 
-                    '<div class="empty-state">Выберите пространство для просмотра истории трат</div>';
+                const container = document.getElementById('expensesListContainer');
+                if (container) {
+                    container.innerHTML = '<div class="empty-state">Выберите пространство для просмотра истории трат</div>';
+                }
                 return;
             }
 
@@ -3306,32 +3060,38 @@
                 
             } catch (error) {
                 console.error('❌ Error loading expenses list:', error);
-                document.getElementById('expensesListContainer').innerHTML = 
-                    `<div class="message error">Ошибка: ${error.message}</div>`;
+                const container = document.getElementById('expensesListContainer');
+                if (container) {
+                    container.innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
+                }
             }
         }
 
         function showLoadingExpensesList() {
-            document.getElementById('expensesListContainer').innerHTML = `
-                <div class="loading">
-                    <div>⏳ Загружаем историю трат...</div>
-                </div>
-            `;
+            const container = document.getElementById('expensesListContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div class="loading">
+                        <div>⏳ Загружаем историю трат...</div>
+                    </div>
+                `;
+            }
         }
 
         function displayExpensesList(expenses) {
             console.log('=== displayExpensesList called ===');
-            console.log('Expenses data:', expenses);
             
             const container = document.getElementById('expensesListContainer');
             console.log('Container found:', !!container);
+
+            if (!container) return;
 
             if (!expenses || expenses.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📝</div>
                         <div>Нет трат за выбранный период</div>
-                        <div style="font-size: 14px; color: var(--text-muted); margin-top: 8px;">
+                        <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
                             Попробуйте выбрать другой период или пространство
                         </div>
                     </div>
@@ -3339,13 +3099,12 @@
                 return;
             }
 
-            // Статистика
             const totalAmount = expenses.reduce((sum, expense) => sum + expense.amount, 0);
             const expensesWithComments = expenses.filter(expense => expense.description && expense.description.trim() !== '').length;
 
             container.innerHTML = `
-                <div style="background: var(--card-bg); padding: 12px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #667eea;">
-                    <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                <div style="background: var(--bg-color); padding: 10px; border-radius: 8px; margin-bottom: 12px; border-left: 4px solid #667eea; font-size: 13px;">
+                    <div style="display: flex; justify-content: space-between;">
                         <div>
                             <strong>📊 Статистика:</strong><br>
                             Всего трат: ${expenses.length}<br>
@@ -3360,73 +3119,60 @@
                 </div>
             `;
 
-            // Список трат с кнопками удаления
             expenses.forEach(expense => {
-                console.log(`🔄 Processing expense:`, expense); // ДИАГНОСТИКА
+                console.log(`🔄 Processing expense:`, expense);
                 
                 const date = new Date(expense.date);
                 const formattedDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                 
                 const descriptionHtml = expense.description ? 
-                    `<div style="font-size: 14px; color: var(--text-secondary); margin-top: 8px; padding: 8px; background: var(--border-color); border-radius: 6px; border-left: 3px solid #667eea;">
+                    `<div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; padding: 6px; background: var(--border-color); border-radius: 6px; border-left: 3px solid #667eea;">
                         <strong>💬 Комментарий:</strong> ${expense.description}
                     </div>` : 
-                    `<div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; font-style: italic;">
+                    `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; font-style: italic;">
                         Без комментария
                     </div>`;
 
                 const expenseItem = document.createElement('div');
                 expenseItem.className = 'expense-item';
-                expenseItem.id = `expense-${expense.id}`; // ИСПОЛЬЗУЕМ expense.id
+                expenseItem.id = `expense-${expense.id}`;
                 expenseItem.style.background = 'var(--card-bg)';
-                expenseItem.style.padding = '16px';
-                expenseItem.style.marginBottom = '12px';
+                expenseItem.style.padding = '12px';
+                expenseItem.style.marginBottom = '8px';
                 expenseItem.style.borderRadius = '12px';
                 expenseItem.style.border = '1px solid var(--border-color)';
-                expenseItem.style.position = 'relative';
                 expenseItem.style.transition = 'all 0.3s ease';
 
                 expenseItem.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                            <div style="font-size: 24px;">${getCategoryIcon(expense.category)}</div>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                            <div style="font-size: 20px;">${getCategoryIcon(expense.category)}</div>
                             <div style="flex: 1;">
-                                <div style="font-weight: 700; font-size: 16px;">${expense.category}</div>
-                                <div style="font-size: 12px; color: var(--text-muted);">
+                                <div style="font-weight: 700; font-size: 14px;">${expense.category}</div>
+                                <div style="font-size: 10px; color: var(--text-muted);">
                                     ${formattedDate} • ${expense.user_name}
                                 </div>
                             </div>
                         </div>
-                        <div style="text-align: right; display: flex; align-items: center; gap: 8px;">
-                            <div style="font-weight: 700; color: #dc3545; font-size: 18px;">
+                        <div style="text-align: right; display: flex; align-items: center; gap: 6px;">
+                            <div style="font-weight: 700; color: #dc3545; font-size: 16px;">
                                 ${expense.amount}
                             </div>
-                            <button onclick="deleteExpense(${expense.id})" 
-                                    style="background: #ff4444; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-left: 8px; transition: all 0.2s ease;"
-                                    title="Удалить трату"
-                                    class="delete-expense-btn">
-                                🗑️
-                            </button>
+                            <button class="delete-expense-btn" onclick="deleteExpense(${expense.id})">🗑️</button>
                         </div>
                     </div>
                     ${descriptionHtml}
-                    
-                    
                 `;
                 
                 container.appendChild(expenseItem);
             });
 
-            // ДИАГНОСТИКА - проверяем какие ID были отображены
             console.log('=== EXPENSE IDs DISPLAYED ===');
             expenses.forEach(exp => {
                 console.log(`Expense ID: ${exp.id}, Amount: ${exp.amount}, Category: ${exp.category}`);
             });
-            
-            
         }
 
-        // Добавьте эту функцию обертку
         function deleteExpenseHandler(expenseId) {
             console.log('🎯 Delete button clicked, expenseId:', expenseId);
             showMessage('🔄 Удаляем трату...');
@@ -3448,9 +3194,7 @@
             }
         }
 
-        
-        // Функция для загрузки быстрых пространств
-        function loadQuickSpaces() {
+        function loadQuickSpacesOld() {
             fetch(`${API_URL}/get_user_spaces`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -3459,6 +3203,8 @@
             .then(response => response.json())
             .then(data => {
                 const container = document.getElementById('quickSpacesGrid');
+                if (!container) return;
+                
                 if (!data.spaces || data.spaces.length === 0) {
                     container.innerHTML = '<div class="empty-state">Нет пространств</div>';
                     return;
@@ -3466,14 +3212,13 @@
 
                 container.innerHTML = data.spaces.map(space => `
                     <div class="space-card ${space.id === state.currentSpaceId ? 'active' : ''}" 
-                        onclick="selectQuickSpace(${space.id})"
-                        style="padding: 12px; min-height: 60px;">
-                        <div class="space-icon" style="font-size: 20px;">${getSpaceIcon(space.space_type)}</div>
-                        <div class="space-name" style="font-size: 12px;">${space.name}</div>
+                        onclick="selectSpace(${space.id})"
+                        style="padding: 8px; min-height: 60px;">
+                        <div class="space-icon" style="font-size: 18px;">${getSpaceIcon(space.space_type)}</div>
+                        <div class="space-name" style="font-size: 10px;">${space.name}</div>
                     </div>
                 `).join('');
 
-                // Показываем/скрываем KPI в зависимости от выбора
                 toggleKPIVisibility();
             })
             .catch(error => {
@@ -3484,8 +3229,8 @@
         function selectQuickSpace(spaceId) {
             state.currentSpaceId = spaceId;
             saveState();
-            loadQuickSpaces(); // Перерисовываем иконки
-            loadDashboardKPI(); // Загружаем KPI
+            loadQuickSpacesOld();
+            loadDashboardKPI();
         }
 
         function toggleKPIVisibility() {
@@ -3493,15 +3238,14 @@
             const noSpaceSection = document.getElementById('noSpaceSelected');
     
             if (state.currentSpaceId) {
-                kpiSection.classList.remove('hidden');
-                noSpaceSection.classList.add('hidden');
+                if (kpiSection) kpiSection.classList.remove('hidden');
+                if (noSpaceSection) noSpaceSection.classList.add('hidden');
             } else {
-                kpiSection.classList.add('hidden');
-                noSpaceSection.classList.remove('hidden');
+                if (kpiSection) kpiSection.classList.add('hidden');
+                if (noSpaceSection) noSpaceSection.classList.remove('hidden');
             }
         }
 
-        // Функция для загрузки последних трат
         async function loadRecentExpenses() {
             if (!state.currentSpaceId) return;
 
@@ -3527,6 +3271,7 @@
 
         function displayRecentExpenses(expenses) {
             const container = document.getElementById('recentExpenses');
+            if (!container) return;
     
             if (!expenses || expenses.length === 0) {
                 container.innerHTML = '<div class="empty-state">Нет recent трат</div>';
@@ -3537,7 +3282,7 @@
                 <div class="expense-item" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
                     <div>
                         <strong>${expense.category}</strong>
-                        <div style="font-size: 12px; color: var(--text-muted);">${expense.description || 'Без описания'}</div>
+                        <div style="font-size: 11px; color: var(--text-muted);">${expense.description || 'Без описания'}</div>
                     </div>
                     <div style="font-weight: 700; color: #dc3545;">
                         ${expense.amount} ${expense.currency_symbol}
@@ -3546,34 +3291,28 @@
             `).join('');
         }
 
-        // Обновите loadDashboard
-        async function loadDashboard() {
-            await loadQuickSpaces();
-            await loadDashboardKPI();
-        }
-
         async function loadDashboardKPI(spaceId = state.currentSpaceId, forceRefresh = false) {
             if (!spaceId) {
-                document.getElementById('dashboardKPI').classList.add('hidden');
-                document.getElementById('noSpaceSelected').classList.remove('hidden');
+                const kpiSection = document.getElementById('dashboardKPI');
+                const noSpaceSection = document.getElementById('noSpaceSelected');
+                if (kpiSection) kpiSection.classList.add('hidden');
+                if (noSpaceSection) noSpaceSection.classList.remove('hidden');
                 return;
             }
 
             try {
                 if (forceRefresh) {
-                    // Принудительно очищаем кэш
                     dataCache.spaces = null;
                     dataCache.lastUpdate = null;
                 }
 
-                // Один запрос вместо нескольких
                 const response = await fetch(`${API_URL}/get_advanced_analytics`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
-                        spaceId: spaceId,
-                        period: 30 // Получаем данные за 30 дней для всех KPI
+                        spaceId,
+                        period: 30
                     })
                 });
 
@@ -3582,12 +3321,12 @@
                     updateKPIDisplay(data, spaceId);
                 }
 
-                // Дополнительно загружаем бюджет
                 await loadBudgetProgress(spaceId);    
 
-                // Показываем KPI секцию
-                document.getElementById('dashboardKPI').classList.remove('hidden');
-                document.getElementById('noSpaceSelected').classList.add('hidden');
+                const kpiSection = document.getElementById('dashboardKPI');
+                const noSpaceSection = document.getElementById('noSpaceSelected');
+                if (kpiSection) kpiSection.classList.remove('hidden');
+                if (noSpaceSection) noSpaceSection.classList.add('hidden');
                 
             } catch (error) {
                 console.error('Ошибка загрузки KPI:', error);
@@ -3595,32 +3334,27 @@
         }
 
         function updateKPIDisplay(data, spaceId) {
-            // Сегодня
-            const todaySpent = data.daily_data?.find(day => 
-                day.day === new Date().toISOString().split('T')[0]
-            )?.total || 0;
-            document.getElementById('todaySpent').textContent = `${todaySpent.toFixed(0)}`;
+            const today = new Date().toISOString().split('T')[0];
+            const todaySpent = data.daily_data?.find(day => day.day === today)?.total || 0;
+            
+            const todayEl = document.getElementById('todaySpent');
+            if (todayEl) todayEl.textContent = `${todaySpent.toFixed(0)}`;
 
-            // Бюджет
             loadBudgetProgress(spaceId);
 
-            // Неделя и месяц из тех же данных
             const weekAgo = new Date();
             weekAgo.setDate(weekAgo.getDate() - 7);
-            const monthAgo = new Date();
-            monthAgo.setDate(monthAgo.getDate() - 30);
 
-            const weekSpent = data.daily_data
-                ?.filter(day => new Date(day.day) >= weekAgo)
-                ?.reduce((sum, day) => sum + day.total, 0) || 0;
-
+            const weekSpent = data.daily_data?.filter(day => new Date(day.day) >= weekAgo)?.reduce((sum, day) => sum + day.total, 0) || 0;
             const monthSpent = data.overview?.total_spent || 0;
 
-            document.getElementById('weekSpent').textContent = `${weekSpent.toFixed(0)}`;
-            document.getElementById('monthSpent').textContent = `${monthSpent.toFixed(0)}`;
+            const weekEl = document.getElementById('weekSpent');
+            const monthEl = document.getElementById('monthSpent');
+            
+            if (weekEl) weekEl.textContent = `${weekSpent.toFixed(0)}`;
+            if (monthEl) monthEl.textContent = `${monthSpent.toFixed(0)}`;
         }
-        
-        // ===== Удаление пространства =====
+
         async function deleteSpace() {
             if (!state.currentSpaceId || !confirm('ВНИМАНИЕ! Вы уверены, что хотите УДАЛИТЬ это пространство? Все данные будут потеряны безвозвратно!')) {
                 return;
@@ -3645,7 +3379,7 @@
 
                 showMessage('✅ Пространство удалено');
                 hideSpaceDetails();
-                loadSpaces(); // Перезагружаем список
+                loadSpaces();
                 state.currentSpaceId = null;
                 saveState();
                 
@@ -3654,24 +3388,25 @@
                 showMessage(`Ошибка: ${error.message}`, 'error');
             }
         }
-        // ===== UTILITY FUNCTIONS =====
+
         function showLoading(elementId) {
-            document.getElementById(elementId).innerHTML = '<div class="loading">Загрузка...</div>';
+            const el = document.getElementById(elementId);
+            if (el) el.innerHTML = '<div class="loading">Загрузка...</div>';
         }
 
         function showMessage(message, type = 'success') {
             const messageEl = document.getElementById('message');
+            if (!messageEl) return;
+            
             messageEl.textContent = message;
             messageEl.className = `message ${type}`;
             messageEl.classList.remove('hidden');
             
-            // Автоматически скрываем через 4 секунды
             setTimeout(() => {
                 messageEl.classList.add('hidden');
             }, 4000);
         }
-        // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
-        // Проверка первого запуска
+
         function checkFirstTimeUser() {
             const firstTime = !localStorage.getItem('notFirstTime');
             if (firstTime) {
@@ -3682,9 +3417,7 @@
             }
         }
 
-        // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
-        // Функция удаления пользовательской категории
-        async function deleteCategory(categoryName) {
+        async function deleteCategoryOld(categoryName) {
             if (!state.currentSpaceId) {
                 showMessage('Сначала выберите пространство', 'error');
                 return;
@@ -3701,7 +3434,7 @@
                     body: JSON.stringify({
                         initData: tg.initData,
                         spaceId: state.currentSpaceId,
-                        categoryName: categoryName
+                        categoryName
                     })
                 });
 
@@ -3710,10 +3443,8 @@
                 if (response.ok && result.success) {
                     showMessage(`✅ Категория "${categoryName}" удалена`);
                     
-                    // Перезагружаем категории
                     await loadCategories();
                     
-                    // Сбрасываем выбранную категорию если она была удалена
                     const activeCategory = document.querySelector('.category-item.active');
                     if (activeCategory && activeCategory.querySelector('.category-name').textContent === categoryName) {
                         activeCategory.classList.remove('active');
@@ -3727,22 +3458,19 @@
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
-                // ==== ДОБАВЬТЕ ЭТИ ФУНКЦИИ ЗДЕСЬ ====
-        // Функция для просмотра и управления категориями
+
         function showManageCategories() {
             const modalHtml = `
                 <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
-                    <div class="card" style="max-width: 400px; margin: 20px; max-height: 80vh; overflow-y: auto;">
-                        <h3>🗑️ Управление категориями</h3>
-                        <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">
+                    <div class="card" style="max-width: 350px; margin: 20px; max-height: 80vh; overflow-y: auto;">
+                        <h3 style="font-size: 16px; margin-bottom: 12px;">🗑️ Управление категориями</h3>
+                        <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 12px;">
                             Здесь вы можете удалять созданные вами категории. Стандартные категории удалить нельзя.
                         </p>
                         
-                        <div id="manageCategoriesList" style="margin-bottom: 16px;">
-                            <!-- Список категорий будет загружен здесь -->
-                        </div>
+                        <div id="manageCategoriesList" style="margin-bottom: 12px;"></div>
                         
-                        <button class="btn btn-secondary" onclick="closeManageCategories()" style="width: 100%;">
+                        <button class="btn btn-small btn-secondary" onclick="closeManageCategories()" style="width: 100%;">
                             Закрыть
                         </button>
                     </div>
@@ -3754,22 +3482,19 @@
             modal.innerHTML = modalHtml;
             document.body.appendChild(modal);
 
-            // Загружаем список категорий для управления
             loadCategoriesForManagement();
         }
 
         function closeManageCategories() {
             const modal = document.getElementById('manageCategoriesModal');
-            if (modal) {
-                modal.remove();
-            }
+            if (modal) modal.remove();
         }
 
         async function loadCategoriesForManagement() {
             const container = document.getElementById('manageCategoriesList');
+            if (!container) return;
             
             try {
-                // Загружаем категории с сервера
                 const response = await fetch(`${API_URL}/get_user_categories`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -3790,16 +3515,15 @@
                 }
 
                 container.innerHTML = customCategories.map(cat => `
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; margin-bottom: 8px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border-color);">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="font-size: 20px;">${cat.icon}</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; margin-bottom: 6px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border-color);">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <div style="font-size: 18px;">${cat.icon}</div>
                             <div>
-                                <div style="font-weight: 700;">${cat.name}</div>
-                                <div style="font-size: 12px; color: var(--text-muted);">пользовательская</div>
+                                <div style="font-weight: 700; font-size: 13px;">${cat.name}</div>
+                                <div style="font-size: 10px; color: var(--text-muted);">пользовательская</div>
                             </div>
                         </div>
-                        <button onclick="deleteCategoryFromManagement('${cat.name}')" 
-                                style="background: #ff4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                        <button class="btn-small btn-danger" onclick="deleteCategoryFromManagement('${cat.name}')" style="padding: 4px 8px;">
                             Удалить
                         </button>
                     </div>
@@ -3822,7 +3546,7 @@
                     body: JSON.stringify({
                         initData: tg.initData,
                         spaceId: state.currentSpaceId,
-                        categoryName: categoryName
+                        categoryName
                     })
                 });
 
@@ -3830,9 +3554,7 @@
                 
                 if (response.ok && result.success) {
                     showMessage(`✅ Категория "${categoryName}" удалена`);
-                    // Обновляем список в модальном окне
                     loadCategoriesForManagement();
-                    // Обновляем категории в основном интерфейсе
                     loadCategories();
                 } else {
                     throw new Error(result.error || 'Ошибка удаления категории');
@@ -3842,46 +3564,28 @@
                 showMessage(`❌ Ошибка: ${error.message}`, 'error');
             }
         }
-        // ====================================
-        // ==== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ЗДЕСЬ ====
+
         function getCategoryIcon(categoryName) {
             const icons = {
-                'Продукты': '🛒',
-                'Кафе': '☕',
-                'Транспорт': '🚗',
-                'Дом': '🏠',
-                'Одежда': '👕',
-                'Здоровье': '🏥',
-                'Развлечения': '🎬',
-                'Подписки': '📱',
-                'Образование': '📚',
-                'Другое': '❓'
+                'Продукты': '🛒', 'Кафе': '☕', 'Транспорт': '🚗', 'Дом': '🏠',
+                'Одежда': '👕', 'Здоровье': '🏥', 'Развлечения': '🎬',
+                'Подписки': '📱', 'Образование': '📚', 'Другое': '❓'
             };
             
-            // Добавляем поддержку пользовательских категорий
-            if (icons[categoryName]) {
-                return icons[categoryName];
-            }
-            
-            // Для пользовательских категорий используем общую иконку
-            return '📁';
+            return icons[categoryName] || '📁';
         }
-        // ===== функция для получения ссылки на бота =====
+
         function getBotLink() {
             return `https://t.me/incomeexpensebookBot`;
         }
 
         function shareBotLink() {
-            // Создаем правильную ссылку для приглашения
             const botUsername = 'incomeexpensebookBot';
             const inviteLink = `https://t.me/${botUsername}`;
 
-            // Копируем ссылку в буфер обмена
             navigator.clipboard.writeText(inviteLink).then(() => {
-                // УЛУЧШЕННОЕ УВЕДОМЛЕНИЕ
                 showMessage('✅ Ссылка на бота скопирована! Отправьте её друзьям');
                 
-                // Дополнительно показываем саму ссылку
                 setTimeout(() => {
                     if (confirm(`Ссылка скопирована:\n${inviteLink}\n\nХотите открыть чат с ботом?`)) {
                         window.open(inviteLink, '_blank');
@@ -3890,212 +3594,83 @@
                 
             }).catch(err => {
                 console.error('❌ Failed to copy:', err);
-                // Fallback для старых браузеров
                 const textArea = document.createElement('textarea');
                 textArea.value = inviteLink;
                 document.body.appendChild(textArea);
                 textArea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textArea);
-                
                 showMessage('✅ Ссылка скопирована! Отправьте друзьям: ' + inviteLink);
             });
         }
 
-        // ОСТАВЬТЕ ТОЛЬКО ЭТУ ФУНКЦИЮ (строка 3923) и ДОПОЛНИТЕ ЕЕ:
         function initializeApp() {
             console.log('🎪 INITIALIZE APP CALLED');
             
-            setupAutoUpdate();
             checkFirstTimeUser();
             loadSpaces();
-            loadQuickSpaces();
+            loadQuickSpacesOld();
             generateKeypad();
             handleStartParameters();
             testDatabaseConnection();
-            addDebugButtons();
-            
-            // ДОБАВЬТЕ ЭТУ СТРОКУ (если ее нет):
             setupSwipeNavigation();
             
-            // Загружаем пространства для всех вкладок
             loadSpacesForSelector('expenseSpacesGrid', true);
             loadSpacesForSelector('analyticsSpacesGrid', true);
             loadSpacesForSelector('expensesListSpacesGrid', true);
         }
 
-
         // ===== CHARTS =====
-                let analyticsChart = null;
-
-                function renderAnalyticsChart(data) {
-                    const ctx = document.getElementById('analyticsChart').getContext('2d');
+        function renderAnalyticsChart(data) {
+            const canvas = document.getElementById('analyticsChart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
     
-                    // Удаляем старый график если есть
-                    if (analyticsChart) {
-                        analyticsChart.destroy();
-                    }
+            if (analyticsChart) {
+                analyticsChart.destroy();
+            }
     
-                    if (!data.daily_data || data.daily_data.length === 0) {
-                        // Показываем заглушку если нет данных
-                        ctx.font = '16px Arial';
-                        ctx.fillStyle = '#666';
-                        ctx.textAlign = 'center';
-                        ctx.fillText('Нет данных для графика', 150, 100);
-                        return;
-                    }
+            if (!data.daily_data || data.daily_data.length === 0) {
+                ctx.font = '12px Arial';
+                ctx.fillStyle = '#666';
+                ctx.textAlign = 'center';
+                ctx.fillText('Нет данных для графика', 150, 75);
+                return;
+            }
     
-                    // Подготавливаем данные для графика
-                    const labels = data.daily_data.map(item => {
-                        const date = new Date(item.day);
-                        return `${date.getDate()}.${date.getMonth() + 1}`;
-                    });
+            const labels = data.daily_data.map(item => {
+                const date = new Date(item.day);
+                return `${date.getDate()}.${date.getMonth() + 1}`;
+            });
     
-                    const amounts = data.daily_data.map(item => item.total);
+            const amounts = data.daily_data.map(item => item.total);
     
-                    analyticsChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                label: 'Расходы по дням',
-                                data: amounts,
-                                borderColor: '#667eea',
-                                backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                                borderWidth: 2,
-                                fill: true,
-                                tension: 0.4
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: {
-                                    display: false
-                                }
-                            },
-                            scales: {
-                                y: {
-                                    beginAtZero: true,
-                                    grid: {
-                                        color: 'rgba(0,0,0,0.1)'
-                                    }
-                                },
-                                x: {
-                                    grid: {
-                                        display: false
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
-
-                // Обнови функцию displayAnalytics чтобы она вызывала рендер графика
-                async function displayAnalytics(data) {
-                    // Общие суммы
-                    document.getElementById('totalSpent').textContent = `${data.overview?.total_spent?.toFixed(0) || 0}`;
-                    document.getElementById('avgDaily').textContent = `${(data.overview?.avg_expense || 0).toFixed(0)}`;
-
-                    // Рендерим основной график
-                    renderAnalyticsChart(data);
-
-                    // Рендерим круговую диаграмму категорий
-                    if (data.categories && data.categories.length > 0) {
-                        renderCategoryChart(data.categories);
-                    }
-
-                    // Загружаем данные для сравнения
-                    try {
-                        const prevResponse = await fetch(`${API_URL}/get_advanced_analytics`, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({
-                                initData: tg.initData,
-                                spaceId: state.currentSpaceId,
-                                period: state.analyticsPeriod,
-                                previousPeriod: true
-                            })
-                        });
-
-                        if (prevResponse.ok) {
-                            const prevData = await prevResponse.json();
-                            renderComparisonChart(data, prevData);
-                        }
-                    } catch (error) {
-                        console.log('Не удалось загрузить данные для сравнения');
+            analyticsChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Расходы по дням',
+                        data: amounts,
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { font: { size: 10 } } },
+                        x: { ticks: { font: { size: 8 } } }
                     }
                 }
-
-
-                // === УПРОЩЕННАЯ ФУНКЦИЯ УДАЛЕНИЯ ===
-                async function deleteExpense(expenseId) {
-                    console.log('=== 🗑️ DELETE EXPENSE DEBUG FRONTEND ===');
-                    console.log('📋 Expense ID:', expenseId);
-                    console.log('📋 Expense ID type:', typeof expenseId);
-                    console.log('👤 User ID:', tg.initDataUnsafe.user?.id);
-                    console.log('🏠 Current space ID:', state.currentSpaceId);
-                    console.log('🔐 InitData length:', tg.initData?.length);
-    
-    
-                    
-                    if (!expenseId) {
-                        showMessage('❌ Ошибка: ID траты не указан', 'error');
-                        return;
-                    }
-
-                    if (!confirm('Вы уверены, что хотите удалить эту трату?')) {
-                        return;
-                    }
-
-                    try {
-                        showMessage('🔄 Удаляем трату...');
-                        
-                        const requestBody = {
-                            initData: tg.initData,
-                            expenseId: parseInt(expenseId)
-                        };
-                        
-                        console.log('📤 Request:', requestBody);
-
-                        const response = await fetch(`${API_URL}/delete_expense`, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify(requestBody)
-                        });
-
-                        console.log('📩 Response status:', response.status);
-                        
-                        if (!response.ok) {
-                            const errorData = await response.json();
-                            throw new Error(errorData.error || `Ошибка: ${response.status}`);
-                        }
-
-                        const result = await response.json();
-                        console.log('📦 Response data:', result);
-
-                        if (result.success) {
-                            showMessage('✅ Трата удалена!');
-                            
-                            // Перезагружаем список трат через 1 секунду
-                            setTimeout(() => {
-                                loadExpensesList();
-                            }, 1000);
-                            
-                        } else {
-                            throw new Error(result.error || 'Неизвестная ошибка');
-                        }
-                        
-                    } catch (error) {
-                        console.error('❌ Delete error:', error);
-                        showMessage(`❌ Ошибка: ${error.message}`, 'error');
-                    }
-                }
-                // === ИНИЦИАЛИЗАЦИЯ СВАЙПА ===
-                console.log('🚀 Initializing swipe navigation...');
-                setupSwipeNavigation();
-                console.log('✅ Swipe navigation setup complete');
+            });
+        }
     </script>
 </body>
 </html>
