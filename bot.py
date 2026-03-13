@@ -1320,35 +1320,44 @@ def remove_member_from_space(space_id, user_id, remover_id):
         conn.close()
 
 def set_user_budget(user_id, space_id, amount, currency="RUB"):
-    """Установка бюджета пользователя"""
+    """Установка бюджета пользователя на календарный месяц"""
     conn = get_db_connection()
     
     try:
-        current_month = datetime.now().strftime('%Y-%m')
+        # Получаем первый и последний день текущего месяца
+        today = datetime.now()
+        first_day = today.replace(day=1).strftime('%Y-%m-%d')
+        last_day = (today.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        last_day = last_day.strftime('%Y-%m-%d')
+        month_year = today.strftime('%Y-%m')
         
         if isinstance(conn, sqlite3.Connection):
             c = conn.cursor()
             # Проверяем, есть ли уже бюджет на этот месяц
             c.execute('SELECT id FROM budgets WHERE user_id = ? AND space_id = ? AND month_year = ?', 
-                     (user_id, space_id, current_month))
+                     (user_id, space_id, month_year))
             existing = c.fetchone()
             
             if existing:
-                c.execute('UPDATE budgets SET amount = ?, currency = ? WHERE id = ?', (amount, currency, existing[0]))
+                c.execute('UPDATE budgets SET amount = ?, currency = ? WHERE id = ?', 
+                         (amount, currency, existing[0]))
             else:
-                c.execute('INSERT INTO budgets (user_id, space_id, amount, month_year, currency) VALUES (?, ?, ?, ?, ?)',
-                         (user_id, space_id, amount, current_month, currency))
+                c.execute('''INSERT INTO budgets (user_id, space_id, amount, month_year, currency) 
+                             VALUES (?, ?, ?, ?, ?)''',
+                         (user_id, space_id, amount, month_year, currency))
         else:
             c = conn.cursor()
             c.execute('SELECT id FROM budgets WHERE user_id = %s AND space_id = %s AND month_year = %s', 
-                     (user_id, space_id, current_month))
+                     (user_id, space_id, month_year))
             existing = c.fetchone()
             
             if existing:
-                c.execute('UPDATE budgets SET amount = %s, currency = %s WHERE id = %s', (amount, currency, existing[0]))
+                c.execute('UPDATE budgets SET amount = %s, currency = %s WHERE id = %s', 
+                         (amount, currency, existing[0]))
             else:
-                c.execute('INSERT INTO budgets (user_id, space_id, amount, month_year, currency) VALUES (%s, %s, %s, %s, %s)',
-                         (user_id, space_id, amount, current_month, currency))
+                c.execute('''INSERT INTO budgets (user_id, space_id, amount, month_year, currency) 
+                             VALUES (%s, %s, %s, %s, %s)''',
+                         (user_id, space_id, amount, month_year, currency))
         
         conn.commit()
         return True
@@ -1510,13 +1519,14 @@ def admin_check_db():
 
 @flask_app.route('/get_advanced_analytics', methods=['POST'])
 def api_get_advanced_analytics():
-    """Расширенная аналитика с графиками и сравнениями"""
+    """Расширенная аналитика с графиками и сравнениями по месяцам"""
     try:
         data = request.json
         init_data = data.get('initData')
         space_id = data.get('spaceId')
         period = data.get('period', 30)
         analytics_type = data.get('type', 'overview')
+        comparison_months = data.get('comparisonMonths', 3)  # количество месяцев для сравнения
         
         if not validate_webapp_data(init_data):
             return jsonify({'error': 'Invalid data'}), 401
@@ -1530,9 +1540,17 @@ def api_get_advanced_analytics():
         
         conn = get_db_connection()
         
-        # Базовые метрики
-        current_month = datetime.now().strftime('%Y-%m')
+        # Получаем первый и последний день текущего месяца
+        today = datetime.now()
+        current_month_start = today.replace(day=1).strftime('%Y-%m-%d')
+        # Последний день месяца
+        if today.month == 12:
+            next_month = today.replace(year=today.year+1, month=1, day=1)
+        else:
+            next_month = today.replace(month=today.month+1, day=1)
+        current_month_end = (next_month - timedelta(days=1)).strftime('%Y-%m-%d')
         
+        # ===== 1. БАЗОВЫЕ МЕТРИКИ (оригинальный функционал) =====
         if space_id:
             # Аналитика для конкретного пространства
             if isinstance(conn, sqlite3.Connection):
@@ -1568,6 +1586,24 @@ def api_get_advanced_analytics():
                            ORDER BY total DESC'''
                 members_df = pd.read_sql_query(members_query, conn, params=(space_id, f'-{period} days'))
                 
+                # ===== ДАННЫЕ ДЛЯ ТЕКУЩЕГО МЕСЯЦА =====
+                current_month_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent,
+                                        COUNT(*) as total_count,
+                                        AVG(amount) as avg_expense
+                                 FROM expenses 
+                                 WHERE space_id = ? AND date >= ? AND date <= ?'''
+                current_month_df = pd.read_sql_query(current_month_query, conn, 
+                                                    params=(space_id, current_month_start, current_month_end))
+                
+                # По категориям за текущий месяц
+                current_month_categories_query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                                          FROM expenses 
+                                          WHERE space_id = ? AND date >= ? AND date <= ?
+                                          GROUP BY category 
+                                          ORDER BY total DESC'''
+                current_month_categories_df = pd.read_sql_query(current_month_categories_query, conn,
+                                                               params=(space_id, current_month_start, current_month_end))
+                
             else:
                 # PostgreSQL версия
                 total_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent, 
@@ -1597,6 +1633,24 @@ def api_get_advanced_analytics():
                            GROUP BY user_name 
                            ORDER BY total DESC'''
                 members_df = pd.read_sql_query(members_query, conn, params=(space_id, f'{period} days'))
+                
+                # ===== ДАННЫЕ ДЛЯ ТЕКУЩЕГО МЕСЯЦА =====
+                current_month_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent,
+                                        COUNT(*) as total_count,
+                                        AVG(amount) as avg_expense
+                                 FROM expenses 
+                                 WHERE space_id = %s AND date >= %s AND date <= %s'''
+                current_month_df = pd.read_sql_query(current_month_query, conn,
+                                                    params=(space_id, current_month_start, current_month_end))
+                
+                # По категориям за текущий месяц
+                current_month_categories_query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                                          FROM expenses 
+                                          WHERE space_id = %s AND date >= %s AND date <= %s
+                                          GROUP BY category 
+                                          ORDER BY total DESC'''
+                current_month_categories_df = pd.read_sql_query(current_month_categories_query, conn,
+                                                               params=(space_id, current_month_start, current_month_end))
         else:
             # Аналитика всех пространств пользователя
             if isinstance(conn, sqlite3.Connection):
@@ -1621,6 +1675,24 @@ def api_get_advanced_analytics():
                          ORDER BY day'''
                 daily_df = pd.read_sql_query(daily_query, conn, params=(user_data['id'], f'-{period} days'))
                 
+                # ===== ДАННЫЕ ДЛЯ ТЕКУЩЕГО МЕСЯЦА =====
+                current_month_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent,
+                                        COUNT(*) as total_count,
+                                        AVG(amount) as avg_expense
+                                 FROM expenses 
+                                 WHERE user_id = ? AND date >= ? AND date <= ?'''
+                current_month_df = pd.read_sql_query(current_month_query, conn,
+                                                    params=(user_data['id'], current_month_start, current_month_end))
+                
+                # По категориям за текущий месяц
+                current_month_categories_query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                                          FROM expenses 
+                                          WHERE user_id = ? AND date >= ? AND date <= ?
+                                          GROUP BY category 
+                                          ORDER BY total DESC'''
+                current_month_categories_df = pd.read_sql_query(current_month_categories_query, conn,
+                                                               params=(user_data['id'], current_month_start, current_month_end))
+                
             else:
                 total_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent, 
                                 COUNT(*) as total_count,
@@ -1642,22 +1714,191 @@ def api_get_advanced_analytics():
                          GROUP BY DATE(date) 
                          ORDER BY day'''
                 daily_df = pd.read_sql_query(daily_query, conn, params=(user_data['id'], f'{period} days'))
+                
+                # ===== ДАННЫЕ ДЛЯ ТЕКУЩЕГО МЕСЯЦА =====
+                current_month_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent,
+                                        COUNT(*) as total_count,
+                                        AVG(amount) as avg_expense
+                                 FROM expenses 
+                                 WHERE user_id = %s AND date >= %s AND date <= %s'''
+                current_month_df = pd.read_sql_query(current_month_query, conn,
+                                                    params=(user_data['id'], current_month_start, current_month_end))
+                
+                # По категориям за текущий месяц
+                current_month_categories_query = '''SELECT category, SUM(amount) as total, COUNT(*) as count
+                                          FROM expenses 
+                                          WHERE user_id = %s AND date >= %s AND date <= %s
+                                          GROUP BY category 
+                                          ORDER BY total DESC'''
+                current_month_categories_df = pd.read_sql_query(current_month_categories_query, conn,
+                                                               params=(user_data['id'], current_month_start, current_month_end))
+        
+        # ===== 2. НОВЫЙ ФУНКЦИОНАЛ: СРАВНЕНИЕ ПО МЕСЯЦАМ =====
+        monthly_comparison = []
+        
+        # Получаем данные за последние N месяцев
+        for i in range(comparison_months):
+            month_date = today.replace(day=1) - timedelta(days=30*i)
+            month_start = month_date.replace(day=1).strftime('%Y-%m-%d')
+            
+            # Последний день месяца
+            if month_date.month == 12:
+                next_month = month_date.replace(year=month_date.year+1, month=1, day=1)
+            else:
+                next_month = month_date.replace(month=month_date.month+1, day=1)
+            month_end = (next_month - timedelta(days=1)).strftime('%Y-%m-%d')
+            
+            month_name = month_date.strftime('%B %Y')
+            month_short = month_date.strftime('%Y-%m')
+            
+            if space_id:
+                # Для конкретного пространства
+                if isinstance(conn, sqlite3.Connection):
+                    month_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent,
+                                            COUNT(*) as total_count,
+                                            AVG(amount) as avg_expense
+                                     FROM expenses 
+                                     WHERE space_id = ? AND date >= ? AND date <= ?'''
+                    month_df = pd.read_sql_query(month_query, conn, params=(space_id, month_start, month_end))
+                    
+                    # Категории за месяц
+                    month_categories_query = '''SELECT category, SUM(amount) as total
+                                              FROM expenses 
+                                              WHERE space_id = ? AND date >= ? AND date <= ?
+                                              GROUP BY category 
+                                              ORDER BY total DESC
+                                              LIMIT 5'''
+                    month_categories_df = pd.read_sql_query(month_categories_query, conn, 
+                                                           params=(space_id, month_start, month_end))
+                else:
+                    month_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent,
+                                            COUNT(*) as total_count,
+                                            AVG(amount) as avg_expense
+                                     FROM expenses 
+                                     WHERE space_id = %s AND date >= %s AND date <= %s'''
+                    month_df = pd.read_sql_query(month_query, conn, params=(space_id, month_start, month_end))
+                    
+                    month_categories_query = '''SELECT category, SUM(amount) as total
+                                              FROM expenses 
+                                              WHERE space_id = %s AND date >= %s AND date <= %s
+                                              GROUP BY category 
+                                              ORDER BY total DESC
+                                              LIMIT 5'''
+                    month_categories_df = pd.read_sql_query(month_categories_query, conn,
+                                                           params=(space_id, month_start, month_end))
+            else:
+                # Для всех пространств пользователя
+                if isinstance(conn, sqlite3.Connection):
+                    month_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent,
+                                            COUNT(*) as total_count,
+                                            AVG(amount) as avg_expense
+                                     FROM expenses 
+                                     WHERE user_id = ? AND date >= ? AND date <= ?'''
+                    month_df = pd.read_sql_query(month_query, conn, params=(user_data['id'], month_start, month_end))
+                    
+                    month_categories_query = '''SELECT category, SUM(amount) as total
+                                              FROM expenses 
+                                              WHERE user_id = ? AND date >= ? AND date <= ?
+                                              GROUP BY category 
+                                              ORDER BY total DESC
+                                              LIMIT 5'''
+                    month_categories_df = pd.read_sql_query(month_categories_query, conn,
+                                                           params=(user_data['id'], month_start, month_end))
+                else:
+                    month_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent,
+                                            COUNT(*) as total_count,
+                                            AVG(amount) as avg_expense
+                                     FROM expenses 
+                                     WHERE user_id = %s AND date >= %s AND date <= %s'''
+                    month_df = pd.read_sql_query(month_query, conn, params=(user_data['id'], month_start, month_end))
+                    
+                    month_categories_query = '''SELECT category, SUM(amount) as total
+                                              FROM expenses 
+                                              WHERE user_id = %s AND date >= %s AND date <= %s
+                                              GROUP BY category 
+                                              ORDER BY total DESC
+                                              LIMIT 5'''
+                    month_categories_df = pd.read_sql_query(month_categories_query, conn,
+                                                           params=(user_data['id'], month_start, month_end))
+            
+            if not month_df.empty:
+                # Получаем топ-5 категорий для месяца
+                month_categories = []
+                for _, cat_row in month_categories_df.iterrows():
+                    month_categories.append({
+                        'name': cat_row['category'],
+                        'total': float(cat_row['total'])
+                    })
+                
+                monthly_comparison.append({
+                    'month': month_name,
+                    'month_short': month_short,
+                    'month_start': month_start,
+                    'month_end': month_end,
+                    'total_spent': float(month_df.iloc[0]['total_spent']),
+                    'total_count': int(month_df.iloc[0]['total_count']),
+                    'avg_expense': float(month_df.iloc[0]['avg_expense']) if not pd.isna(month_df.iloc[0]['avg_expense']) else 0,
+                    'top_categories': month_categories
+                })
+        
+        # Сортируем месяцы по возрастанию (от старых к новым)
+        monthly_comparison.reverse()
+        
+        # ===== 3. РАСЧЕТ ИЗМЕНЕНИЙ МЕЖДУ МЕСЯЦАМИ =====
+        month_over_month_changes = []
+        for i in range(1, len(monthly_comparison)):
+            current = monthly_comparison[i]
+            previous = monthly_comparison[i-1]
+            
+            change = current['total_spent'] - previous['total_spent']
+            change_percent = (change / previous['total_spent'] * 100) if previous['total_spent'] > 0 else 0
+            
+            month_over_month_changes.append({
+                'month': current['month'],
+                'previous_month': previous['month'],
+                'change': change,
+                'change_percent': change_percent,
+                'trend': 'up' if change > 0 else 'down' if change < 0 else 'stable'
+            })
         
         conn.close()
         
-        # Формируем ответ
+        # ===== 4. ФОРМИРУЕМ ОТВЕТ (сохраняя всю оригинальную структуру) =====
         result = {
             'overview': {
                 'total_spent': float(total_df.iloc[0]['total_spent']) if not total_df.empty else 0,
                 'total_count': int(total_df.iloc[0]['total_count']) if not total_df.empty else 0,
-                'avg_expense': float(total_df.iloc[0]['avg_expense']) if not total_df.empty else 0
+                'avg_expense': float(total_df.iloc[0]['avg_expense']) if not total_df.empty and not pd.isna(total_df.iloc[0]['avg_expense']) else 0
             },
             'categories': [],
-            'daily_data': daily_df.to_dict('records'),
-            'members': []
+            'daily_data': daily_df.to_dict('records') if not daily_df.empty else [],
+            'members': [],
+            
+            # НОВЫЕ ПОЛЯ: данные за текущий месяц
+            'current_month': {
+                'month': today.strftime('%B %Y'),
+                'month_start': current_month_start,
+                'month_end': current_month_end,
+                'total_spent': float(current_month_df.iloc[0]['total_spent']) if not current_month_df.empty else 0,
+                'total_count': int(current_month_df.iloc[0]['total_count']) if not current_month_df.empty else 0,
+                'avg_expense': float(current_month_df.iloc[0]['avg_expense']) if not current_month_df.empty and not pd.isna(current_month_df.iloc[0]['avg_expense']) else 0,
+                'categories': []
+            },
+            
+            # НОВЫЕ ПОЛЯ: сравнение по месяцам
+            'monthly_comparison': monthly_comparison,
+            'month_over_month_changes': month_over_month_changes,
+            
+            # НОВОЕ ПОЛЕ: прогресс по дням текущего месяца
+            'monthly_progress': {
+                'days_passed': today.day,
+                'days_in_month': (next_month - timedelta(days=1)).day,
+                'spent_so_far': float(current_month_df.iloc[0]['total_spent']) if not current_month_df.empty else 0,
+                'projected_spend': (float(current_month_df.iloc[0]['total_spent']) / today.day * (next_month - timedelta(days=1)).day) if today.day > 0 and not current_month_df.empty else 0
+            }
         }
         
-        # Категории
+        # Категории за период (оригинальный функционал)
         for _, row in categories_df.iterrows():
             result['categories'].append({
                 'name': row['category'],
@@ -1666,7 +1907,16 @@ def api_get_advanced_analytics():
                 'percentage': float(row['total']) / result['overview']['total_spent'] if result['overview']['total_spent'] > 0 else 0
             })
         
-        # Участники (только для пространств)
+        # Категории за текущий месяц
+        for _, row in current_month_categories_df.iterrows():
+            result['current_month']['categories'].append({
+                'name': row['category'],
+                'total': float(row['total']),
+                'count': int(row['count']),
+                'percentage': float(row['total']) / result['current_month']['total_spent'] if result['current_month']['total_spent'] > 0 else 0
+            })
+        
+        # Участники (только для пространств) - оригинальный функционал
         if space_id and not members_df.empty:
             for _, row in members_df.iterrows():
                 result['members'].append({
@@ -1676,10 +1926,148 @@ def api_get_advanced_analytics():
                     'percentage': float(row['total']) / result['overview']['total_spent'] if result['overview']['total_spent'] > 0 else 0
                 })
         
+        # Добавляем бюджет пользователя для текущего месяца
+        if space_id:
+            budget, currency = get_user_budget(user_data['id'], space_id)
+            result['budget'] = {
+                'amount': budget,
+                'currency': currency,
+                'remaining': budget - result['current_month']['total_spent'] if budget > 0 else 0,
+                'percentage_used': (result['current_month']['total_spent'] / budget * 100) if budget > 0 else 0
+            }
+        
+        logger.info(f"✅ Расширенная аналитика сформирована: {len(monthly_comparison)} месяцев")
         return jsonify(result)
         
     except Exception as e:
         logger.error(f"❌ API Error in get_advanced_analytics: {e}")
+        import traceback
+        logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@flask_app.route('/compare_months', methods=['POST'])
+def api_compare_months():
+    """Сравнение расходов по месяцам"""
+    try:
+        data = request.json
+        init_data = data.get('initData')
+        space_id = data.get('spaceId')
+        months = data.get('months', 3)  # количество месяцев для сравнения
+        
+        if not validate_webapp_data(init_data):
+            return jsonify({'error': 'Invalid data'}), 401
+            
+        user_data = get_user_from_init_data(init_data)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 401
+            
+        if space_id and not is_user_in_space(user_data['id'], space_id):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        conn = get_db_connection()
+        
+        comparison_data = []
+        today = datetime.now()
+        
+        for i in range(months - 1, -1, -1):  # От старых к новым
+            month_date = today.replace(day=1) - timedelta(days=30*i)
+            month_start = month_date.replace(day=1).strftime('%Y-%m-%d')
+            month_end = (month_date.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            month_end = month_end.strftime('%Y-%m-%d')
+            month_name = month_date.strftime('%B %Y')
+            
+            if space_id:
+                if isinstance(conn, sqlite3.Connection):
+                    query = '''SELECT category, SUM(amount) as total
+                              FROM expenses 
+                              WHERE space_id = ? AND date >= ? AND date <= ?
+                              GROUP BY category
+                              ORDER BY total DESC'''
+                    month_df = pd.read_sql_query(query, conn, params=(space_id, month_start, month_end))
+                    
+                    total_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent
+                                    FROM expenses 
+                                    WHERE space_id = ? AND date >= ? AND date <= ?'''
+                    total_df = pd.read_sql_query(total_query, conn, params=(space_id, month_start, month_end))
+                else:
+                    query = '''SELECT category, SUM(amount) as total
+                              FROM expenses 
+                              WHERE space_id = %s AND date >= %s AND date <= %s
+                              GROUP BY category
+                              ORDER BY total DESC'''
+                    month_df = pd.read_sql_query(query, conn, params=(space_id, month_start, month_end))
+                    
+                    total_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent
+                                    FROM expenses 
+                                    WHERE space_id = %s AND date >= %s AND date <= %s'''
+                    total_df = pd.read_sql_query(total_query, conn, params=(space_id, month_start, month_end))
+            else:
+                if isinstance(conn, sqlite3.Connection):
+                    query = '''SELECT category, SUM(amount) as total
+                              FROM expenses 
+                              WHERE user_id = ? AND date >= ? AND date <= ?
+                              GROUP BY category
+                              ORDER BY total DESC'''
+                    month_df = pd.read_sql_query(query, conn, params=(user_data['id'], month_start, month_end))
+                    
+                    total_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent
+                                    FROM expenses 
+                                    WHERE user_id = ? AND date >= ? AND date <= ?'''
+                    total_df = pd.read_sql_query(total_query, conn, params=(user_data['id'], month_start, month_end))
+                else:
+                    query = '''SELECT category, SUM(amount) as total
+                              FROM expenses 
+                              WHERE user_id = %s AND date >= %s AND date <= %s
+                              GROUP BY category
+                              ORDER BY total DESC'''
+                    month_df = pd.read_sql_query(query, conn, params=(user_data['id'], month_start, month_end))
+                    
+                    total_query = '''SELECT COALESCE(SUM(amount), 0) as total_spent
+                                    FROM expenses 
+                                    WHERE user_id = %s AND date >= %s AND date <= %s'''
+                    total_df = pd.read_sql_query(total_query, conn, params=(user_data['id'], month_start, month_end))
+            
+            categories = []
+            for _, row in month_df.iterrows():
+                categories.append({
+                    'name': row['category'],
+                    'total': float(row['total'])
+                })
+            
+            comparison_data.append({
+                'month': month_name,
+                'month_start': month_start,
+                'month_end': month_end,
+                'total_spent': float(total_df.iloc[0]['total_spent']) if not total_df.empty else 0,
+                'categories': categories
+            })
+        
+        conn.close()
+        
+        # Рассчитываем изменения
+        if len(comparison_data) >= 2:
+            current_month = comparison_data[-1]['total_spent']
+            previous_month = comparison_data[-2]['total_spent']
+            change = current_month - previous_month
+            change_percent = (change / previous_month * 100) if previous_month > 0 else 0
+            
+            comparison_summary = {
+                'current_month_total': current_month,
+                'previous_month_total': previous_month,
+                'absolute_change': change,
+                'percent_change': change_percent,
+                'trend': 'up' if change > 0 else 'down' if change < 0 else 'stable'
+            }
+        else:
+            comparison_summary = {}
+        
+        return jsonify({
+            'comparison_data': comparison_data,
+            'summary': comparison_summary
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ API Error in compare_months: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @flask_app.route('/get_user_categories', methods=['POST'])
@@ -3408,3 +3796,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
