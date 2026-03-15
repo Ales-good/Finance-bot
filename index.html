@@ -175,7 +175,7 @@
         }
 
         .tabs {
-            display: none; /* Скрываем старые табы */
+            display: none;
         }
 
         .tab-content {
@@ -1116,7 +1116,7 @@
 
     <script>
         // ===== АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ =====
-        const APP_VERSION = '1.0.2';
+        const APP_VERSION = '1.0.3';
         const currentVersion = localStorage.getItem('appVersion');
 
         if (currentVersion !== APP_VERSION) {
@@ -1189,6 +1189,7 @@
         let expensesListPeriod = 30;
         let analyticsChart = null;
         let budgetCurrency = 'RUB';
+        let analyticsPeriodType = 'days'; // 'days' или 'calendar'
 
         // ===== CURRENCY CONFIG =====
         const CURRENCIES = {
@@ -2615,12 +2616,6 @@ User ID: ${data.user_id}
             const container = document.getElementById('categoriesAnalytics');
             if (!container) return;
             
-            if (!data.categories || data.categories.length === 0) {
-                container.innerHTML = '<div class="empty-state">Нет данных о расходах</div>';
-                return;
-            
-            }
-
             container.innerHTML = '';
 
             // Текущий месяц
@@ -2727,13 +2722,12 @@ User ID: ${data.user_id}
                 loadRecentExpensesForAnalytics();
             }
 
-
+            // Диаграмма пользователей
             if (data.members && data.members.length > 0) {
                 renderUserPieChart(data.members);
             } else {
-                // Если нет данных в members, пробуем получить из данных
                 const userMap = new Map();
-                if (data.recent_expenses) {
+                if (data.recent_expenses && data.recent_expenses.length > 0) {
                     data.recent_expenses.forEach(exp => {
                         const userName = exp.user_name || 'Неизвестно';
                         const current = userMap.get(userName) || 0;
@@ -2747,7 +2741,6 @@ User ID: ${data.user_id}
                 }
             }
         }
-        
 
         async function loadAnalytics() {
             if (!state.currentSpaceId) {
@@ -2761,19 +2754,16 @@ User ID: ${data.user_id}
                 
                 let requestBody = {
                     initData: tg.initData,
-                    spaceId: state.currentSpaceId
+                    spaceId: state.currentSpaceId,
+                    period: state.analyticsPeriod,
+                    comparisonMonths: 3
                 };
                 
                 if (analyticsPeriodType === 'calendar') {
-                    // Для календарного месяца запрашиваем данные за 1 месяц с календарной разбивкой
-                    requestBody.period = 30; // все еще нужно для бэкенда
-                    requestBody.calendarMonth = true; // флаг для календарного месяца
-                } else {
-                    requestBody.period = state.analyticsPeriod;
+                    requestBody.calendarMonth = true;
                 }
                 
-                // Добавляем запрос на сравнение месяцев
-                requestBody.comparisonMonths = 3;
+                console.log('Analytics request:', requestBody);
                 
                 const response = await fetch(`${API_URL}/get_advanced_analytics`, {
                     method: 'POST',
@@ -2787,14 +2777,17 @@ User ID: ${data.user_id}
                 displayAnalytics(data);
                 
             } catch (error) {
+                console.error('Analytics error:', error);
                 const container = document.getElementById('categoriesAnalytics');
                 if (container) container.innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
             }
         }
 
         function setAnalyticsPeriod(period, type = 'days') {
+            console.log('Setting analytics period:', period, type);
+            
             if (type === 'calendar') {
-                state.analyticsPeriod = period; // period в этом случае - количество месяцев
+                state.analyticsPeriod = period;
                 analyticsPeriodType = 'calendar';
             } else {
                 state.analyticsPeriod = period;
@@ -2802,8 +2795,16 @@ User ID: ${data.user_id}
             }
             
             document.querySelectorAll('#analytics .filter-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.period == period && btn.dataset.type === type);
+                const btnPeriod = btn.dataset.period;
+                const btnType = btn.dataset.type || 'days';
+                
+                if (btnType === type && btnPeriod == period) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
             });
+            
             loadAnalytics();
         }
 
@@ -3349,7 +3350,6 @@ User ID: ${data.user_id}
                     dataCache.lastUpdate = null;
                 }
 
-                // Получаем расширенную аналитику с данными по месяцам
                 const response = await fetch(`${API_URL}/get_advanced_analytics`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -3364,19 +3364,16 @@ User ID: ${data.user_id}
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // Сегодня
                     const today = new Date().toISOString().split('T')[0];
                     const todaySpent = data.daily_data?.find(day => day.day === today)?.total || 0;
                     document.getElementById('todaySpent').textContent = todaySpent.toFixed(0);
                     
-                    // Неделя (последние 7 дней)
                     const weekAgo = new Date();
                     weekAgo.setDate(weekAgo.getDate() - 7);
                     const weekSpent = data.daily_data?.filter(day => new Date(day.day) >= weekAgo)
                         ?.reduce((sum, day) => sum + day.total, 0) || 0;
                     document.getElementById('weekSpent').textContent = weekSpent.toFixed(0);
                     
-                    // Календарный месяц из данных аналитики
                     const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
                         'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
                     const currentMonth = new Date().getMonth();
@@ -3678,6 +3675,8 @@ User ID: ${data.user_id}
         function initializeApp() {
             console.log('🎪 INITIALIZE APP CALLED');
             
+            analyticsPeriodType = 'days';
+            
             checkFirstTimeUser();
             loadSpaces();
             loadQuickSpacesOld();
@@ -3747,7 +3746,11 @@ User ID: ${data.user_id}
             const container = document.getElementById('categoriesAnalytics');
             if (!container) return;
             
-            // Создаем контейнер для диаграммы пользователей
+            if (document.getElementById('userChart')) {
+                const oldChart = document.getElementById('userChart').parentElement.parentElement;
+                if (oldChart) oldChart.remove();
+            }
+            
             const userChartContainer = document.createElement('div');
             userChartContainer.className = 'card';
             userChartContainer.style.padding = '12px';
@@ -3762,7 +3765,10 @@ User ID: ${data.user_id}
             
             container.appendChild(userChartContainer);
             
-            const ctx = document.getElementById('userChart').getContext('2d');
+            const canvas = document.getElementById('userChart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
             
             if (!userData || userData.length === 0) {
                 ctx.font = '12px Arial';
@@ -3772,7 +3778,6 @@ User ID: ${data.user_id}
                 return;
             }
             
-            // Генерируем цвета для каждого участника
             const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'];
             
             new Chart(ctx, {
@@ -3815,4 +3820,3 @@ User ID: ${data.user_id}
     </script>
 </body>
 </html>
-
