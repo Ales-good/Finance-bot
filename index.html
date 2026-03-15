@@ -863,7 +863,7 @@
                     </div>
                     <div class="stat-card danger">
                         <div class="stat-value" id="monthSpent">0</div>
-                        <div class="stat-label">За месяц</div>
+                        <div class="stat-label" id="monthLabel">За месяц</div>
                     </div>
                 </div>
 
@@ -1051,10 +1051,11 @@
                 </div>
 
                 <div class="analytics-filters">
-                    <div class="filter-btn active" data-period="7" onclick="setAnalyticsPeriod(7)">7 дней</div>
-                    <div class="filter-btn" data-period="30" onclick="setAnalyticsPeriod(30)">30 дней</div>
-                    <div class="filter-btn" data-period="90" onclick="setAnalyticsPeriod(90)">3 месяца</div>
-                    <div class="filter-btn" data-period="365" onclick="setAnalyticsPeriod(365)">Год</div>
+                    <div class="filter-btn active" data-period="7" data-type="days" onclick="setAnalyticsPeriod(7, 'days')">7 дней</div>
+                    <div class="filter-btn" data-period="30" data-type="days" onclick="setAnalyticsPeriod(30, 'days')">30 дней</div>
+                    <div class="filter-btn" data-period="90" data-type="days" onclick="setAnalyticsPeriod(90, 'days')">3 месяца</div>
+                    <div class="filter-btn" data-period="365" data-type="days" onclick="setAnalyticsPeriod(365, 'days')">Год</div>
+                    <div class="filter-btn" data-period="1" data-type="calendar" onclick="setAnalyticsPeriod(1, 'calendar')">Календарный месяц</div>
                 </div>
 
                 <div class="chart-container">
@@ -2617,6 +2618,7 @@ User ID: ${data.user_id}
             if (!data.categories || data.categories.length === 0) {
                 container.innerHTML = '<div class="empty-state">Нет данных о расходах</div>';
                 return;
+            
             }
 
             container.innerHTML = '';
@@ -2724,7 +2726,28 @@ User ID: ${data.user_id}
             } else {
                 loadRecentExpensesForAnalytics();
             }
+
+
+            if (data.members && data.members.length > 0) {
+                renderUserPieChart(data.members);
+            } else {
+                // Если нет данных в members, пробуем получить из данных
+                const userMap = new Map();
+                if (data.recent_expenses) {
+                    data.recent_expenses.forEach(exp => {
+                        const userName = exp.user_name || 'Неизвестно';
+                        const current = userMap.get(userName) || 0;
+                        userMap.set(userName, current + exp.amount);
+                    });
+                }
+                
+                const userArray = Array.from(userMap.entries()).map(([name, total]) => ({ name, total }));
+                if (userArray.length > 0) {
+                    renderUserPieChart(userArray);
+                }
+            }
         }
+        
 
         async function loadAnalytics() {
             if (!state.currentSpaceId) {
@@ -2735,31 +2758,51 @@ User ID: ${data.user_id}
 
             try {
                 showLoading('categoriesAnalytics');
+                
+                let requestBody = {
+                    initData: tg.initData,
+                    spaceId: state.currentSpaceId
+                };
+                
+                if (analyticsPeriodType === 'calendar') {
+                    // Для календарного месяца запрашиваем данные за 1 месяц с календарной разбивкой
+                    requestBody.period = 30; // все еще нужно для бэкенда
+                    requestBody.calendarMonth = true; // флаг для календарного месяца
+                } else {
+                    requestBody.period = state.analyticsPeriod;
+                }
+                
+                // Добавляем запрос на сравнение месяцев
+                requestBody.comparisonMonths = 3;
+                
                 const response = await fetch(`${API_URL}/get_advanced_analytics`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        initData: tg.initData,
-                        spaceId: state.currentSpaceId,
-                        period: state.analyticsPeriod,
-                        comparisonMonths: 3
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 if (!response.ok) throw new Error('Ошибка загрузки аналитики');
-        
+                
                 const data = await response.json();
                 displayAnalytics(data);
+                
             } catch (error) {
                 const container = document.getElementById('categoriesAnalytics');
                 if (container) container.innerHTML = `<div class="message error">Ошибка: ${error.message}</div>`;
             }
         }
 
-        function setAnalyticsPeriod(period) {
-            state.analyticsPeriod = period;
+        function setAnalyticsPeriod(period, type = 'days') {
+            if (type === 'calendar') {
+                state.analyticsPeriod = period; // period в этом случае - количество месяцев
+                analyticsPeriodType = 'calendar';
+            } else {
+                state.analyticsPeriod = period;
+                analyticsPeriodType = 'days';
+            }
+            
             document.querySelectorAll('#analytics .filter-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.period == period);
+                btn.classList.toggle('active', btn.dataset.period == period && btn.dataset.type === type);
             });
             loadAnalytics();
         }
@@ -3306,19 +3349,47 @@ User ID: ${data.user_id}
                     dataCache.lastUpdate = null;
                 }
 
+                // Получаем расширенную аналитику с данными по месяцам
                 const response = await fetch(`${API_URL}/get_advanced_analytics`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         initData: tg.initData,
                         spaceId,
-                        period: 30
+                        period: 30,
+                        comparisonMonths: 1
                     })
                 });
 
                 if (response.ok) {
                     const data = await response.json();
-                    updateKPIDisplay(data, spaceId);
+                    
+                    // Сегодня
+                    const today = new Date().toISOString().split('T')[0];
+                    const todaySpent = data.daily_data?.find(day => day.day === today)?.total || 0;
+                    document.getElementById('todaySpent').textContent = todaySpent.toFixed(0);
+                    
+                    // Неделя (последние 7 дней)
+                    const weekAgo = new Date();
+                    weekAgo.setDate(weekAgo.getDate() - 7);
+                    const weekSpent = data.daily_data?.filter(day => new Date(day.day) >= weekAgo)
+                        ?.reduce((sum, day) => sum + day.total, 0) || 0;
+                    document.getElementById('weekSpent').textContent = weekSpent.toFixed(0);
+                    
+                    // Календарный месяц из данных аналитики
+                    const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                        'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+                    const currentMonth = new Date().getMonth();
+                    const currentMonthName = monthNames[currentMonth];
+                    
+                    if (data.current_month) {
+                        document.getElementById('monthSpent').innerHTML = `
+                            ${data.current_month.total_spent.toFixed(0)}
+                            <span style="font-size: 9px; display: block; color: var(--text-muted);">${currentMonthName}</span>
+                        `;
+                    } else {
+                        document.getElementById('monthSpent').textContent = '0';
+                    }
                 }
 
                 await loadBudgetProgress(spaceId);    
@@ -3671,6 +3742,77 @@ User ID: ${data.user_id}
                 }
             });
         }
+
+        function renderUserPieChart(userData) {
+            const container = document.getElementById('categoriesAnalytics');
+            if (!container) return;
+            
+            // Создаем контейнер для диаграммы пользователей
+            const userChartContainer = document.createElement('div');
+            userChartContainer.className = 'card';
+            userChartContainer.style.padding = '12px';
+            userChartContainer.style.marginTop = '12px';
+            
+            userChartContainer.innerHTML = `
+                <h4 style="font-size: 14px; margin-bottom: 8px;">👥 Распределение по участникам</h4>
+                <div style="height: 200px; position: relative;">
+                    <canvas id="userChart"></canvas>
+                </div>
+            `;
+            
+            container.appendChild(userChartContainer);
+            
+            const ctx = document.getElementById('userChart').getContext('2d');
+            
+            if (!userData || userData.length === 0) {
+                ctx.font = '12px Arial';
+                ctx.fillStyle = '#666';
+                ctx.textAlign = 'center';
+                ctx.fillText('Нет данных по участникам', 150, 100);
+                return;
+            }
+            
+            // Генерируем цвета для каждого участника
+            const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'];
+            
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: userData.map(u => u.name),
+                    datasets: [{
+                        data: userData.map(u => u.total),
+                        backgroundColor: colors.slice(0, userData.length),
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                font: { size: 10 },
+                                boxWidth: 10,
+                                padding: 8
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((value / total) * 100).toFixed(1);
+                                    return `${label}: ${value.toFixed(0)} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
     </script>
 </body>
 </html>
+
