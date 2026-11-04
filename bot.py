@@ -61,19 +61,11 @@ def get_db_connection():
         raise Exception("❌ DATABASE_URL не найден! Добавь в Railway Variables")
     
     database_url = os.environ['DATABASE_URL']
-    parsed = urlparse(database_url)
-    logger.info(f"🔗 Подключение к PostgreSQL: {parsed.hostname}:{parsed.port}/{parsed.path[1:]}")
     
     try:
-        parsed_url = urlparse(database_url)
-        conn = psycopg2.connect(
-            database=parsed_url.path[1:],
-            user=parsed_url.username,
-            password=parsed_url.password,
-            host=parsed_url.hostname,
-            port=parsed_url.port,
-            sslmode='require'
-        )
+        # Используем сам psycopg2 для разбора DSN, избегая проблем с urlparse и спецсимволами
+        # Если DATABASE_URL содержит неэкранированные спецсимволы, psycopg2 обычно обрабатывает их корректнее
+        conn = psycopg2.connect(database_url, sslmode='require')
         logger.info("✅ Успешное подключение к PostgreSQL!")
         return conn
     except Exception as e:
