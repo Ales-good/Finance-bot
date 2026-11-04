@@ -42,7 +42,7 @@ flask_app = Flask(__name__)
 CORS(flask_app)
 
 # ===== КОНФИГУРАЦИЯ =====
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
+BOT_TOKEN = os.environ.get('BOT_TOKEN', 'BOT_TOKEN')
 WEB_APP_URL = os.environ.get('WEB_APP_URL', 'https://web-production-4c423.up.railway.app/webapp')
 DEV_MODE = os.environ.get('DEV_MODE', 'False').lower() == 'true'  # Режим разработки
 
