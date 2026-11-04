@@ -53,206 +53,6 @@ if not BOT_TOKEN:
 BUDGET_ALERT_THRESHOLDS = [0.8, 0.9, 1.0]  # 80%, 90%, 100%
 DAILY_REPORT_HOUR = 20  # Время отправки ежедневного отчета (20:00)
 
-
-# Проверка подключения к PostgreSQL при старте
-def test_postgresql_connection():
-    """Тестирование подключения к PostgreSQL"""
-    try:
-        if 'DATABASE_URL' in os.environ:
-            conn = get_db_connection()
-            if conn and not isinstance(conn, sqlite3.Connection):
-                logger.info("✅ PostgreSQL подключение успешно")
-                conn.close()
-                return True
-            else:
-                logger.warning("⚠️ Используется SQLite вместо PostgreSQL")
-                return False
-        else:
-            logger.warning("⚠️ DATABASE_URL не найден, используется SQLite")
-            return False
-    except Exception as e:
-        logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
-        return False
-
-# Проверяем при старте
-test_postgresql_connection()
-
-# Убедись что миграции работают правильно
-def migrate_from_sqlite_to_postgresql():
-    """Миграция данных из SQLite в PostgreSQL если нужно"""
-    if 'DATABASE_URL' not in os.environ:
-        return
-    
-    try:
-        # Проверяем, есть ли данные в PostgreSQL
-        conn_pg = get_db_connection()
-        if isinstance(conn_pg, sqlite3.Connection):
-            return  # Это SQLite, не мигрируем
-            
-        cursor_pg = conn_pg.cursor()
-        
-        # Проверяем, есть ли уже данные
-        cursor_pg.execute("SELECT COUNT(*) FROM financial_spaces")
-        count = cursor_pg.fetchone()[0]
-        
-        if count > 0:
-            logger.info("✅ В PostgreSQL уже есть данные, миграция не нужна")
-            conn_pg.close()
-            return
-        
-        # Проверяем, есть ли данные в SQLite
-        sqlite_path = 'finance.db'
-        if os.path.exists(sqlite_path):
-            conn_sqlite = sqlite3.connect(sqlite_path)
-            cursor_sqlite = conn_sqlite.cursor()
-            
-            # Мигрируем пространства
-            cursor_sqlite.execute("SELECT * FROM financial_spaces WHERE is_active = 1")
-            spaces = cursor_sqlite.fetchall()
-            
-            for space in spaces:
-                cursor_pg.execute('''
-                    INSERT INTO financial_spaces (id, name, description, space_type, created_by, created_at, invite_code, is_active)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ''', space)
-            
-            # Мигрируем участников
-            cursor_sqlite.execute("SELECT * FROM space_members")
-            members = cursor_sqlite.fetchall()
-            
-            for member in members:
-                cursor_pg.execute('''
-                    INSERT INTO space_members (id, space_id, user_id, user_name, role, joined_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                ''', member)
-            
-            # Мигрируем траты
-            cursor_sqlite.execute("SELECT * FROM expenses")
-            expenses = cursor_sqlite.fetchall()
-            
-            for expense in expenses:
-                cursor_pg.execute('''
-                    INSERT INTO expenses (id, user_id, user_name, space_id, amount, category, description, date, currency)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ''', expense)
-            
-            conn_pg.commit()
-            conn_sqlite.close()
-            logger.info("✅ Миграция данных из SQLite в PostgreSQL завершена")
-        
-        conn_pg.close()
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка миграции: {e}")
-
-
-# ===== ВАЖНО: ДОБАВЬТЕ МАРШРУТЫ ПОСЛЕ СОЗДАНИЯ flask_app =====
-
-@flask_app.route('/')  # ← ИСПОЛЬЗУЙТЕ flask_app вместо app
-def index():
-    """Главная страница с Web App"""
-    try:
-        return send_file('index.html')
-    except FileNotFoundError:
-        # Fallback если HTML файла нет
-        return {
-            "status": "ok", 
-            "message": "Finance Bot API is running",
-            "webapp_url": "https://web-production-4c423.up.railway.app/webapp"
-        }
-
-@flask_app.route('/webapp')  # ← ИСПОЛЬЗУЙТЕ flask_app вместо app
-def webapp():
-    """Web App endpoint"""
-    return send_file('index.html')
-
-# ===== УЛУЧШЕННАЯ ВАЛИДАЦИЯ WEBAPP DATA =====
-def validate_webapp_data(init_data):
-    """Улучшенная валидация данных от Telegram WebApp"""
-    try:
-        # Всегда логируем что приходит
-        logger.info(f"🔐 Получены WebApp данные: '{init_data}'")
-        
-        # Если данные пустые, но мы в продакшене - отклоняем
-        if not init_data or init_data == '':
-            logger.warning("❌ Пустые данные WebApp")
-            # Временно разрешаем для отладки
-            logger.warning("⚠️ Временно разрешаем пустые данные для отладки")
-            return True
-            
-        # Базовая проверка формата
-        if 'user=' not in init_data:
-            logger.warning("❌ Отсутствует поле user в WebApp данных")
-            return False
-        
-        logger.info("✅ WebApp данные прошли базовую валидацию")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка валидации WebApp данных: {e}")
-        # Временно разрешаем для отладки
-        return True
-
-def get_user_from_init_data(init_data):
-    """Извлечение данных пользователя из initData с улучшенной обработкой"""
-    try:
-        # Режим разработки - возвращаем тестового пользователя
-        if DEV_MODE and (not init_data or init_data == ''):
-            logger.info("🔧 Режим разработки: используем тестового пользователя")
-            return {
-                'id': 123456789,
-                'first_name': 'TestUser',
-                'username': 'testuser',
-                'last_name': 'Test',
-                'language_code': 'ru'
-            }
-            
-        logger.info(f"🔍 Парсим initData: {init_data[:200]}...")
-        
-        params = {}
-        for item in init_data.split('&'):
-            if '=' in item:
-                key, value = item.split('=', 1)
-                # Декодируем URL-encoded значения
-                try:
-                    params[key] = value
-                except:
-                    params[key] = value
-        
-        logger.info(f"📋 Найдены параметры: {list(params.keys())}")
-        
-        if 'user' in params:
-            user_data_str = params['user']
-            # СНАЧАЛА декодируем URL-encoding, ПОТОМ JSON
-            try:
-                user_data_str_decoded = user_data_str.replace('%22', '"').replace('%7B', '{').replace('%7D', '}').replace('%2C', ',').replace('%3A', ':')
-                user_data = json.loads(user_data_str_decoded)
-            except:
-                # Если не получается, пробуем как есть
-                try:
-                    user_data = json.loads(user_data_str)
-                except:
-                    logger.error(f"❌ Не удалось распарсить user data: {user_data_str}")
-                    return None
-            
-            
-            return {
-                'id': user_data.get('id'),
-                'first_name': user_data.get('first_name'),
-                'username': user_data.get('username'),
-                'last_name': user_data.get('last_name', ''),
-                'language_code': user_data.get('language_code', 'ru')
-            }
-        else:
-            logger.warning("❌ Поле 'user' не найдено в initData")
-            
-    except json.JSONDecodeError as e:
-        logger.error(f"❌ Ошибка парсинга JSON в initData: {e}")
-    except Exception as e:
-        logger.error(f"❌ Ошибка парсинга initData: {e}")
-    
-    return None
-
 # ===== НАСТРОЙКА БАЗЫ ДАННЫХ =====
 
 def get_db_connection():
@@ -261,7 +61,8 @@ def get_db_connection():
         raise Exception("❌ DATABASE_URL не найден! Добавь в Railway Variables")
     
     database_url = os.environ['DATABASE_URL']
-    logger.info(f"🔗 Подключение к PostgreSQL: {database_url}")
+    parsed = urlparse(database_url)
+    logger.info(f"🔗 Подключение к PostgreSQL: {parsed.hostname}:{parsed.port}/{parsed.path[1:]}")
     
     try:
         parsed_url = urlparse(database_url)
@@ -563,6 +364,207 @@ def init_db():
     finally:
         if conn:
             conn.close()
+            
+# Проверка подключения к PostgreSQL при старте
+def test_postgresql_connection():
+    """Тестирование подключения к PostgreSQL"""
+    try:
+        if 'DATABASE_URL' in os.environ:
+            conn = get_db_connection()
+            if conn and not isinstance(conn, sqlite3.Connection):
+                logger.info("✅ PostgreSQL подключение успешно")
+                conn.close()
+                return True
+            else:
+                logger.warning("⚠️ Используется SQLite вместо PostgreSQL")
+                return False
+        else:
+            logger.warning("⚠️ DATABASE_URL не найден, используется SQLite")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Ошибка подключения к PostgreSQL: {e}")
+        return False
+
+# Проверяем при старте
+test_postgresql_connection()
+
+# Убедись что миграции работают правильно
+def migrate_from_sqlite_to_postgresql():
+    """Миграция данных из SQLite в PostgreSQL если нужно"""
+    if 'DATABASE_URL' not in os.environ:
+        return
+    
+    try:
+        # Проверяем, есть ли данные в PostgreSQL
+        conn_pg = get_db_connection()
+        if isinstance(conn_pg, sqlite3.Connection):
+            return  # Это SQLite, не мигрируем
+            
+        cursor_pg = conn_pg.cursor()
+        
+        # Проверяем, есть ли уже данные
+        cursor_pg.execute("SELECT COUNT(*) FROM financial_spaces")
+        count = cursor_pg.fetchone()[0]
+        
+        if count > 0:
+            logger.info("✅ В PostgreSQL уже есть данные, миграция не нужна")
+            conn_pg.close()
+            return
+        
+        # Проверяем, есть ли данные в SQLite
+        sqlite_path = 'finance.db'
+        if os.path.exists(sqlite_path):
+            conn_sqlite = sqlite3.connect(sqlite_path)
+            cursor_sqlite = conn_sqlite.cursor()
+            
+            # Мигрируем пространства
+            cursor_sqlite.execute("SELECT * FROM financial_spaces WHERE is_active = 1")
+            spaces = cursor_sqlite.fetchall()
+            
+            for space in spaces:
+                cursor_pg.execute('''
+                    INSERT INTO financial_spaces (id, name, description, space_type, created_by, created_at, invite_code, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ''', space)
+            
+            # Мигрируем участников
+            cursor_sqlite.execute("SELECT * FROM space_members")
+            members = cursor_sqlite.fetchall()
+            
+            for member in members:
+                cursor_pg.execute('''
+                    INSERT INTO space_members (id, space_id, user_id, user_name, role, joined_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                ''', member)
+            
+            # Мигрируем траты
+            cursor_sqlite.execute("SELECT * FROM expenses")
+            expenses = cursor_sqlite.fetchall()
+            
+            for expense in expenses:
+                cursor_pg.execute('''
+                    INSERT INTO expenses (id, user_id, user_name, space_id, amount, category, description, date, currency)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ''', expense)
+            
+            conn_pg.commit()
+            conn_sqlite.close()
+            logger.info("✅ Миграция данных из SQLite в PostgreSQL завершена")
+        
+        conn_pg.close()
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка миграции: {e}")
+
+
+# ===== ВАЖНО: ДОБАВЬТЕ МАРШРУТЫ ПОСЛЕ СОЗДАНИЯ flask_app =====
+
+@flask_app.route('/')  # ← ИСПОЛЬЗУЙТЕ flask_app вместо app
+def index():
+    """Главная страница с Web App"""
+    try:
+        return send_file('index.html')
+    except FileNotFoundError:
+        # Fallback если HTML файла нет
+        return {
+            "status": "ok", 
+            "message": "Finance Bot API is running",
+            "webapp_url": "https://web-production-4c423.up.railway.app/webapp"
+        }
+
+@flask_app.route('/webapp')  # ← ИСПОЛЬЗУЙТЕ flask_app вместо app
+def webapp():
+    """Web App endpoint"""
+    return send_file('index.html')
+
+# ===== УЛУЧШЕННАЯ ВАЛИДАЦИЯ WEBAPP DATA =====
+def validate_webapp_data(init_data):
+    """Улучшенная валидация данных от Telegram WebApp"""
+    try:
+        # Всегда логируем что приходит
+        logger.info(f"🔐 Получены WebApp данные: '{init_data}'")
+        
+        # Если данные пустые, но мы в продакшене - отклоняем
+        if not init_data or init_data == '':
+            logger.warning("❌ Пустые данные WebApp")
+            # Временно разрешаем для отладки
+            logger.warning("⚠️ Временно разрешаем пустые данные для отладки")
+            return True
+            
+        # Базовая проверка формата
+        if 'user=' not in init_data:
+            logger.warning("❌ Отсутствует поле user в WebApp данных")
+            return False
+        
+        logger.info("✅ WebApp данные прошли базовую валидацию")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка валидации WebApp данных: {e}")
+        # Временно разрешаем для отладки
+        return True
+
+def get_user_from_init_data(init_data):
+    """Извлечение данных пользователя из initData с улучшенной обработкой"""
+    try:
+        # Режим разработки - возвращаем тестового пользователя
+        if DEV_MODE and (not init_data or init_data == ''):
+            logger.info("🔧 Режим разработки: используем тестового пользователя")
+            return {
+                'id': 123456789,
+                'first_name': 'TestUser',
+                'username': 'testuser',
+                'last_name': 'Test',
+                'language_code': 'ru'
+            }
+            
+        logger.info(f"🔍 Парсим initData: {init_data[:200]}...")
+        
+        params = {}
+        for item in init_data.split('&'):
+            if '=' in item:
+                key, value = item.split('=', 1)
+                # Декодируем URL-encoded значения
+                try:
+                    params[key] = value
+                except:
+                    params[key] = value
+        
+        logger.info(f"📋 Найдены параметры: {list(params.keys())}")
+        
+        if 'user' in params:
+            user_data_str = params['user']
+            # СНАЧАЛА декодируем URL-encoding, ПОТОМ JSON
+            try:
+                user_data_str_decoded = user_data_str.replace('%22', '"').replace('%7B', '{').replace('%7D', '}').replace('%2C', ',').replace('%3A', ':')
+                user_data = json.loads(user_data_str_decoded)
+            except:
+                # Если не получается, пробуем как есть
+                try:
+                    user_data = json.loads(user_data_str)
+                except:
+                    logger.error(f"❌ Не удалось распарсить user data: {user_data_str}")
+                    return None
+            
+            
+            return {
+                'id': user_data.get('id'),
+                'first_name': user_data.get('first_name'),
+                'username': user_data.get('username'),
+                'last_name': user_data.get('last_name', ''),
+                'language_code': user_data.get('language_code', 'ru')
+            }
+        else:
+            logger.warning("❌ Поле 'user' не найдено в initData")
+            
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Ошибка парсинга JSON в initData: {e}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка парсинга initData: {e}")
+    
+    return None
+
+
 
 # ===== НОВЫЕ ФУНКЦИИ ДЛЯ УВЕДОМЛЕНИЙ =====
 async def check_budget_alerts():
